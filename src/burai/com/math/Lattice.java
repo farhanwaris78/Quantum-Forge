@@ -23,10 +23,17 @@ public final class Lattice {
     private static final double ROOT2 = Math.sqrt(2.0);
     private static final double ROOT3 = Math.sqrt(3.0);
 
-    private static final double CELL_THRESHOLD = 1.0e-6;
+    private static final double CELL_THRESHOLD_STRICT = 1.0e-6;
 
-    //private static final int[] IBRAV_LIST = { 1, 2, 3, -3, 4, 5, -5, 6, 7, 8, 9, -9, 10, 11, 12, -12, 13, 14 };
-    private static final int[] IBRAV_LIST = { 1, 2, 3, 4, 5, -5, 6, 7, 8, 9, -9, 10, 11, 12, -12, 13, 14 };
+    private static final double CELL_THRESHOLD = 1.0e-4;
+
+    private static final int[] IBRAV_LIST = { 1, 2, 3, -3, 4, 5, -5, 6, 7, 8, 9, -9, 10, 11, 12, -12, 13, -13, 14 };
+
+    private static final int[] IBRAV_LIST_FULL = {
+        1, 2, 3, -3, 4, 5, -5, 6, 7, 8,
+        9, -9, 10, 11, 12, -12, 13, -13, 14,
+        91, -91, 101, -101
+    };
 
     private Lattice() {
         // NOP
@@ -390,20 +397,32 @@ public final class Lattice {
             return 0;
         }
 
-        // lattice vector -> primitive celldm
+        // First try strict threshold with full ibrav list
         double[] celldmPrim = getCellDm(cell);
         if (celldmPrim == null || celldmPrim.length < 6) {
             return 0;
         }
 
-        for (int ibrav : IBRAV_LIST) {
-            // primitive celldm -> standard celldm
+        // Try strict threshold first
+        for (int ibrav : IBRAV_LIST_FULL) {
             double[] celldmStd = convertCellDm(ibrav, celldmPrim);
             if (celldmStd == null || celldmStd.length < 6) {
                 continue;
             }
 
-            // standard celldm -> lattice vectors
+            double[][] cell_ = getCell(ibrav, celldmStd);
+            if (cell_ != null && Matrix3D.equals(cell, cell_, CELL_THRESHOLD_STRICT)) {
+                return ibrav;
+            }
+        }
+
+        // Try loose threshold for numerical drift (e.g., after vc-relax)
+        for (int ibrav : IBRAV_LIST_FULL) {
+            double[] celldmStd = convertCellDm(ibrav, celldmPrim);
+            if (celldmStd == null || celldmStd.length < 6) {
+                continue;
+            }
+
             double[][] cell_ = getCell(ibrav, celldmStd);
             if (cell_ != null && Matrix3D.equals(cell, cell_, CELL_THRESHOLD)) {
                 return ibrav;
@@ -523,7 +542,9 @@ public final class Lattice {
             break;
 
         case -3:
+            // Face-centered rhombohedral: same as case 3 but inverted axes
             celldmStd[0] = (2.0 / ROOT3) * celldmPrim[0];
+            celldmStd[3] = celldmPrim[3]; // cosab preserved for rhombohedral
             break;
 
         case 4:

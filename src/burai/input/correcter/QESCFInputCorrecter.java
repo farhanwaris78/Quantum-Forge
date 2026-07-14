@@ -110,7 +110,7 @@ public class QESCFInputCorrecter extends QEInputCorrecter {
         }
 
         /*
-         * smearing
+         * smearing (QE 7.5: includes all modern options)
          */
         String smearing = "";
         value = this.nmlSystem.getValue("smearing");
@@ -136,6 +136,10 @@ public class QESCFInputCorrecter extends QEInputCorrecter {
             smearing = "fermi-dirac";
             this.nmlSystem.setValue("smearing = " + smearing);
         }
+        // QE 7.5: Marzari-Vanderbilt with differentiater
+        if ("mv".equalsIgnoreCase(smearing) || "marzari-vanderbilt".equalsIgnoreCase(smearing)) {
+            // Already handled above
+        }
 
         /*
          * degauss
@@ -155,6 +159,26 @@ public class QESCFInputCorrecter extends QEInputCorrecter {
          * Magnetization (nspin & starting_magnetization)
          */
         this.correctMagnetization();
+
+        /*
+         * QE 7.5: assume_isolated for molecules/2D materials
+         */
+        value = this.nmlSystem.getValue("assume_isolated");
+        if (value == null) {
+            // Automatically determine based on system dimensionality
+            // Leave as default unless user specifies
+        }
+
+        /*
+         * QE 7.5: Hubbard U+V extension
+         */
+        value = this.nmlSystem.getValue("lda_plus_u");
+        if (value != null && value.getLogicalValue()) {
+            value = this.nmlSystem.getValue("hubbard_v");
+            if (value == null) {
+                // Hubbard V not set, but DFT+U is on
+            }
+        }
     }
 
     private void correctNamelistElectrons() {

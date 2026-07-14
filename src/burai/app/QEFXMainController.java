@@ -478,7 +478,9 @@ public class QEFXMainController implements Initializable {
 
         this.stage.setWidth(width);
         this.stage.setHeight(height);
-        this.stage.setTitle("BURAI" + Version.VERSION + ", a GUI of Quantum ESPRESSO.");
+        this.stage.setTitle(Version.VERSION_NAME + " " + Version.VERSION +
+                " - Advanced GUI for Quantum ESPRESSO " + Version.SUPPORTED_QE_VERSION +
+                " | thermo_pw " + Version.SUPPORTED_THERMO_PW_VERSION);
         this.stage.setOnCloseRequest(event -> this.actionOnCloseRequest(event));
         this.stage.setOnHidden(event -> this.actionOnHidden(event));
 
