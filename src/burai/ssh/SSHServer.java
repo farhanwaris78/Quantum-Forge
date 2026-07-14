@@ -28,6 +28,15 @@ public class SSHServer {
 
     private static final int DEFAULT_PORT = 22;
 
+    /**
+     * Job scheduler types for HPC cluster submission
+     */
+    public static final String SCHEDULER_NONE = "none";
+    public static final String SCHEDULER_PBS = "pbs";
+    public static final String SCHEDULER_SLURM = "slurm";
+    public static final String SCHEDULER_PJM = "pjm";
+    public static final String SCHEDULER_SGE = "sge";
+
     private String title;
 
     private String host;
@@ -39,6 +48,14 @@ public class SSHServer {
     private String password;
 
     private String keyPath;
+
+    private String schedulerType;
+
+    private String queueName;
+
+    private String walltime;
+
+    private String groupList;
 
     private String jobCommand;
 
@@ -55,6 +72,10 @@ public class SSHServer {
         this.user = null;
         this.password = null;
         this.keyPath = null;
+        this.schedulerType = SCHEDULER_NONE;
+        this.queueName = "default";
+        this.walltime = "0:30:00";
+        this.groupList = "";
         this.initializeJobCommand();
         this.initializeJobScript();
     }
@@ -116,6 +137,46 @@ public class SSHServer {
         this.keyPath = keyPath;
     }
 
+    public String getSchedulerType() {
+        return this.schedulerType;
+    }
+
+    public void setSchedulerType(String schedulerType) {
+        if (schedulerType != null) {
+            this.schedulerType = schedulerType;
+            this.initializeJobCommand();
+            this.initializeJobScript();
+        }
+    }
+
+    public String getQueueName() {
+        return this.queueName;
+    }
+
+    public void setQueueName(String queueName) {
+        if (queueName != null && !queueName.isEmpty()) {
+            this.queueName = queueName;
+        }
+    }
+
+    public String getWalltime() {
+        return this.walltime;
+    }
+
+    public void setWalltime(String walltime) {
+        if (walltime != null && !walltime.isEmpty()) {
+            this.walltime = walltime;
+        }
+    }
+
+    public String getGroupList() {
+        return this.groupList;
+    }
+
+    public void setGroupList(String groupList) {
+        this.groupList = groupList;
+    }
+
     public String getJobCommand() {
         return this.getJobCommand(null);
     }
@@ -138,7 +199,15 @@ public class SSHServer {
     }
 
     private void initializeJobCommand() {
-        this.jobCommand = "qsub ${" + WORD_JOB_SCRIPT + "}";
+        if (SCHEDULER_PBS.equals(this.schedulerType) || SCHEDULER_SGE.equals(this.schedulerType)) {
+            this.jobCommand = "qsub ${" + WORD_JOB_SCRIPT + "}";
+        } else if (SCHEDULER_SLURM.equals(this.schedulerType)) {
+            this.jobCommand = "sbatch ${" + WORD_JOB_SCRIPT + "}";
+        } else if (SCHEDULER_PJM.equals(this.schedulerType)) {
+            this.jobCommand = "pjsub ${" + WORD_JOB_SCRIPT + "}";
+        } else {
+            this.jobCommand = "sh ${" + WORD_JOB_SCRIPT + "}";
+        }
     }
 
     public String getJobScript() {
@@ -205,27 +274,73 @@ public class SSHServer {
         StringBuilder strBuilder = new StringBuilder();
         strBuilder.append("#!/bin/sh");
         strBuilder.append(System.lineSeparator());
-        strBuilder.append("#PBS -q QUEUE");
-        strBuilder.append(System.lineSeparator());
-        strBuilder.append("#PBS -l select=1:" +
-                "ncpus=${" + WORD_NUM_CPUS + "}:" +
-                "mpiprocs=${" + WORD_NUM_MPIS + "}:" +
-                "ompthreads=${" + WORD_NUM_OMPS + "}");
-        strBuilder.append(System.lineSeparator());
-        strBuilder.append("#PBS -l walltime=0:30:00");
-        strBuilder.append(System.lineSeparator());
-        strBuilder.append("#PBS -W group_list=GROUP");
-        strBuilder.append(System.lineSeparator());
-        strBuilder.append(System.lineSeparator());
 
-        strBuilder.append("if [ ! -z \"${PBS_O_WORKDIR}\" ]; then");
-        strBuilder.append(System.lineSeparator());
-        strBuilder.append("  cd ${PBS_O_WORKDIR}");
-        strBuilder.append(System.lineSeparator());
-        strBuilder.append("fi");
-        strBuilder.append(System.lineSeparator());
-        strBuilder.append(System.lineSeparator());
+        if (SCHEDULER_PBS.equals(this.schedulerType) || SCHEDULER_SGE.equals(this.schedulerType)) {
+            // PBS/Torque or SGE script
+            strBuilder.append("#PBS -q " + (this.queueName != null ? this.queueName : "QUEUE"));
+            strBuilder.append(System.lineSeparator());
+            strBuilder.append("#PBS -l select=1:ncpus=${" + WORD_NUM_CPUS + "}:mpiprocs=${" + WORD_NUM_MPIS + "}:ompthreads=${" + WORD_NUM_OMPS + "}");
+            strBuilder.append(System.lineSeparator());
+            strBuilder.append("#PBS -l walltime=" + (this.walltime != null ? this.walltime : "0:30:00"));
+            strBuilder.append(System.lineSeparator());
+            if (this.groupList != null && !this.groupList.isEmpty()) {
+                strBuilder.append("#PBS -W group_list=" + this.groupList);
+                strBuilder.append(System.lineSeparator());
+            }
+            strBuilder.append(System.lineSeparator());
+            strBuilder.append("if [ ! -z \"${PBS_O_WORKDIR}\" ]; then");
+            strBuilder.append(System.lineSeparator());
+            strBuilder.append("  cd ${PBS_O_WORKDIR}");
+            strBuilder.append(System.lineSeparator());
+            strBuilder.append("fi");
+            strBuilder.append(System.lineSeparator());
 
+        } else if (SCHEDULER_SLURM.equals(this.schedulerType)) {
+            // SLURM script
+            strBuilder.append("#SBATCH -p " + (this.queueName != null ? this.queueName : "QUEUE"));
+            strBuilder.append(System.lineSeparator());
+            strBuilder.append("#SBATCH -n ${" + WORD_NUM_CPUS + "}");
+            strBuilder.append(System.lineSeparator());
+            strBuilder.append("#SBATCH --ntasks=${" + WORD_NUM_MPIS + "}");
+            strBuilder.append(System.lineSeparator());
+            strBuilder.append("#SBATCH --cpus-per-task=${" + WORD_NUM_OMPS + "}");
+            strBuilder.append(System.lineSeparator());
+            strBuilder.append("#SBATCH -t " + (this.walltime != null ? this.walltime : "0:30:00"));
+            strBuilder.append(System.lineSeparator());
+            if (this.groupList != null && !this.groupList.isEmpty()) {
+                strBuilder.append("#SBATCH -A " + this.groupList);
+                strBuilder.append(System.lineSeparator());
+            }
+            strBuilder.append(System.lineSeparator());
+            strBuilder.append("cd ${SLURM_SUBMIT_DIR}");
+            strBuilder.append(System.lineSeparator());
+
+        } else if (SCHEDULER_PJM.equals(this.schedulerType)) {
+            // PJM (Fugaku) script
+            strBuilder.append("#PJM -L \"rscgrp=" + (this.queueName != null ? this.queueName : "large") + "\"");
+            strBuilder.append(System.lineSeparator());
+            strBuilder.append("#PJM -L \"node=1\"");
+            strBuilder.append(System.lineSeparator());
+            strBuilder.append("#PJM -L \"elapse=" + (this.walltime != null ? this.walltime : "0:30:00") + "\"");
+            strBuilder.append(System.lineSeparator());
+            strBuilder.append("#PJM --mpi \"max-proc-per-node=${" + WORD_NUM_MPIS + "}\"");
+            strBuilder.append(System.lineSeparator());
+            if (this.groupList != null && !this.groupList.isEmpty()) {
+                strBuilder.append("#PJM -g " + this.groupList);
+                strBuilder.append(System.lineSeparator());
+            }
+            strBuilder.append(System.lineSeparator());
+
+        } else {
+            // No scheduler - direct execution
+            strBuilder.append("# Local execution");
+            strBuilder.append(System.lineSeparator());
+        }
+
+        strBuilder.append(System.lineSeparator());
+        strBuilder.append("export OMP_NUM_THREADS=${" + WORD_NUM_OMPS + "}");
+        strBuilder.append(System.lineSeparator());
+        strBuilder.append(System.lineSeparator());
         strBuilder.append("${" + WORD_QE_COMMAND + "}");
         strBuilder.append(System.lineSeparator());
         strBuilder.append(System.lineSeparator());

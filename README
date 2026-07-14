@@ -1,27 +1,72 @@
-This is the BURAI software package,
-which is a GUI system of Quantum ESPRESSO <http://www.quantum-espresso.org>.
+========================================================================
+ QuantumForge v2.0.0 - Advanced GUI for Quantum ESPRESSO
+========================================================================
 
-Copyright (C) 2016-2018 BURAI-team <nisihara.burai@gmail.com>.
+ QuantumForge (formerly BURAI) is a comprehensive Graphical User Interface
+ for Quantum ESPRESSO 7.5, thermo_pw 2.1.1, and related computational
+ materials science software packages.
 
-This system is developed as a JavaFX application, and requires JRE1.8
-or later version of runtime environment.
+ Copyright (C) 2025 QuantumForge Team
+ Originally developed by Satomichi Nishihara (BURAI v1.3, 2016-2018)
 
-The following external libraries are used.
-  - exp4j  (Apache License 2.0, http://www.objecthunter.net/exp4j/)
-  - Gson   (Apache License 2.0, https://github.com/google/gson)
-  - JCodec (FreeBSD License,    http://jcodec.org)
+========================================================================
+ KEY FEATURES
+========================================================================
 
-All of SVG icons are from FLATICON <http://www.flaticon.com>.
+ - Full GUI for Quantum ESPRESSO 7.5 calculations
+ - Support for pw.x, ph.x, dos.x, projwfc.x, bands.x, neb.x, pp.x
+ - Thermodynamic calculations via thermo_pw 2.1.1
+ - Phonon analysis with phonopy integration
+ - Transport properties with BoltzTraP2 plugin
+ - 3D atomic structure viewer and editor
+ - Crystal structure building (surface, molecule, polymer)
+ - Materials Project + PubChem database integration
+ - SSH remote execution with PBS/SLURM/PJM job scheduler support
+ - Space group detection and symmetry analysis
+ - GNN force field interface (M3GNet, CHGNet, OCP)
+ - Results visualization (band structure, DOS, phonon dispersion)
 
-----------------------------------------------------------------------------
-LICENSE:
-----------------------------------------------------------------------------
-  BURAI is free software; you can redistribute it and/or modify
-  it under the terms of the Apache License, Version 2.0.
+========================================================================
+ SYSTEM REQUIREMENTS
+========================================================================
 
-  This program is distributed in the hope that it will be useful,
-  but WITHOUT ANY WARRANTY; without even the implied warranty of
-  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
-  See <http://www.apache.org/licenses/LICENSE-2.0>, for more details.
-----------------------------------------------------------------------------
+ - Java Runtime Environment 11 or later (recommended: 17+)
+ - Quantum ESPRESSO 7.5 (recommended)
+ - thermo_pw 2.1.1 (optional, for thermodynamic calculations)
+ - phonopy 2.30+ (optional, for phonon analysis)
+ - BoltzTraP2 24.1+ (optional, for transport properties)
 
+========================================================================
+ SUPPORTED SOFTWARE
+========================================================================
+
+ - Quantum ESPRESSO v7.5 (primary engine)
+ - thermo_pw v2.1.1 (thermodynamic properties)
+ - phonopy v2.30+ (phonon band structures)
+ - BoltzTraP2 v24.1+ (transport properties)
+ - seekpath v2.1+ (band path generation)
+ - spglib v2.10+ (space group detection)
+ - xcrysden v1.6+ (visualization)
+
+========================================================================
+ INSTALLATION
+========================================================================
+
+ 1. Install Quantum ESPRESSO 7.5 from https://www.quantum-espresso.org
+ 2. Install Java 11+ runtime
+ 3. Set QE paths in QuantumForge preferences
+ 4. (Optional) Install thermo_pw, phonopy, BoltzTraP2 for extended features
+
+========================================================================
+ LICENSE
+========================================================================
+
+ QuantumForge is free software; you can redistribute it and/or modify
+ it under the terms of the Apache License, Version 2.0.
+
+ This program is distributed in the hope that it will be useful,
+ but WITHOUT ANY WARRANTY; without even the implied warranty of
+ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ See http://www.apache.org/licenses/LICENSE-2.0 for more details.
+
+========================================================================
