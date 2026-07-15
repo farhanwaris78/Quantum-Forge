@@ -15,7 +15,7 @@ Following items control states of the explorer.
 +---------------+----------------------------------------------------------------------+
 | My Computer   | The root directory ("C:\\" for Windows, "/" for Mac OSX and Ubuntu). |
 +---------------+----------------------------------------------------------------------+
-| My Projects   | The directory where projects are saved. ($HOME/.burai/).             |
+| My Projects   | The directory where projects are saved. ($HOME/.quantumforge/).             |
 +---------------+----------------------------------------------------------------------+
 | Calculating   | Calculating projects.                                                |
 +---------------+----------------------------------------------------------------------+

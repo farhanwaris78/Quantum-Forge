@@ -2,12 +2,12 @@
  QuantumForge v2.0.0 - Advanced GUI for Quantum ESPRESSO
 ========================================================================
 
- QuantumForge (formerly BURAI) is a comprehensive Graphical User Interface
+ QuantumForge (formerly QUANTUMFORGE) is a comprehensive Graphical User Interface
  for Quantum ESPRESSO 7.5, thermo_pw 2.1.1, and related computational
  materials science software packages.
 
  Copyright (C) 2025 QuantumForge Team
- Originally developed by Satomichi Nishihara (BURAI v1.3, 2016-2018)
+ Originally developed by Satomichi Nishihara (QUANTUMFORGE v1.3, 2016-2018)
 
 ========================================================================
  KEY FEATURES

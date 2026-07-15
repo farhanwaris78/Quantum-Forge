@@ -5,9 +5,9 @@ Setting
 
 2. Copy it to any directory on your computer e.g.:
 
-  - "C:\\BURAI1.3_Windows\\" for Windows
-  - "/Applications/BURAI1.3.app" for Max OSX
-  - "/usr/share/applications/BURAI1.3" for Ubuntu
+  - "C:\\QUANTUMFORGE1.3_Windows\\" for Windows
+  - "/Applications/QUANTUMFORGE1.3.app" for Max OSX
+  - "/usr/share/applications/QUANTUMFORGE1.3" for Ubuntu
 
 3. Install `JRE1.8 or later version <https://java.com/download/>`_, if your computer does not have it.
    For Ubuntu, you can get libraries of Java as
@@ -32,4 +32,4 @@ Setting
        > sudo apt-get install gfortran
        > sudo apt-get install openmpi-bin libopenmpi-dev
 
-6. For Ubuntu, executing BURAI1.3/makeLauncher.sh yields the launcher BURAI.desktop .
+6. For Ubuntu, executing QUANTUMFORGE1.3/makeLauncher.sh yields the launcher QUANTUMFORGE.desktop .

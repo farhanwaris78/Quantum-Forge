@@ -1,7 +1,7 @@
 Install
 =======
 
-In the following it is shown how to install BURAI: 
+In the following it is shown how to install QUANTUMFORGE: 
 to download it and to set it.
 
 | Optionally, it may be possible to install Quantum ESPRESSO.

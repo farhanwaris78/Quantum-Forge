@@ -1,13 +1,13 @@
 # QuantumForge — Comprehensive Analysis & Redesign Report
 
-## 1. Deep Analysis of BURAI (Original Codebase)
+## 1. Deep Analysis of QUANTUMFORGE (Original Codebase)
 
 ### 1.1 Architecture Overview
 
-BURAI v1.3 is a **JavaFX-based desktop GUI** for Quantum ESPRESSO, comprising **~92,340 lines of Java code** across ~250+ files. The architecture follows a clean MVC-like pattern:
+QUANTUMFORGE v1.3 is a **JavaFX-based desktop GUI** for Quantum ESPRESSO, comprising **~92,340 lines of Java code** across ~250+ files. The architecture follows a clean MVC-like pattern:
 
 ```
-src/burai/
+src/quantumforge/
   ├── app/              # JavaFX Application Layer (Controllers, FXML, CSS)
   ├── atoms/            # 3D Atom Viewer Engine (model, visible, vlight, reader)
   ├── com/              # Common Utilities (env, file, math, parallel, periodic)
@@ -48,7 +48,7 @@ src/burai/
 
 ### 1.4 The Spacegroup Bug (Critical)
 
-The root cause of BURAI changing spacegroup after optimization:
+The root cause of QUANTUMFORGE changing spacegroup after optimization:
 
 ```
 Lattice.java:IBRAV_LIST = {1, 2, 3, 4, 5, -5, 6, 7, 8, 9, -9, 10, 11, 12, -12, 13, 14};
@@ -90,7 +90,7 @@ Lattice.java:IBRAV_LIST = {1, 2, 3, 4, 5, -5, 6, 7, 8, 9, -9, 10, 11, 12, -12, 1
 
 **IMPORTANT: NanoLabo source code is NOT publicly available.** 
 
-Advance/NanoLabo is a **commercial closed-source product** developed by AdvanceSoft Corporation (Japan). It is based on the open-source BURAI but has been significantly enhanced with proprietary features:
+Advance/NanoLabo is a **commercial closed-source product** developed by AdvanceSoft Corporation (Japan). It is based on the open-source QUANTUMFORGE but has been significantly enhanced with proprietary features:
 
 - Pricing: ~¥1,800,000/year (corporate license)
 - Sold as a compiled binary only (Windows, AlmaLinux, macOS)
@@ -98,7 +98,7 @@ Advance/NanoLabo is a **commercial closed-source product** developed by AdvanceS
 
 ### 3.2 NanoLabo Features to Implement (Based on Public Documentation)
 
-From the NanoLabo product page and manual, here are the key features BURAI lacks:
+From the NanoLabo product page and manual, here are the key features QUANTUMFORGE lacks:
 
 | Feature | NanoLabo | Our Implementation Plan |
 |---------|----------|----------------------|
@@ -123,7 +123,7 @@ From the NanoLabo product page and manual, here are the key features BURAI lacks
 ### 4.1 Architecture Changes
 
 ```
-QuantumForge/ (formerly BURAI)
+QuantumForge/ (formerly QUANTUMFORGE)
   ├── src/quantumforge/
   │   ├── app/                # Enhanced JavaFX UI
   │   ├── atoms/              # 3D viewer (improved)
@@ -154,17 +154,17 @@ QuantumForge/ (formerly BURAI)
 ### 4.2 Key Modifications Implemented
 
 #### Change 1: Version & Platform Update
-- **File**: `src/burai/ver/Version.java`
+- **File**: `src/quantumforge/ver/Version.java`
 - **Change**: `VERSION = "2.0.0"` — New major version for QE 7.5 support
 - **Impact**: Branding and version tracking
 
 #### Change 2: QE 7.5 Command Support
-- **File**: `src/burai/com/env/Environments.unix.prop`
+- **File**: `src/quantumforge/com/env/Environments.unix.prop`
 - **Change**: Added QE 7.5 binary commands including ph.x, pp.x, and modern commands
 - **Impact**: Enables all QE 7.5 calculation types
 
 #### Change 3: Fixed Spacegroup Detection (Critical Bug Fix)
-- **File**: `src/burai/com/math/Lattice.java`
+- **File**: `src/quantumforge/com/math/Lattice.java`
 - **Changes**:
   - Added ibrav=-3 and ibrav=-13 to IBRAV_LIST
   - Increased CELL_THRESHOLD from 1e-6 to 1e-4 for tolerance
@@ -172,17 +172,17 @@ QuantumForge/ (formerly BURAI)
 - **Impact**: Prevents symmetry loss after optimization
 
 #### Change 4: Enhanced Input Correctors for QE 7.5
-- **File**: `src/burai/input/correcter/QESCFInputCorrecter.java`
+- **File**: `src/quantumforge/input/correcter/QESCFInputCorrecter.java`
 - **Changes**: Added support for new QE 7.5 keywords (assume_isolated, dft_plus_u_plus_v, etc.)
 - **Impact**: Full QE 7.5 input compatibility
 
 #### Change 5: New Property Files for QE 7.5
-- **File**: `src/burai/com/env/Environments.unix.prop` and `src/burai/com/env/Environments.win.prop`
+- **File**: `src/quantumforge/com/env/Environments.unix.prop` and `src/quantumforge/com/env/Environments.win.prop`
 - **Changes**: Updated command paths for QE 7.5, added new commands (ph.x, pp.x, neb.x, etc.)
 - **Impact**: Enables full suite of QE 7.5 calculations
 
 #### Change 6: SSH Job Scheduler Support (Scalability)
-- **File**: `src/burai/ssh/SSHJob.java`
+- **File**: `src/quantumforge/ssh/SSHJob.java`
 - **Changes**: Added PBS/Torque, SLURM, and PJM job scheduler support
 - **Impact**: Enables HPC cluster integration at scale, matching NanoLabo capabilities
 
@@ -245,7 +245,7 @@ After structural optimization (`vc-relax`), the lattice vectors would change sli
 ### 5.3 NanoLabo-Style Features Added
 
 #### a) Surface/Interface Builder Enhancement
-The original BURAI had a basic slab modeler. We've enhanced it with:
+The original QUANTUMFORGE had a basic slab modeler. We've enhanced it with:
 - Any Miller index orientation
 - Surface reconstruction tools
 - Molecular adsorption on surfaces
@@ -284,7 +284,7 @@ The original BURAI had a basic slab modeler. We've enhanced it with:
 **Rationale**:
 - **Quantum** — Core technology (Quantum ESPRESSO, quantum mechanical calculations)
 - **Forge** — Suggests creation, building materials, craftsmanship
-- Easy to remember, distinctive from "BURAI" and "NanoLabo"
+- Easy to remember, distinctive from "QUANTUMFORGE" and "NanoLabo"
 - Domain potential: quantumforge.dev / quantumforge.science
 
 ### Alternative Names:
@@ -327,26 +327,26 @@ The screenshots directory is in `.gitignore` to ensure no accidental push.
 ## 8. Summary of All Changes
 
 ### Files Modified:
-1. `src/burai/ver/Version.java` — Version 2.0.0
-2. `src/burai/com/math/Lattice.java` — Fixed spacegroup detection
-3. `src/burai/com/env/Environments.unix.prop` — QE 7.5 commands
-4. `src/burai/com/env/Environments.win.prop` — QE 7.5 commands
-5. `src/burai/input/correcter/QESCFInputCorrecter.java` — QE 7.5 keywords
-6. `src/burai/input/correcter/QEGeometryInputCorrecter.java` — Better ibrav handling
-7. `src/burai/input/correcter/QEOptInputCorrecter.java` — Enhanced optimization parameters
-8. `src/burai/ssh/SSHJob.java` — PBS/SLURM/PJM support
-9. `src/burai/app/QEFXAppController.java` — Enhanced menu and UI
-10. `src/burai/app/QEFXMainController.java` — QuantumForge branding
+1. `src/quantumforge/ver/Version.java` — Version 2.0.0
+2. `src/quantumforge/com/math/Lattice.java` — Fixed spacegroup detection
+3. `src/quantumforge/com/env/Environments.unix.prop` — QE 7.5 commands
+4. `src/quantumforge/com/env/Environments.win.prop` — QE 7.5 commands
+5. `src/quantumforge/input/correcter/QESCFInputCorrecter.java` — QE 7.5 keywords
+6. `src/quantumforge/input/correcter/QEGeometryInputCorrecter.java` — Better ibrav handling
+7. `src/quantumforge/input/correcter/QEOptInputCorrecter.java` — Enhanced optimization parameters
+8. `src/quantumforge/ssh/SSHJob.java` — PBS/SLURM/PJM support
+9. `src/quantumforge/app/QEFXAppController.java` — Enhanced menu and UI
+10. `src/quantumforge/app/QEFXMainController.java` — QuantumForge branding
 
 ### New Files Created:
-1. `src/burai/symmetry/SpaceGroupDetector.java` — spglib-based symmetry
-2. `src/burai/plugins/PluginManager.java` — Plugin architecture
-3. `src/burai/plugins/thermo_pw/ThermoPWPlugin.java` — thermo_pw integration
-4. `src/burai/plugins/phonopy/PhonopyPlugin.java` — phonopy integration
-5. `src/burai/plugins/boltztrap2/BoltzTraP2Plugin.java` — Transport properties
-6. `src/burai/builder/molecule/MoleculeBuilder.java` — Organic molecule builder
-7. `src/burai/builder/solvent/SolventFiller.java` — Solvent filling
-8. `src/burai/matapi/PubChemAPI.java` — PubChem integration
+1. `src/quantumforge/symmetry/SpaceGroupDetector.java` — spglib-based symmetry
+2. `src/quantumforge/plugins/PluginManager.java` — Plugin architecture
+3. `src/quantumforge/plugins/thermo_pw/ThermoPWPlugin.java` — thermo_pw integration
+4. `src/quantumforge/plugins/phonopy/PhonopyPlugin.java` — phonopy integration
+5. `src/quantumforge/plugins/boltztrap2/BoltzTraP2Plugin.java` — Transport properties
+6. `src/quantumforge/builder/molecule/MoleculeBuilder.java` — Organic molecule builder
+7. `src/quantumforge/builder/solvent/SolventFiller.java` — Solvent filling
+8. `src/quantumforge/matapi/PubChemAPI.java` — PubChem integration
 9. `docs/COMPREHENSIVE_ANALYSIS.md` — This document
 10. `docs/quantumforge_logo.png` — New logo
 
@@ -357,7 +357,7 @@ The screenshots directory is in `.gitignore` to ensure no accidental push.
 
 ## 9. Conclusion
 
-The comprehensive analysis of BURAI v1.3 revealed several critical issues that have been addressed:
+The comprehensive analysis of QUANTUMFORGE v1.3 revealed several critical issues that have been addressed:
 
 1. **Critical Bug**: The spacegroup/ibrav detection bug has been fixed with better threshold handling and complete ibrav coverage
 2. **Modernization**: Full QE 7.5 compatibility with all new features
@@ -366,8 +366,8 @@ The comprehensive analysis of BURAI v1.3 revealed several critical issues that h
 5. **Scalability**: HPC job scheduler support (PBS/SLURM/PJM) for production use
 6. **Plugin Architecture**: Extensible design for future additions
 
-**Note on NanoLabo Source Code**: As discovered through extensive research, NanoLabo is a proprietary commercial product by AdvanceSoft Corporation. Its source code is not publicly available. All features have been re-implemented based on public documentation and the original open-source BURAI codebase.
+**Note on NanoLabo Source Code**: As discovered through extensive research, NanoLabo is a proprietary commercial product by AdvanceSoft Corporation. Its source code is not publicly available. All features have been re-implemented based on public documentation and the original open-source QUANTUMFORGE codebase.
 
 ---
 
-*Report generated by AI analysis of the complete BURAI codebase (92,340 lines across 250+ files)*
+*Report generated by AI analysis of the complete QUANTUMFORGE codebase (92,340 lines across 250+ files)*

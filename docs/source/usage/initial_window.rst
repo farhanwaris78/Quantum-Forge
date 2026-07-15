@@ -1,7 +1,7 @@
 Initial Window
 ==============
 
-This page shows the initial window of BURAI.
+This page shows the initial window of QUANTUMFORGE.
 
 Header Bar
 ----------
@@ -25,7 +25,7 @@ Header bar has two items:
   | |                                                                        |
   | | Items of main menu                                                     |
   +===============+==========================================================+
-  | About BURAI   | BURAI information, where version and license are shown.  |
+  | About QUANTUMFORGE   | QUANTUMFORGE information, where version and license are shown.  |
   +---------------+----------------------------------------------------------+
   | Documents     | This documantation is shown.                             |
   +---------------+----------------------------------------------------------+
@@ -35,9 +35,9 @@ Header bar has two items:
   +---------------+----------------------------------------------------------+
   | Proxy server  | Set proxy system.                                        |
   +---------------+----------------------------------------------------------+
-  | Full screen   | BURAI windows size are changed full screen.              |
+  | Full screen   | QUANTUMFORGE windows size are changed full screen.              |
   +---------------+----------------------------------------------------------+
-  | Quit [Ctr+Q]  | Quit the system of BURAI.                                |
+  | Quit [Ctr+Q]  | Quit the system of QUANTUMFORGE.                                |
   +---------------+----------------------------------------------------------+
 
 | 

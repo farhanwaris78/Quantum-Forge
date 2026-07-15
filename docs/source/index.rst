@@ -1,13 +1,13 @@
-.. burai_manual documentation master file, created by
+.. quantumforge_manual documentation master file, created by
    sphinx-quickstart on Mon Apr  3 09:48:09 2017.
    You can adapt this file completely to your liking, but it should at least
    contain the root `toctree` directive.
 
-BURAI
+QUANTUMFORGE
 =====
 
-| BURAI is a GUI system of `Quantum ESPRESSO <http://www.quantum-espresso.org>`_.
-  You can `download <https://github.com/BURAI-team/burai/releases/tag/ver.1.3.1>`_ and use it freely.
+| QUANTUMFORGE is a GUI system of `Quantum ESPRESSO <http://www.quantum-espresso.org>`_.
+  You can `download <https://github.com/QUANTUMFORGE-team/quantumforge/releases/tag/ver.1.3.1>`_ and use it freely.
 | This system is developed as JavaFX application,
   and requires `Java Runtime Environment (JRE) <https://java.com/download/>`_.
 
@@ -30,7 +30,7 @@ Runtime Environment
 Web Page
 --------
 
-http://nisihara.wixsite.com/burai
+http://nisihara.wixsite.com/quantumforge
 
 -------------------------------------------------------------------------------------------------
 
