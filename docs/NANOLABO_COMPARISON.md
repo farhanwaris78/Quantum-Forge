@@ -1,8 +1,8 @@
-# NanoLabo vs QuantumForge (updated BURAI) — Complete Feature Analysis
+# NanoLabo vs QuantumForge (updated QUANTUMFORGE) — Complete Feature Analysis
 
 ## Source: NanoLabo Official Documentation (https://nanolabo-doc.readthedocs.io/en/latest/)
-## NanoLabo Version: 3.1.2 (Sept 2025) — proprietary, based on BURAI
-## QuantumForge Version: 2.0.0 — our updated BURAI
+## NanoLabo Version: 3.1.2 (Sept 2025) — proprietary, based on QUANTUMFORGE
+## QuantumForge Version: 2.0.0 — our updated QUANTUMFORGE
 
 ---
 

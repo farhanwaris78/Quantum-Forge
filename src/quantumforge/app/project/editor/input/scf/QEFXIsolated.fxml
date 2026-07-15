@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.geometry.*?>
+<?import javafx.scene.control.*?>
+<?import javafx.scene.layout.*?>
+<?import javafx.scene.text.*?>
+
+<VBox xmlns="http://javafx.com/javafx/8" xmlns:fx="http://javafx.com/fxml/1">
+   <children>
+      <BorderPane prefWidth="395.0">
+         <center>
+            <Separator prefHeight="30.0" BorderPane.alignment="CENTER" />
+         </center>
+         <left>
+            <Label styleClass="medium-text" text="Isolated System / 2D" BorderPane.alignment="CENTER">
+               <font>
+                  <Font name="System Bold Italic" size="14.0" />
+               </font>
+               <padding>
+                  <Insets left="10.0" right="10.0" />
+               </padding>
+            </Label>
+         </left>
+         <padding>
+            <Insets top="10.0" />
+         </padding>
+      </BorderPane>
+      <GridPane hgap="5.0" prefWidth="395.0" vgap="5.0">
+        <columnConstraints>
+          <ColumnConstraints hgrow="SOMETIMES" prefWidth="120.0" />
+          <ColumnConstraints hgrow="SOMETIMES" prefWidth="205.0" />
+            <ColumnConstraints hgrow="SOMETIMES" prefWidth="50.0" />
+        </columnConstraints>
+        <rowConstraints>
+          <RowConstraints minHeight="10.0" prefHeight="30.0" vgrow="SOMETIMES" />
+          <RowConstraints minHeight="10.0" prefHeight="30.0" vgrow="SOMETIMES" />
+          <RowConstraints minHeight="10.0" prefHeight="30.0" vgrow="SOMETIMES" />
+            <RowConstraints minHeight="10.0" prefHeight="30.0" vgrow="SOMETIMES" />
+        </rowConstraints>
+         <children>
+            <Label text="Assume Isolated" />
+            <ComboBox fx:id="isolatedCombo" prefWidth="200.0" GridPane.columnIndex="1" />
+            <Button fx:id="isolatedButton" mnemonicParsing="false" text="\@" GridPane.columnIndex="2" />
+            
+            <Label text="ESM Type" GridPane.rowIndex="1" />
+            <ComboBox fx:id="esmCombo" prefWidth="200.0" GridPane.columnIndex="1" GridPane.rowIndex="1" />
+            <Button fx:id="esmButton" mnemonicParsing="false" text="\@" GridPane.columnIndex="2" GridPane.rowIndex="1" />
+            
+            <Label text="Dipole Corr." GridPane.rowIndex="2" />
+            <ToggleButton fx:id="dipoleToggle" mnemonicParsing="false" prefWidth="200.0" GridPane.columnIndex="1" GridPane.rowIndex="2" />
+            <Button fx:id="dipoleButton" mnemonicParsing="false" text="\@" GridPane.columnIndex="2" GridPane.rowIndex="2" />
+
+            <Label text="2D Material Mode" GridPane.rowIndex="3" />
+            <CheckBox fx:id="mode2DCheck" mnemonicParsing="false" text="Enable Z-Padding" GridPane.columnIndex="1" GridPane.rowIndex="3" />
+         </children>
+         <padding>
+            <Insets left="10.0" />
+         </padding>
+      </GridPane>
+   </children>
+</VBox>

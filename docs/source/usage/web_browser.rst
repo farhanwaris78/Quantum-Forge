@@ -1,7 +1,7 @@
 Web Browser
 ===========
 
-BURAI has *build-in* web browser.
+QUANTUMFORGE has *build-in* web browser.
 if you want to search something at the internet, you should select "Web" from menu.
 
 +---------------------------------------------------------------------------+

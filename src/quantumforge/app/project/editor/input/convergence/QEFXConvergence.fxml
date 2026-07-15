@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.geometry.*?>
+<?import javafx.scene.control.*?>
+<?import javafx.scene.layout.*?>
+<?import javafx.scene.text.*?>
+
+<VBox prefWidth="400.0" spacing="10.0" xmlns="http://javafx.com/javafx/8" xmlns:fx="http://javafx.com/fxml/1">
+   <children>
+      <Label styleClass="medium-text" text="Convergence Test">
+         <font>
+            <Font name="System Bold" size="16.0" />
+         </font>
+      </Label>
+      <Separator />
+      <GridPane hgap="10.0" vgap="10.0">
+        <columnConstraints>
+          <ColumnConstraints hgrow="SOMETIMES" minWidth="10.0" prefWidth="100.0" />
+          <ColumnConstraints hgrow="SOMETIMES" minWidth="10.0" prefWidth="200.0" />
+        </columnConstraints>
+        <rowConstraints>
+          <RowConstraints minHeight="10.0" prefHeight="30.0" vgrow="SOMETIMES" />
+          <RowConstraints minHeight="10.0" prefHeight="30.0" vgrow="SOMETIMES" />
+          <RowConstraints minHeight="10.0" prefHeight="30.0" vgrow="SOMETIMES" />
+            <RowConstraints minHeight="10.0" prefHeight="30.0" vgrow="SOMETIMES" />
+        </rowConstraints>
+         <children>
+            <Label text="Parameter:" />
+            <ComboBox fx:id="parameterCombo" prefWidth="200.0" GridPane.columnIndex="1" />
+            <Label text="Start Value:" GridPane.rowIndex="1" />
+            <TextField fx:id="startField" GridPane.columnIndex="1" GridPane.rowIndex="1" text="20" />
+            <Label text="End Value:" GridPane.rowIndex="2" />
+            <TextField fx:id="endField" GridPane.columnIndex="1" GridPane.rowIndex="2" text="60" />
+            <Label text="Step:" GridPane.rowIndex="3" />
+            <TextField fx:id="stepField" GridPane.columnIndex="1" GridPane.rowIndex="3" text="10" />
+         </children>
+      </GridPane>
+      <Button fx:id="runConvergenceButton" maxWidth="1.7976931348623157E308" mnemonicParsing="false" text="Run Convergence Test" />
+      <Separator />
+      <Label text="Note: Results will be shown in a graph upon completion." wrapText="true" />
+   </children>
+   <padding>
+      <Insets bottom="20.0" left="20.0" right="20.0" top="20.0" />
+   </padding>
+</VBox>
