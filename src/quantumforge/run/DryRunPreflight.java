@@ -69,6 +69,14 @@ public final class DryRunPreflight {
             issues.add(issue(ValidationSeverity.WARNING, "QE_PROFILE", diagnostic));
         }
 
+        QEInput input = new FXQEInputFactory(type2).getQEInput(project);
+        if (input == null) {
+            issues.add(issue(ValidationSeverity.ERROR, "INPUT_NULL",
+                    "Could not build a QE input for " + type2 + "."));
+        } else {
+            issues.addAll(new QEInputValidator().validate(input));
+        }
+
         String dirPath = project.getDirectoryPath();
         if (dirPath == null || dirPath.isBlank()) {
             issues.add(issue(ValidationSeverity.ERROR, "PROJECT_DIR_MISSING",
@@ -83,15 +91,29 @@ public final class DryRunPreflight {
                         "Project directory is not writable: " + dir));
             } else {
                 try {
-                    long free = Files.getFileStore(dir).getUsableSpace();
-                    if (free < 50L * 1024L * 1024L) {
-                        issues.add(issue(ValidationSeverity.WARNING, "DISK_LOW",
-                                String.format(Locale.ROOT,
-                                        "Less than 50 MiB free on the project filesystem (%,d bytes).", free)));
+                    QEScratchStoragePolicy policy = new QEScratchStoragePolicy();
+                    long estimatedScratchSize = (input != null) ? policy.estimateScratchSize(project.getCell(), input) : 0L;
+                    List<String> warnings = new ArrayList<>();
+                    boolean spaceOk = policy.verifySpace(dir, estimatedScratchSize, warnings);
+                    for (String warning : warnings) {
+                        issues.add(issue(spaceOk ? ValidationSeverity.WARNING : ValidationSeverity.ERROR, "SCRATCH_PREDICTION", warning));
+                    }
+                    if (spaceOk && estimatedScratchSize > 1024L * 1024L) {
+                        issues.add(issue(ValidationSeverity.INFO, "SCRATCH_ESTIMATE",
+                            String.format(Locale.ROOT, "Estimated wave-function scratch footprint: %.2f MB.", estimatedScratchSize / (1024.0 * 1024.0))));
                     }
                 } catch (Exception ex) {
-                    issues.add(issue(ValidationSeverity.WARNING, "DISK_CHECK_FAILED",
-                            "Could not query free disk space: " + ex.getMessage()));
+                    try {
+                        long free = Files.getFileStore(dir).getUsableSpace();
+                        if (free < 50L * 1024L * 1024L) {
+                            issues.add(issue(ValidationSeverity.WARNING, "DISK_LOW",
+                                    String.format(Locale.ROOT,
+                                            "Less than 50 MiB free on the project filesystem (%,d bytes).", free)));
+                        }
+                    } catch (Exception exc) {
+                        issues.add(issue(ValidationSeverity.WARNING, "DISK_CHECK_FAILED",
+                                "Could not query free disk space: " + exc.getMessage()));
+                    }
                 }
             }
         }
@@ -107,14 +129,6 @@ public final class DryRunPreflight {
                 issues.add(issue(ValidationSeverity.WARNING, "MPI_PATH",
                         "Configured MPI path may be invalid: " + mpi));
             }
-        }
-
-        QEInput input = new FXQEInputFactory(type2).getQEInput(project);
-        if (input == null) {
-            issues.add(issue(ValidationSeverity.ERROR, "INPUT_NULL",
-                    "Could not build a QE input for " + type2 + "."));
-        } else {
-            issues.addAll(new QEInputValidator().validate(input));
         }
 
         QECommandDag dag = null;
