@@ -134,9 +134,9 @@ public class SSHJob {
             }
         }
 
-        // TODO
-
-        return true;
+        // No SSH/SFTP channel or scheduler submission is implemented yet.
+        // Returning true here previously reported a job that was never sent.
+        return false;
     }
 
     private void ftpFile(File file) {

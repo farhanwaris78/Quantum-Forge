@@ -11,8 +11,6 @@
 package quantumforge.input.correcter;
 
 import quantumforge.input.QEInput;
-import quantumforge.input.namelist.QENamelist;
-import quantumforge.input.namelist.QEValue;
 
 /**
  * Corrector for ESM (Effective Screening Medium) method.
@@ -92,11 +90,9 @@ public class ESMInputCorrecter extends QEInputCorrecter {
             this.nmlSystem.setValue("esm_w = 0.0");
         }
 
-        // Ensure surface is in correct orientation
-        // ESM requires the surface normal to be along z-axis
-        if (this.nmlControl != null) {
-            this.nmlControl.setValue("calculation = 'scf'");
-        }
+        // ESM requires the non-periodic direction along z. Do not silently
+        // replace the user's calculation mode (for example, relax) here; cell
+        // orientation and task compatibility must be validated by the UI.
     }
 
     /**

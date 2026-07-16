@@ -36,6 +36,10 @@ public class ConfigUpdater {
      */
     public boolean updateFromOutput() {
         if (this.project == null) return false;
+        // The legacy body below clears position cards but never inserts parsed
+        // coordinates. Keep it unreachable until a transactional final-geometry
+        // parser is implemented; failing is safer than corrupting every mode.
+        if (!isTransactionalUpdateImplemented()) return false;
 
         String dirPath = this.project.getDirectoryPath();
         if (dirPath == null) return false;
@@ -74,6 +78,10 @@ public class ConfigUpdater {
             e.printStackTrace();
         }
 
+        return false;
+    }
+
+    private static boolean isTransactionalUpdateImplemented() {
         return false;
     }
 

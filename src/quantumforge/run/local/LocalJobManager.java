@@ -3,13 +3,10 @@
  */
 package quantumforge.run.local;
 
-import java.io.File;
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
 import quantumforge.project.Project;
-import quantumforge.run.RunningNode;
 
 /**
  * Local Job Manager for persistent job execution.
@@ -108,11 +105,10 @@ public class LocalJobManager {
         JobQueue queue = this.getQueue(queueName);
         if (queue == null) return false;
 
-        // Generate submission script
-        String scriptPath = project.getDirectoryPath() + File.separator + "job_" + queueName + ".sh";
-        // In production, this writes the script and submits via Runtime.exec()
-
-        return true;
+        // Fail closed. A future implementation must write a quoted script,
+        // submit it, parse a scheduler job ID, and persist that ID before it can
+        // report success.
+        return false;
     }
 
     public boolean isRunning() { return this.running; }

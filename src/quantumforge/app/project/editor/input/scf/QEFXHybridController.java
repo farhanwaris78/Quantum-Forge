@@ -21,12 +21,12 @@ public class QEFXHybridController extends QEFXInputController {
 
     public QEFXHybridController(QEFXMainController mainController, QEInput input) {
         super(mainController, input);
-        // TODO 自動生成されたコンストラクター・スタ�?
+        // Legacy generated TODO removed; no action is required on editor open.
     }
 
     @Override
     public void initialize(URL location, ResourceBundle resources) {
-        // TODO 自動生成されたメソ�?ド�?�スタ�?
+        // Legacy generated TODO removed; no action is required on editor open.
 
     }
 

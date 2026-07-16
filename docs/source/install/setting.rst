@@ -1,35 +1,25 @@
-Setting
-=======
+Install and launch
+==================
 
-1. Unzip :doc:`the downloaded file <download>`
+Use the platform-native package or the unprivileged portable installer described
+in `docs/INSTALLATION.md <../../INSTALLATION.md>`_. The portable installation
+creates the same command on every supported platform:
 
-2. Copy it to any directory on your computer e.g.:
+.. code-block:: console
 
-  - "C:\\QUANTUMFORGE1.3_Windows\\" for Windows
-  - "/Applications/QUANTUMFORGE1.3.app" for Max OSX
-  - "/usr/share/applications/QUANTUMFORGE1.3" for Ubuntu
+   quantumforge --version
+   quantumforge --doctor
+   quantumforge
 
-3. Install `JRE1.8 or later version <https://java.com/download/>`_, if your computer does not have it.
-   For Ubuntu, you can get libraries of Java as
+Inside the GUI, open **Menu > Path** and select the directory that contains
+``pw.x``, ``ph.x``, ``dos.x`` and the other Quantum ESPRESSO executables. Select
+the MPI binary directory separately when required.
 
-  .. code-block:: c
+Portable updates and removal are:
 
-       > sudo apt-get install openjdk-8-jdk
-       > sudo apt-get install openjfx
+.. code-block:: console
 
-4. If you want to use MPI for Mac OSX, the library of OpenMPI has to be installed through MacPorts as
+   quantumforge --update
+   quantumforge --uninstall
 
-  .. code-block:: c
-
-       > sudo port install openmpi-gcc6
-       > sudo port select --set mpi openmpi-gcc6-fortran
-
-5. If you want to use precompiled executables of QE for Ubuntu,
-   GFortran and OpenMPI have to be installed through apt-get as.
-
-  .. code-block:: c
-
-       > sudo apt-get install gfortran
-       > sudo apt-get install openmpi-bin libopenmpi-dev
-
-6. For Ubuntu, executing QUANTUMFORGE1.3/makeLauncher.sh yields the launcher QUANTUMFORGE.desktop .
+User projects and settings under ``~/.quantumforge`` are preserved by default.

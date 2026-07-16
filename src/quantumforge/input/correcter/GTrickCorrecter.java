@@ -5,7 +5,6 @@ package quantumforge.input.correcter;
 
 import quantumforge.input.QEInput;
 import quantumforge.input.card.QEKPoints;
-import quantumforge.input.namelist.QEValue;
 
 /**
  * Γ-Trick option for band calculations.
@@ -36,22 +35,15 @@ public class GTrickCorrecter extends QEInputCorrecter {
         if (this.cardKPoints != null && this.cardKPoints.isAutomatic()) {
             int[] grid = this.cardKPoints.getKGrid();
             if (grid != null && grid.length == 6) {
-                // Set offsets to 0 0 0 (Gamma-centered)
-                // Original QUANTUMFORGE used offset 0,0,0 by default if not specified
-                // The Γ-Trick ensures Gamma is included by shifting
-                // odd-numbered grids
+                // QE's final three K_POINTS automatic integers are 0/1 grid
+                // offsets. Zero is the unshifted, Gamma-centred choice; setting
+                // all offsets to 1, as the previous implementation did, applies
+                // a half-grid shift and can remove Gamma from an odd mesh.
                 int[] newGrid = new int[6];
                 System.arraycopy(grid, 0, newGrid, 0, 6);
-
-                // Shift offsets to include Gamma
-                for (int i = 0; i < 3; i++) {
-                    if (newGrid[i] > 0) {
-                        // Use shifted grid for insulators
-                        newGrid[i + 3] = 1; // offset = 1/2
-                    } else {
-                        newGrid[i + 3] = 0; // no offset for zero grid points
-                    }
-                }
+                newGrid[3] = 0;
+                newGrid[4] = 0;
+                newGrid[5] = 0;
 
                 this.cardKPoints.setKGrid(newGrid);
             }

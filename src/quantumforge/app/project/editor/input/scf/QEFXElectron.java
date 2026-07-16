@@ -24,7 +24,7 @@ public class QEFXElectron extends QEFXEditorComponent<QEFXElectronController> {
 
     @Override
     public void notifyEditorOpened() {
-        // TODO 自動生成されたメソ�?ド�?�スタ�?
+        // Legacy generated TODO removed; no action is required on editor open.
     }
 
 }

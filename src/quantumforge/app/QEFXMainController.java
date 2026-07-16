@@ -255,8 +255,9 @@ public class QEFXMainController implements Initializable {
             this.vaspMItem.setOnAction(event -> {
                 Alert alert = new Alert(AlertType.INFORMATION);
                 alert.setTitle("VASP Extension");
-                alert.setHeaderText("VASP GUI Loaded");
-                alert.setContentText("Complete VASP GUI for input preparation and results analysis is ready.");
+                alert.setHeaderText("Experimental VASP prototype");
+                alert.setContentText("A prototype INCAR form exists in the source tree, but project execution and "
+                        + "OUTCAR parsing are not connected yet. Do not treat this as a complete VASP workflow.");
                 alert.showAndWait();
             });
         }
@@ -265,8 +266,9 @@ public class QEFXMainController implements Initializable {
             this.castepMItem.setOnAction(event -> {
                 Alert alert = new Alert(AlertType.INFORMATION);
                 alert.setTitle("CASTEP Extension");
-                alert.setHeaderText("CASTEP GUI Loaded");
-                alert.setContentText("Complete CASTEP GUI for input preparation and results analysis is ready.");
+                alert.setHeaderText("CASTEP integration not implemented");
+                alert.setContentText("This release can detect a CASTEP executable, but it does not yet provide a "
+                        + "validated .cell/.param editor, execution workflow, or results parser.");
                 alert.showAndWait();
             });
         }

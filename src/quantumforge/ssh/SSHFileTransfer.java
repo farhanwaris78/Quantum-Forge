@@ -3,9 +3,6 @@
  */
 package quantumforge.ssh;
 
-import java.io.File;
-import java.util.List;
-
 /**
  * SSH file transfer manager for remote file operations.
  * 
@@ -48,16 +45,18 @@ public class SSHFileTransfer {
      * Download all result files from remote project directory
      */
     public boolean downloadAllFiles(String remoteDir, String localDir) {
-        // In production, uses JSch SFTP channel
-        return true;
+        // Fail closed: the previous implementation returned success without
+        // opening an SFTP connection or transferring a byte.
+        return false;
     }
 
     /**
      * Delete all files on remote server to free space
      */
     public boolean deleteAllOnServer(String remoteDir) {
-        // In production, executes rm -rf via SSH
-        return true;
+        // Remote deletion remains deliberately disabled until canonical-path
+        // validation, a real SSH session, and an explicit confirmation exist.
+        return false;
     }
 
     /**
@@ -65,19 +64,8 @@ public class SSHFileTransfer {
      */
     public void startContinuousFetch(String remoteDir, String localDir) {
         if (!this.continuousFetchEnabled || this.alwaysOffline) return;
-
-        Thread fetchThread = new Thread(() -> {
-            while (!Thread.interrupted()) {
-                this.downloadAllFiles(remoteDir, localDir);
-                try {
-                    Thread.sleep(this.downloadInterval * 60 * 1000L);
-                } catch (InterruptedException e) {
-                    break;
-                }
-            }
-        });
-        fetchThread.setDaemon(true);
-        fetchThread.start();
+        throw new UnsupportedOperationException(
+                "Continuous SSH result transfer is not implemented in this release.");
     }
 
     // Getters
