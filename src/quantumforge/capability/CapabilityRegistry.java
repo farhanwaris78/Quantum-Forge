@@ -46,10 +46,10 @@ public final class CapabilityRegistry {
                 "Core pw.x SCF, relaxation, MD, bands, and DOS models/editors are present.",
                 "Complete version-aware schema and multi-version QE golden tests.");
         register(values, QE_LOCAL, "Local Quantum ESPRESSO execution", CapabilityStatus.PARTIAL,
-                "ProcessBuilder is driven with dry-run preflight, typed command DAG stage skipping from on-disk artifacts, run manifests, restart assessment, workflow export, process-tree cancellation, live log tailing, and SCF/geometry analysis.",
+                "ProcessBuilder is driven with dry-run preflight, typed command DAG stage skipping, XML-first data-file-schema parsing when present, run manifests, restart assessment, workflow export, process-tree cancellation, live log tailing, and SCF/geometry analysis.",
                 "Add real multi-version QE golden integration tests against installed engines.");
         register(values, SSH_HPC, "SSH and HPC schedulers", CapabilityStatus.PARTIAL,
-                "Strict known_hosts store, JSch transport, host-key acceptance UI helper, selective result sync with checksum cache, safe cancel-by-id, SLURM/PBS/SGE adapters, site profiles, durable job-queue store, and job-state records exist; live multi-cluster validation is still required.",
+                "Strict known_hosts store, JSch transport, host-key acceptance UI helper, selective result sync with checksum cache, remote job monitor with backoff, safe cancel-by-id, SLURM/PBS/SGE adapters, site profiles, durable job-queue store, and job-state records exist; live multi-cluster validation is still required.",
                 "Validate against two real clusters and polish fingerprint dialog UX.");
         register(values, THERMO_PW, "thermo_pw", CapabilityStatus.EXPERIMENTAL,
                 "Executable detection and a narrow elastic-matrix parser exist.",
@@ -70,8 +70,8 @@ public final class CapabilityRegistry {
                 "No .cell/.param model, execution adapter, or results parser exists.",
                 "Build a separately licensed plugin and private reference suite.");
         register(values, SYMMETRY, "Symmetry", CapabilityStatus.PARTIAL,
-                "Bravais helpers remain; an isolated spglib JSON sidecar protocol is available when python/spglib are installed, otherwise results stay undetermined.",
-                "Ship a locked sidecar environment and round-trip fixtures for COD/ICSD-permitted cells.");
+                "Bravais helpers remain; spglib/seekpath sidecar protocol v2 supports dataset, primitive/conventional standardization, and k-path when python packages are installed; otherwise results stay undetermined/fail-closed.",
+                "Ship a locked sidecar environment and COD/ICSD-permitted round-trip fixtures.");
         register(values, LAMMPS, "LAMMPS", CapabilityStatus.EXPERIMENTAL,
                 "A small script skeleton exists without a data writer, runner, or parser.",
                 "Implement a unit-aware plugin and force/energy conformance fixtures.");

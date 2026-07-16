@@ -32,7 +32,7 @@ import quantumforge.operation.OperationResult;
  */
 public final class SpglibService {
 
-    public static final String PROTOCOL_VERSION = "1";
+    public static final String PROTOCOL_VERSION = "2";
 
     public static final class Dataset {
         private final int spaceGroupNumber;
@@ -87,6 +87,55 @@ public final class SpglibService {
         return this.pythonExecutable != null && Files.isRegularFile(this.sidecarScript);
     }
 
+    
+    public OperationResult<StandardizedCell> standardize(Cell cell, double symmetryTolerance, boolean toPrimitive) {
+        if (cell == null) {
+            return OperationResult.failed("CELL_NULL", "No cell supplied for spglib standardize.", null);
+        }
+        if (!isAvailable()) {
+            return OperationResult.unsupported("SPGLIB_SIDECAR_UNAVAILABLE",
+                    "spglib sidecar is not available for cell standardization.");
+        }
+        if (!(symmetryTolerance > 0.0) || !Double.isFinite(symmetryTolerance)) {
+            return OperationResult.failed("SPGLIB_TOLERANCE",
+                    "symmetry tolerance must be a positive finite value.", null);
+        }
+        try {
+            String op = toPrimitive ? "standardize_primitive" : "standardize_conventional";
+            String request = buildRequest(cell, symmetryTolerance, op);
+            String response = invoke(request);
+            return parseStandardized(response, symmetryTolerance, toPrimitive ? "primitive" : "conventional");
+        } catch (Exception ex) {
+            AppLog.error("spglib", "standardize failed", ex);
+            return OperationResult.failed("SPGLIB_STANDARDIZE_FAILED",
+                    "spglib standardize failed: " + ex.getMessage(), ex);
+        }
+    }
+
+    public OperationResult<SeekPathResult> seekPath(Cell cell, double symmetryTolerance) {
+        if (cell == null) {
+            return OperationResult.failed("CELL_NULL", "No cell supplied for seekpath.", null);
+        }
+        if (!isAvailable()) {
+            return OperationResult.unsupported("SPGLIB_SIDECAR_UNAVAILABLE",
+                    "sidecar is not available for seekpath.");
+        }
+        if (!(symmetryTolerance > 0.0) || !Double.isFinite(symmetryTolerance)) {
+            return OperationResult.failed("SPGLIB_TOLERANCE",
+                    "symmetry tolerance must be a positive finite value.", null);
+        }
+        try {
+            String request = buildRequest(cell, symmetryTolerance, "seekpath");
+            String response = invoke(request);
+            return parseSeekPath(response, symmetryTolerance);
+        } catch (Exception ex) {
+            AppLog.error("spglib", "seekpath failed", ex);
+            return OperationResult.failed("SEEKPATH_FAILED",
+                    "seekpath failed: " + ex.getMessage(), ex);
+        }
+    }
+
+
     public OperationResult<Dataset> getDataset(Cell cell, double symmetryTolerance) {
         if (cell == null) {
             return OperationResult.failed("CELL_NULL", "No cell supplied for spglib.", null);
@@ -101,7 +150,7 @@ public final class SpglibService {
                     "symmetry tolerance must be a positive finite value.", null);
         }
         try {
-            String request = buildRequest(cell, symmetryTolerance);
+            String request = buildRequest(cell, symmetryTolerance, "get_dataset");
             String response = invoke(request);
             return parseResponse(response, symmetryTolerance);
         } catch (Exception ex) {
@@ -112,12 +161,16 @@ public final class SpglibService {
     }
 
     static String buildRequest(Cell cell, double tolerance) {
+        return buildRequest(cell, tolerance, "get_dataset");
+    }
+
+    static String buildRequest(Cell cell, double tolerance, String op) {
         double[][] lattice = cell.copyLattice();
         Atom[] atoms = cell.listAtoms(true);
         StringBuilder json = new StringBuilder();
         json.append('{');
         field(json, "protocol", PROTOCOL_VERSION, true);
-        field(json, "op", "get_dataset", false);
+        field(json, "op", op == null ? "get_dataset" : op, false);
         json.append(",\"tolerance\":").append(tolerance);
         json.append(",\"lattice\":[");
         for (int i = 0; i < 3; i++) {

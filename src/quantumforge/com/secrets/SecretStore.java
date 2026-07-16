@@ -127,13 +127,20 @@ public final class SecretStore {
     }
 
     static OsKeyringBackend detectBackend() {
+        ProcessKeyringBackend process = ProcessKeyringBackend.detect();
+        if (process.isAvailable()) {
+            return process;
+        }
         String os = System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT);
-        // Real D-Bus/Keychain/Credential Manager bindings require native libraries.
-        // We register a null-safe placeholder that reports unavailable unless a
-        // future native adapter is injected for tests.
-        if (os.contains("linux") || os.contains("mac") || os.contains("win")) {
-            return new UnavailableKeyringBackend(os.contains("mac") ? "keychain"
-                    : os.contains("win") ? "credential-manager" : "libsecret");
+        // Fallback label when CLI tooling is absent. Secrets remain memory-only.
+        if (os.contains("mac")) {
+            return new UnavailableKeyringBackend("keychain");
+        }
+        if (os.contains("win")) {
+            return new UnavailableKeyringBackend("credential-manager");
+        }
+        if (os.contains("linux")) {
+            return new UnavailableKeyringBackend("libsecret");
         }
         return new UnavailableKeyringBackend("none");
     }

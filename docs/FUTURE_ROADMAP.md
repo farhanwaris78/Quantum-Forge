@@ -299,3 +299,13 @@ The **eighth** batch completes more HPC reliability pieces:
 | 98 | **Stronger** | Selective sync checksum cache (`SyncChecksumCache`) skips unchanged files |
 | 105 | **Partial** | Durable JSONL `JobQueueStore` for job restart reconstruction |
 | 71/72 | **Honest** | Symmetry conversion still fail-closed; reports when dataset exists but transform payload is not in protocol v1 |
+
+
+The **ninth** batch advances secrets, XML parsing, symmetry transforms, and remote monitoring:
+
+| # | Status after batch 9 | What landed |
+|---:|---|---|
+| 9 | **Stronger Partial** | `ProcessKeyringBackend` uses `secret-tool` / macOS `security` when present |
+| 42 | **Partial** | `QeXmlResultParser` for `data-file-schema.xml` with XXE hardening; ScfParser prefers XML |
+| 71–73 | **Stronger Partial** | spglib/seekpath sidecar protocol v2: standardize primitive/conventional + k-path |
+| 96 | **Partial** | `RemoteJobMonitor` bounded polling with exponential backoff and job-queue persistence hooks |

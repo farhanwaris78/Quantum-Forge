@@ -109,6 +109,10 @@ def main() -> int:
         "src/quantumforge/symmetry/SpglibService.java",
         "src/quantumforge/app/ssh/HostKeyAcceptance.java",
         "src/quantumforge/ssh/SyncChecksumCache.java",
+        "tests/fixtures/qe/data-file-schema.xml",
+        "src/quantumforge/hpc/RemoteJobMonitor.java",
+        "src/quantumforge/run/parser/QeXmlResultParser.java",
+        "src/quantumforge/com/secrets/ProcessKeyringBackend.java",
         "src/quantumforge/hpc/JobQueueStore.java",
         "src/quantumforge/hpc/SgeSchedulerAdapter.java",
         "src/quantumforge/ssh/SelectiveResultSync.java",
@@ -123,6 +127,14 @@ def main() -> int:
         for e in ERRORS:
             print(" -", e)
         return 1
+    xml = FIX / "data-file-schema.xml"
+    if not xml.is_file():
+        error("missing data-file-schema.xml fixture")
+    else:
+        text = xml.read_text(encoding="utf-8")
+        if "fermi_energy" not in text or "etot" not in text:
+            error("QE XML fixture missing fermi/etot fields")
+
     print("Fixture harness passed:", len(list(FIX.glob('*.log'))), "log fixtures")
     return 0
 

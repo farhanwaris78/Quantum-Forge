@@ -103,3 +103,10 @@
 - Durable JSONL job queue store for reconstructing remote jobs after restart.
 - Selective result sync checksum cache to skip unchanged files.
 - Symmetry conversion remains fail-closed even when spglib dataset metadata is available (no silent identity transform).
+
+### Secrets, XML results, symmetry v2, remote monitor (roadmap batch 9)
+
+- Process-based OS keyring backend (`secret-tool` / macOS `security`) with memory fallback.
+- XML-first Quantum ESPRESSO `data-file-schema.xml` parser (XXE-hardened) preferred by ScfParser.
+- spglib/seekpath sidecar protocol v2: dataset, primitive/conventional standardization, k-path.
+- Remote job monitor with exponential backoff and terminal-state detection.

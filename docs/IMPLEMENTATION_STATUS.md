@@ -1,6 +1,6 @@
 # QuantumForge implementation status (roadmap inventory)
 
-Last updated: 2026-07-16 (branch batches 1–8).
+Last updated: 2026-07-16 (branch batches 1–9).
 
 Status key:
 
@@ -21,7 +21,7 @@ Status key:
 | 6 | Project schema versioning | Partial | schema v1 metadata on status |
 | 7 | Atomic project writes | Done | `AtomicFileWriter` + `.bak` |
 | 8 | Autosave and recovery | Done | export-safe autosave + recovery GUI |
-| 9 | Secret storage | Partial | `SecretStore` memory default; OS keyring interface only |
+| 9 | Secret storage | Partial | `SecretStore` + process keyring (`secret-tool`/Keychain) when available |
 | 10 | SSH fail-closed | Done/Partial | No false success; real transport exists when configured |
 | 11 | Asset/license manifest | Not started | |
 | 12 | Upstream provenance map | Not started | |
@@ -57,7 +57,7 @@ Status key:
 | 39 | Geometry convergence validator | Partial | marker/threshold evidence |
 | 40 | Transactional final-geometry update | Partial | preview only; apply fail-closed |
 | 41 | SCF reference suite | Partial | golden log fixtures (not full engine corpus) |
-| 42 | XML-first parsing | Not started | |
+| 42 | XML-first parsing | Partial | `QeXmlResultParser` + ScfParser preference |
 | 43 | Timing/resource parser | Not started | |
 | 44 | Input diff/preview | Not started | |
 | 45 | Dry-run/preflight | Done | binaries/disk/MPI/input/DAG/restart notes |
@@ -76,9 +76,9 @@ Status key:
 
 | # | Item | Status | Notes |
 |---:|---|---|---|
-| 71 | spglib service | Partial | isolated JSON sidecar protocol |
-| 72 | Primitive/conventional conversion | Fail-closed | refuses silent identity transform |
-| 73 | seekpath | Not started | |
+| 71 | spglib service | Partial | protocol v2 dataset/standardize |
+| 72 | Primitive/conventional conversion | Partial | sidecar standardize when available; else fail-closed |
+| 73 | seekpath | Partial | sidecar seekpath op when package installed |
 | 74 | Magnetic symmetry | Fail-closed | undetermined without magnetic spglib |
 | 75–90 | Formats/builders | Partial/varies | CIF/POSCAR/etc. exist; many builders experimental |
 
@@ -91,7 +91,7 @@ Status key:
 | 93 | Scheduler abstraction | Partial | SLURM + PBS + SGE adapters |
 | 94 | Site profiles | Partial | YAML-like profiles + examples |
 | 95 | Job state machine | Partial | JobRecord transitions + queue store |
-| 96 | Remote monitoring | Not started | |
+| 96 | Remote monitoring | Partial | `RemoteJobMonitor` backoff polling |
 | 97 | Safe cancellation | Partial | cancel-by-id + status verify |
 | 98 | Selective result sync | Partial | manifest + checksum cache |
 | 99 | Checkpoint-aware resubmit | Not started | |

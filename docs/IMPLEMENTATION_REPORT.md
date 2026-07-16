@@ -132,6 +132,15 @@ That command is installed on PATH by the portable installer (Linux/macOS/Windows
 | Sync checksum cache | 98 | Local SHA-256 skip for unchanged results | Faster re-sync / less bandwidth | Remote hash probe when available |
 | Symmetry honesty | 71–72 | Conversion still refuses silent identity transforms | No fake primitive/conventional cells | Protocol v2 with standardized cell payload |
 
+## Batch 9 — OS keyring CLI, QE XML parser, spglib v2, remote monitor
+
+| Change | Roadmap # | What was implemented | Expected impact | Next improvement |
+|---|---:|---|---|---|
+| Process keyring backend | 9 | secret-tool / security CLI integration | Secrets can leave process memory on equipped hosts | Windows Credential Manager helper |
+| QE XML-first parser | 42 | data-file-schema.xml energy/Fermi/convergence | Stable structured values when XML exists | Broader schema version matrix + forces/stress |
+| spglib protocol v2 | 71–73 | standardize + seekpath ops | Real primitive/conventional/k-path when packages installed | Locked env + COD fixtures |
+| Remote job monitor | 96 | backoff polling + status mapping | Reconstructable remote job status without request storms | GUI panel + offline reconnect |
+
 ## Recommended next batch
 
 1. Run `mvn clean verify` on a JDK 17 host and fix any findings.

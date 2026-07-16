@@ -131,6 +131,11 @@ def main() -> int:
         "quantumforge/symmetry/SpglibService.java",
         "quantumforge/app/ssh/HostKeyAcceptance.java",
         "quantumforge/ssh/SyncChecksumCache.java",
+        "quantumforge/symmetry/SeekPathResult.java",
+        "quantumforge/symmetry/StandardizedCell.java",
+        "quantumforge/hpc/RemoteJobMonitor.java",
+        "quantumforge/run/parser/QeXmlResultParser.java",
+        "quantumforge/com/secrets/ProcessKeyringBackend.java",
         "quantumforge/hpc/JobQueueStore.java",
         "quantumforge/hpc/SgeSchedulerAdapter.java",
         "quantumforge/ssh/JobCancellation.java",
@@ -156,7 +161,7 @@ def main() -> int:
     cap = (SRC / "quantumforge/capability/CapabilityRegistry.java").read_text(encoding="utf-8")
     if "Strict known_hosts" not in cap:
         error("CapabilityRegistry SSH status not updated")
-    if "spglib JSON sidecar" not in cap:
+    if "spglib/seekpath sidecar protocol v2" not in cap and "spglib JSON sidecar" not in cap:
         error("CapabilityRegistry symmetry status not updated")
 
     if ERRORS:
