@@ -129,6 +129,11 @@ def main() -> int:
         "quantumforge/hpc/SlurmSchedulerAdapter.java",
         "quantumforge/hpc/SiteProfile.java",
         "quantumforge/symmetry/SpglibService.java",
+        "quantumforge/app/ssh/HostKeyAcceptance.java",
+        "quantumforge/ssh/JobCancellation.java",
+        "quantumforge/ssh/SelectiveResultSync.java",
+        "quantumforge/hpc/ResultSyncManifest.java",
+        "quantumforge/hpc/PbsSchedulerAdapter.java",
     ]:
         text = (SRC / rel).read_text(encoding="utf-8")
         if "class " not in text and "enum " not in text:
@@ -140,6 +145,9 @@ def main() -> int:
     node = (SRC / "quantumforge/run/RunningNode.java").read_text(encoding="utf-8")
     if "DryRunPreflight" not in node or "ArtifactScanner" not in node or "QECommandDag" not in node:
         error("RunningNode is not wired to dry-run/DAG/artifact scanning")
+    runAction = (SRC / "quantumforge/app/project/viewer/run/RunAction.java").read_text(encoding="utf-8")
+    if "postJobToServerResult" not in runAction or "HostKeyAcceptance" not in runAction:
+        error("RunAction still uses untyped/fake SSH submit path")
 
     
     cap = (SRC / "quantumforge/capability/CapabilityRegistry.java").read_text(encoding="utf-8")

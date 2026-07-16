@@ -89,3 +89,10 @@
 - `SSHJob` prepares scripts offline; submit requires a connected transport.
 - `SpglibService` + `tools/spglib_sidecar.py` isolated protocol (no invented space groups).
 - Example site profile: `packaging/sites/example-slurm.yaml`.
+
+### HPC hardening (roadmap batch 7)
+
+- Interactive host-key acceptance helper wired into remote RunAction.
+- Selective result sync via required/optional/large manifests.
+- PBS/Torque scheduler adapter; safe cancel-by-id with status verification.
+- Remote run path uses typed OperationResult (no silent boolean success).

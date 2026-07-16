@@ -107,6 +107,9 @@ def main() -> int:
         "src/quantumforge/ssh/JschSshTransport.java",
         "src/quantumforge/hpc/SlurmSchedulerAdapter.java",
         "src/quantumforge/symmetry/SpglibService.java",
+        "src/quantumforge/app/ssh/HostKeyAcceptance.java",
+        "src/quantumforge/ssh/SelectiveResultSync.java",
+        "src/quantumforge/hpc/PbsSchedulerAdapter.java",
         "tools/spglib_sidecar.py",
     ]:
         if not (ROOT / rel).is_file():

@@ -278,3 +278,14 @@ A feature is not “done” when a class or button exists. It is done when:
 - GUI cancellation/restart/error paths work;
 - clean-platform package smoke tests pass;
 - the capability registry marks it supported with links to that evidence.
+
+
+The **seventh** batch hardens HPC operations:
+
+| # | Status after batch 7 | What landed |
+|---:|---|---|
+| 91 | **Stronger** | `HostKeyAcceptance` interactive unknown-host prompt used by RunAction |
+| 92/98 | **Partial** | `ResultSyncManifest` + `SelectiveResultSync` required/optional/large downloads |
+| 93 | **Partial** | `PbsSchedulerAdapter` (PBS/Torque) alongside SLURM |
+| 97 | **Partial** | `JobCancellation` cancel-by-parsed-id + post-cancel status check |
+| 10 | **Stronger** | RunAction uses typed SSH results; no silent boolean success |

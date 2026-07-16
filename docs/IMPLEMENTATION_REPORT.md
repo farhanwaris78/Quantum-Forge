@@ -113,6 +113,16 @@ That command is installed on PATH by the portable installer (Linux/macOS/Windows
 | SSHJob | 10/91 | Script prepare always; submit only with transport | No false “job submitted” | End-to-end cluster tests |
 | spglib service | 71 | Isolated Python sidecar protocol | Real space groups only when spglib present | Locked env + COD fixtures |
 
+## Batch 7 — host-key UI, selective sync, PBS, safe cancel
+
+| Change | Roadmap # | What was implemented | Expected impact | Next improvement |
+|---|---:|---|---|---|
+| Host-key UI helper | 91 | `HostKeyAcceptance.connectInteractive` | Users can accept first-seen keys safely | Dedicated fingerprint dialog with copy/compare |
+| Selective sync | 98 | Manifest of required/optional/large files | Bandwidth-safe result fetch | Checksum cache + resume |
+| PBS adapter | 93 | Typed `#PBS` generator + qsub/qdel/qstat | Broader HPC coverage | SGE adapter |
+| Safe cancel | 97 | Cancel only by parsed job id + status verify | No kill-by-name disasters | Scheduler reason parsing |
+| RunAction fix | 10 | Typed submit + host-key connect | Remote run no longer pretends success | Persist JobRecord queue |
+
 ## Recommended next batch
 
 1. Run `mvn clean verify` on a JDK 17 host and fix any findings.

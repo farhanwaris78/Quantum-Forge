@@ -16,6 +16,8 @@ import quantumforge.hpc.SchedulerAdapter;
 import quantumforge.hpc.SchedulerResources;
 import quantumforge.hpc.SiteProfile;
 import quantumforge.hpc.SlurmSchedulerAdapter;
+import quantumforge.hpc.PbsSchedulerAdapter;
+import quantumforge.hpc.ResultSyncManifest;
 import quantumforge.operation.OperationResult;
 import quantumforge.project.Project;
 import quantumforge.run.QECommandDag;
@@ -189,12 +191,37 @@ public final class SSHJob {
         return this.postJobToServerResult().isSuccess();
     }
 
+    public OperationResult<JobRecord> cancelJobResult(JobRecord record) {
+        if (this.transport == null || !this.transport.isConnected()) {
+            return OperationResult.unsupported("SSH_NOT_CONNECTED",
+                    "No connected transport; job was not cancelled.");
+        }
+        return JobCancellation.cancel(this.transport, resolveAdapter(), record);
+    }
+
+    public OperationResult<SelectiveResultSync.SyncReport> syncResultsResult(
+            String remoteJobRelativeDir, Path localDir, boolean includeLarge) {
+        if (this.transport == null || !this.transport.isConnected()) {
+            return OperationResult.unsupported("SSH_NOT_CONNECTED",
+                    "No connected transport; nothing was downloaded.");
+        }
+        ResultSyncManifest manifest = ResultSyncManifest.forWorkflow(
+                this.type, this.project.getPrefixName());
+        SelectiveResultSync sync = new SelectiveResultSync(this.transport, this.stagingRoot);
+        return sync.sync(remoteJobRelativeDir, localDir, manifest, includeLarge);
+    }
+
     private SchedulerAdapter resolveAdapter() {
         if (this.siteProfile != null) {
             return this.siteProfile.schedulerAdapter();
         }
-        if (SSHServer.SCHEDULER_SLURM.equalsIgnoreCase(this.sshServer.getSchedulerType())) {
-            return new SlurmSchedulerAdapter();
+        String type = this.sshServer.getSchedulerType();
+        if (SSHServer.SCHEDULER_PBS.equalsIgnoreCase(type)
+                || SSHServer.SCHEDULER_SGE.equalsIgnoreCase(type)) {
+            if (SSHServer.SCHEDULER_SGE.equalsIgnoreCase(type)) {
+                throw new UnsupportedOperationException("SGE adapter is not implemented yet.");
+            }
+            return new PbsSchedulerAdapter();
         }
         return new SlurmSchedulerAdapter();
     }
