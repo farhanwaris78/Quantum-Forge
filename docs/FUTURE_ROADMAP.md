@@ -4,7 +4,23 @@ This roadmap is ordered by scientific value and dependency. “Effective” mean
 
 ## Implementation progress
 
-The first stabilization batch now implements or partially implements items **2, 3, 9, 16, 17, 18, 24, 25, 36, 37, 45, 47, 49, 156**, plus fail-closed portions of 54, 56, 61, 64–67, 91–99, and 161–170. “Partially” is intentional: for example, deterministic QE preflight exists, but a complete version-generated schema and real-engine golden corpus do not. The capability registry reports this distinction at runtime with `quantumforge --capabilities`.
+The first stabilization batch implements or partially implements items **2, 3, 9, 16, 17, 18, 24, 25, 36, 37, 45, 47, 49, 156**, plus fail-closed portions of 54, 56, 61, 64–67, 91–99, and 161–170.
+
+The second stabilization batch (this branch) adds or hardens items **4, 5, 6, 7, 8, 21, 28, 29** and expands packaging/docs for item **13/15/20** infrastructure:
+
+| # | Status after this batch | What landed |
+|---:|---|---|
+| 4 | **Partial → stronger Partial** | `AppLog` structured single-line logger with job IDs, severity, rotating file under `~/.quantumforge/logs/`, secret redaction |
+| 5 | **Partial** | Local-first `CrashReporter` writes redacted crash bundles; no automatic upload |
+| 6 | **Partial** | `ProjectSchema` v1 + `schemaVersion` / `quantumforgeVersion` on `ProjectStatus`; unsupported versions fail closed |
+| 7 | **Implemented (core paths)** | `AtomicFileWriter` (stage + fsync + atomic rename); project property JSON and QE input saves use it; `.bak` last-known-good |
+| 8 | **Partial** | `ProjectAutosave` debounced immutable snapshots under `.quantumforge.autosave/` with size limits |
+| 21 | **Partial** | `QEExecutableProfile` probes configured bin dir, lists tools, parses `pw.x` banner version; shown by `quantumforge --doctor` |
+| 28 | **Partial** | `RunManifest` JSONL provenance (command, cwd, hashes, timestamps, exit, QE version) per stage |
+| 29 | **Partial** | `ProcessTreeKiller` + QE EXIT file before destroy; cancellation recorded in manifests |
+| Packaging | **Partial → stronger** | Full multi-platform tutorial, activated `.github/workflows`, portable install/update/uninstall, `quantumforge` CLI word for GUI/MobaXterm |
+
+“Partially” remains intentional: real multi-version QE golden corpora, OS keyring backends, and signed/notarized production secrets still require maintainer CI credentials and engine fixtures. The capability registry reports this distinction at runtime with `quantumforge --capabilities`.
 
 ## Phase 0 — trust, safety, and scope (do these first)
 

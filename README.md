@@ -26,11 +26,13 @@ QuantumForge does **not** distribute Quantum ESPRESSO, pseudopotentials, VASP, C
 
 ## Install and launch
 
-The cross-platform command is:
+The cross-platform command that starts the GUI is:
 
 ```text
 quantumforge
 ```
+
+Use that same word in a local terminal **or** in MobaXterm/SSH with X11 forwarding.
 
 Useful non-GUI commands:
 
@@ -42,8 +44,10 @@ quantumforge --update
 quantumforge --uninstall
 ```
 
-See the complete, checksum-first tutorial:
+See the complete, checksum-first tutorial covering Ubuntu 20.04→current, Arch,
+Windows 10/11, macOS Intel/Apple Silicon, safe update/uninstall, and remote GUI:
 
+- **[Full multi-platform install tutorial](docs/TUTORIAL_INSTALL.md)**
 - **[Installation, update, uninstall, and MobaXterm/X11 guide](docs/INSTALLATION.md)**
 - **[External scientific software setup](docs/SCIENTIFIC_SOFTWARE_GUIDE.md)**
 - **[Release integrity and security model](docs/RELEASE_AND_SECURITY.md)**

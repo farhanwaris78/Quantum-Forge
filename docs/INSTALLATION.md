@@ -2,6 +2,8 @@
 
 This guide applies to QuantumForge 2.0.0. It deliberately separates the **QuantumForge desktop application** from computational engines. QuantumForge does not bundle Quantum ESPRESSO or licensed VASP/CASTEP binaries.
 
+> **Full tutorial:** for a single end-to-end walkthrough covering Ubuntu 20.04→current, Arch Linux, Windows 10/11, macOS Intel/Apple Silicon, checksum verification, safe update/uninstall, and MobaXterm remote GUI launch via the `quantumforge` command, see **[TUTORIAL_INSTALL.md](TUTORIAL_INSTALL.md)**.
+
 ## 1. Supported platform policy
 
 | Platform | Release form | Baseline/support statement |

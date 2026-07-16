@@ -46,8 +46,8 @@ public final class CapabilityRegistry {
                 "Core pw.x SCF, relaxation, MD, bands, and DOS models/editors are present.",
                 "Complete version-aware schema and multi-version QE golden tests.");
         register(values, QE_LOCAL, "Local Quantum ESPRESSO execution", CapabilityStatus.PARTIAL,
-                "ProcessBuilder command chains and established output parsers are present.",
-                "Add preflight, manifests, process-tree cancellation, and real QE integration tests.");
+                "ProcessBuilder command chains, deterministic preflight, run manifests, QE executable profile probing, and process-tree cancellation are present.",
+                "Add real multi-version QE golden integration tests and stage-aware restart management.");
         register(values, SSH_HPC, "SSH and HPC schedulers", CapabilityStatus.UNAVAILABLE,
                 "Legacy transfer/submission paths are disabled because no real secure transport exists.",
                 "Implement strict host-key SSH/SFTP and scheduler job-state adapters.");
@@ -82,8 +82,8 @@ public final class CapabilityRegistry {
                 "Topology, catalysis, battery, spectroscopy, and superconductivity sketches are not validated workflows.",
                 "Implement as reviewed plugins backed by real engines and benchmark data.");
         register(values, PACKAGING, "Cross-platform packaging", CapabilityStatus.PARTIAL,
-                "Versioned portable/native installers, update, uninstall, SBOM, and workflow templates exist.",
-                "Run authorized cross-platform CI and configure Windows/macOS code signing.");
+                "Versioned portable/native installers, update/uninstall, SBOM, Ubuntu 20.04 baseline, Arch PKGBUILD, Windows/macOS scripts, and the quantumforge CLI exist.",
+                "Activate authorized cross-platform CI runners and configure Windows/macOS code signing.");
         return Collections.unmodifiableMap(values);
     }
 

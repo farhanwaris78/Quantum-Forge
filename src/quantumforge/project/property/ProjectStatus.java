@@ -12,7 +12,13 @@ package quantumforge.project.property;
 
 import java.util.Date;
 
+import quantumforge.project.ProjectSchema;
+import quantumforge.ver.Version;
+
 public class ProjectStatus {
+
+    private int schemaVersion;
+    private String quantumforgeVersion;
 
     private String date;
 
@@ -26,6 +32,8 @@ public class ProjectStatus {
     private int bandCount;
 
     public ProjectStatus() {
+        this.schemaVersion = ProjectSchema.CURRENT_VERSION;
+        this.quantumforgeVersion = Version.VERSION;
         this.updateDate();
 
         this.cellAxis = null;
@@ -36,6 +44,34 @@ public class ProjectStatus {
         this.mdCount = 0;
         this.dosCount = 0;
         this.bandCount = 0;
+    }
+
+    public synchronized int getSchemaVersion() {
+        return ProjectSchema.normalize(this.schemaVersion);
+    }
+
+    public synchronized void setSchemaVersion(int schemaVersion) {
+        this.schemaVersion = schemaVersion;
+    }
+
+    public synchronized String getQuantumforgeVersion() {
+        return this.quantumforgeVersion;
+    }
+
+    public synchronized void setQuantumforgeVersion(String quantumforgeVersion) {
+        this.quantumforgeVersion = quantumforgeVersion;
+    }
+
+    /**
+     * Ensure schema metadata is present before serialization.
+     * Older projects without these fields are treated as schema v1.
+     */
+    public synchronized void ensureSchemaMetadata() {
+        this.schemaVersion = ProjectSchema.normalize(this.schemaVersion);
+        ProjectSchema.requireSupported(this.schemaVersion);
+        if (this.quantumforgeVersion == null || this.quantumforgeVersion.isBlank()) {
+            this.quantumforgeVersion = Version.VERSION;
+        }
     }
 
     private void updateDate() {

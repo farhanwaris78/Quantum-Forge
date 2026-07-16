@@ -10,11 +10,9 @@
 
 package quantumforge.project;
 
-import java.io.BufferedWriter;
 import java.io.File;
-import java.io.FileWriter;
 import java.io.IOException;
-import java.io.PrintWriter;
+import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -22,6 +20,8 @@ import quantumforge.atoms.model.Cell;
 import quantumforge.atoms.model.property.CellProperty;
 import quantumforge.atoms.reader.AtomsReader;
 import quantumforge.atoms.reader.QEReader;
+import quantumforge.com.file.AtomicFileWriter;
+import quantumforge.com.log.AppLog;
 import quantumforge.input.QEBandInput;
 import quantumforge.input.QEDOSInput;
 import quantumforge.input.QEGeometryInput;
@@ -701,32 +701,22 @@ public class ProjectBody extends Project {
     }
 
     private void saveQEInput(String directoryPath, String fileName, QEInput input) {
-        if (directoryPath == null) {
+        if (directoryPath == null || fileName == null || input == null) {
             return;
         }
 
-        if (fileName == null) {
-            return;
-        }
-
-        if (input == null) {
-            return;
-        }
-
-        PrintWriter writer = null;
-        File file = new File(directoryPath, fileName);
-
+        Path path = Path.of(directoryPath, fileName);
         try {
-            writer = new PrintWriter(new BufferedWriter(new FileWriter(file)));
-            writer.println(input.toString());
-
-        } catch (IOException e) {
-            e.printStackTrace();
-
-        } finally {
-            if (writer != null) {
-                writer.close();
+            String content = input.toString();
+            if (content == null) {
+                content = "";
             }
+            if (!content.endsWith("\n")) {
+                content = content + System.lineSeparator();
+            }
+            AtomicFileWriter.writeUtf8(path, content);
+        } catch (IOException e) {
+            AppLog.error("project", "Failed to save QE input " + path, e);
         }
     }
 

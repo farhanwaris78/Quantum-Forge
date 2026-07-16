@@ -46,13 +46,20 @@ cp packaging/windows/Install-QuantumForge.ps1 "$BUNDLE/management/Install-Quantu
 cp packaging/windows/Update-QuantumForge.ps1 "$BUNDLE/management/Update-QuantumForge.ps1"
 cp packaging/windows/Uninstall-QuantumForge.ps1 "$BUNDLE/management/Uninstall-QuantumForge.ps1"
 cp packaging/unix/install.sh "$BUNDLE/install.sh"
+cp packaging/unix/update.sh "$BUNDLE/update.sh"
+cp packaging/unix/uninstall.sh "$BUNDLE/uninstall.sh"
 cp LICENSE README.md "$BUNDLE/"
+cp docs/INSTALLATION.md docs/RELEASE_AND_SECURITY.md docs/SCIENTIFIC_SOFTWARE_GUIDE.md \
+   docs/CODE_AUDIT.md docs/FUTURE_ROADMAP.md docs/IMPLEMENTATION_REPORT.md \
+   docs/TUTORIAL_INSTALL.md "$BUNDLE/docs/" 2>/dev/null || \
 cp docs/INSTALLATION.md docs/RELEASE_AND_SECURITY.md docs/SCIENTIFIC_SOFTWARE_GUIDE.md \
    docs/CODE_AUDIT.md docs/FUTURE_ROADMAP.md docs/IMPLEMENTATION_REPORT.md "$BUNDLE/docs/"
 cp src/quantumforge/app/resource/image/icon_256.png "$BUNDLE/resources/quantumforge.png"
 printf '%s\n' "$VERSION" > "$BUNDLE/VERSION"
+printf 'command=quantumforge\n' > "$BUNDLE/LAUNCH_COMMAND.txt"
 cp target/quantumforge-sbom.json "$BUNDLE/quantumforge-sbom.cdx.json"
-chmod 755 "$BUNDLE/bin/quantumforge" "$BUNDLE/management/"*.sh "$BUNDLE/install.sh"
+chmod 755 "$BUNDLE/bin/quantumforge" "$BUNDLE/management/"*.sh \
+    "$BUNDLE/install.sh" "$BUNDLE/update.sh" "$BUNDLE/uninstall.sh"
 find "$BUNDLE" -type f ! -path '*/bin/quantumforge' ! -path '*/management/*.sh' ! -name install.sh -exec chmod 644 {} +
 
 mkdir -p target/release

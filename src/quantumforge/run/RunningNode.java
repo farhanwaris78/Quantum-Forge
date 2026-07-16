@@ -10,19 +10,21 @@
 
 package quantumforge.run;
 
-import java.io.BufferedWriter;
 import java.io.File;
-import java.io.FileWriter;
 import java.io.IOException;
-import java.io.PrintWriter;
+import java.nio.file.Path;
+import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 import javafx.application.Platform;
 import javafx.scene.control.Alert;
 import javafx.scene.control.Alert.AlertType;
 import quantumforge.app.QEFXMain;
+import quantumforge.com.file.AtomicFileWriter;
 import quantumforge.com.file.FileTools;
+import quantumforge.com.log.AppLog;
 import quantumforge.com.path.QEPath;
 import quantumforge.input.QEInput;
 import quantumforge.input.validation.QEInputValidator;
@@ -50,12 +52,17 @@ public class RunningNode implements Runnable {
 
     private Process objProcess;
 
+    private volatile boolean cancelled;
+
+    private String jobId;
+
     public RunningNode(Project project) {
         if (project == null) {
             throw new IllegalArgumentException("project is null.");
         }
 
         this.alive = true;
+        this.cancelled = false;
 
         this.project = project;
 
@@ -67,6 +74,7 @@ public class RunningNode implements Runnable {
         this.numThreads = 1;
 
         this.objProcess = null;
+        this.jobId = null;
     }
 
     public Project getProject() {
@@ -137,10 +145,17 @@ public class RunningNode implements Runnable {
 
     public synchronized void stop() {
         this.alive = false;
+        this.cancelled = true;
 
         if (this.objProcess != null) {
-            this.objProcess.destroy();
+            // Prefer QE graceful exit file first, then process-tree kill.
+            this.requestGracefulExit();
+            ProcessTreeKiller.stop(this.objProcess, Duration.ofSeconds(5), Duration.ofSeconds(5));
         }
+    }
+
+    public synchronized boolean wasCancelled() {
+        return this.cancelled;
     }
 
     @Override
@@ -155,6 +170,9 @@ public class RunningNode implements Runnable {
         if (directory == null) {
             return;
         }
+
+        this.jobId = AppLog.newJobId();
+        AppLog.info("run", "Starting calculation job " + this.jobId + " in " + directory.getPath());
 
         RunningType type2 = null;
         int numProcesses2 = -1;
@@ -174,6 +192,11 @@ public class RunningNode implements Runnable {
         }
         if (numThreads2 < 1) {
             numThreads2 = 1;
+        }
+
+        QEExecutableProfile profile = QEExecutableProfile.probeConfigured();
+        if (!profile.hasCorePw()) {
+            AppLog.warn("run", "pw.x is missing from the configured QE profile; launch will likely fail.");
         }
 
         QEInput input = new FXQEInputFactory(type2).getQEInput(this.project);
@@ -232,11 +255,13 @@ public class RunningNode implements Runnable {
 
         ProcessBuilder builder = null;
         boolean errOccurred = false;
+        boolean wasCancelled = false;
 
         for (int i = 0; i < commandList.size(); i++) {
             synchronized (this) {
                 if (!this.alive) {
-                    return;
+                    wasCancelled = true;
+                    break;
                 }
             }
 
@@ -303,6 +328,22 @@ public class RunningNode implements Runnable {
             builder.environment().put("OMP_NUM_THREADS", Integer.toString(numThreads2));
             this.setPathToBuilder(builder);
 
+            RunManifest manifest = new RunManifest(this.jobId, type2.name() + "-stage-" + i,
+                    Arrays.asList(command), directory.toPath());
+            manifest.setQeVersion(profile.getVersion());
+            manifest.putEnvironment("OMP_NUM_THREADS", Integer.toString(numThreads2));
+            if (command.length > 0) {
+                Path executable = Path.of(command[0]);
+                if (!executable.isAbsolute() && profile.getBinDirectory() != null) {
+                    Path candidate = profile.getBinDirectory().resolve(command[0]);
+                    if (java.nio.file.Files.isRegularFile(candidate)) {
+                        executable = candidate;
+                    }
+                }
+                manifest.setExecutable(executable);
+            }
+            manifest.setInput(inpFile.toPath());
+
             try {
                 synchronized (this) {
                     this.objProcess = builder.start();
@@ -311,15 +352,30 @@ public class RunningNode implements Runnable {
                 parser.startParsing(logFile);
 
                 if (this.objProcess != null) {
-                    if (this.objProcess.waitFor() != 0) {
-                        errOccurred = true;
+                    int exit = this.objProcess.waitFor();
+                    manifest.setOutputs(logFile.toPath(), errFile.toPath());
+                    if (this.wasCancelled()) {
+                        wasCancelled = true;
+                        manifest.finish(exit, "CANCELLED");
                         break;
                     }
+                    if (exit != 0) {
+                        errOccurred = true;
+                        manifest.finish(exit, "FAILED");
+                        break;
+                    }
+                    manifest.finish(exit, "COMPLETED");
                 }
 
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                wasCancelled = true;
+                manifest.finish(-1, "CANCELLED");
+                break;
             } catch (Exception e) {
-                e.printStackTrace();
+                AppLog.error("run", "Stage failed for job " + this.jobId, e);
                 errOccurred = true;
+                manifest.finish(-1, "FAILED");
                 break;
 
             } finally {
@@ -328,18 +384,44 @@ public class RunningNode implements Runnable {
                 }
 
                 parser.endParsing();
+                try {
+                    manifest.appendToProject(directory.toPath());
+                } catch (IOException ex) {
+                    AppLog.warn("run", "Could not write run manifest: " + ex.getMessage());
+                }
             }
 
-            if (!errOccurred) {
+            if (!errOccurred && !wasCancelled) {
                 post.operate(this.project);
             }
         }
 
-        if (!errOccurred) {
+        if (wasCancelled) {
+            AppLog.info("run", "Job " + this.jobId + " cancelled");
+            this.setStatus(RunningStatus.IDLE);
+        } else if (!errOccurred) {
             type2.setProjectStatus(this.project);
-
+            AppLog.info("run", "Job " + this.jobId + " completed");
         } else {
+            AppLog.error("run", "Job " + this.jobId + " failed");
             this.showErrorDialog(builder);
+        }
+    }
+
+    private void requestGracefulExit() {
+        File directory = this.getDirectory();
+        if (directory == null) {
+            return;
+        }
+        String exitName = this.project.getExitFileName();
+        if (exitName == null || exitName.trim().isEmpty()) {
+            return;
+        }
+        try {
+            AtomicFileWriter.writeUtf8(Path.of(directory.getPath(), exitName.trim()), "1\n");
+            AppLog.info("run", "Wrote QE EXIT file " + exitName);
+        } catch (IOException ex) {
+            AppLog.warn("run", "Could not write QE EXIT file: " + ex.getMessage());
         }
     }
 
@@ -356,7 +438,7 @@ public class RunningNode implements Runnable {
             }
 
         } catch (Exception e) {
-            e.printStackTrace();
+            AppLog.error("run", "Cannot access project directory", e);
             return null;
         }
 
@@ -364,11 +446,7 @@ public class RunningNode implements Runnable {
     }
 
     private boolean writeQEInput(QEInput input, File file) {
-        if (input == null) {
-            return false;
-        }
-
-        if (file == null) {
+        if (input == null || file == null) {
             return false;
         }
 
@@ -376,24 +454,17 @@ public class RunningNode implements Runnable {
         if (strInput == null) {
             return false;
         }
-
-        PrintWriter writer = null;
-
-        try {
-            writer = new PrintWriter(new BufferedWriter(new FileWriter(file)));
-            writer.println(strInput);
-
-        } catch (IOException e) {
-            e.printStackTrace();
-            return false;
-
-        } finally {
-            if (writer != null) {
-                writer.close();
-            }
+        if (!strInput.endsWith("\n")) {
+            strInput = strInput + System.lineSeparator();
         }
 
-        return true;
+        try {
+            AtomicFileWriter.writeUtf8(file.toPath(), strInput);
+            return true;
+        } catch (IOException e) {
+            AppLog.error("run", "Failed to write QE input " + file, e);
+            return false;
+        }
     }
 
     private void deleteExitFile(File directory) {
@@ -410,7 +481,7 @@ public class RunningNode implements Runnable {
                     FileTools.deleteAllFiles(exitFile, false);
                 }
             } catch (Exception e) {
-                e.printStackTrace();
+                AppLog.warn("run", "Could not delete EXIT file: " + e.getMessage());
             }
         }
     }
@@ -426,7 +497,7 @@ public class RunningNode implements Runnable {
             }
 
         } catch (Exception e) {
-            e.printStackTrace();
+            AppLog.warn("run", "Could not delete previous log files: " + e.getMessage());
         }
     }
 

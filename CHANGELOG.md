@@ -7,8 +7,20 @@
 - Added reproducible Maven/JDK 17/OpenJFX build, modern dependency declarations, JUnit tests, and CycloneDX SBOM.
 - Added `quantumforge` launcher with `--version`, `--doctor`, remote-X11 software-rendering fallback, file arguments, and clear Java errors.
 - Added platform portable archives, jpackage native packaging, Arch PKGBUILD, safe per-user install/update/uninstall, desktop/PATH integration, and checksum verification.
-- Added ready-to-activate CI/release workflow templates for Ubuntu 20.04 baseline, Arch, Windows, and Intel/Apple-Silicon macOS.
+- Activated CI/release workflow files under `.github/workflows/` for Ubuntu 20.04 baseline, Arch, Windows, and Intel/Apple-Silicon macOS (requires maintainer Actions permissions and signing secrets).
+- Added full multi-platform install tutorial (`docs/TUTORIAL_INSTALL.md`) covering safe install/update/uninstall and MobaXterm `quantumforge` GUI launch.
 - Added comprehensive installation, external-engine, release-security, code-audit, and 170-item roadmap documentation.
+
+### Project safety and run provenance (roadmap batch 2)
+
+- Atomic project property/input writes via stage+fsync+rename (`AtomicFileWriter`) with last-known-good `.bak` copies.
+- Project schema v1 metadata (`schemaVersion`, `quantumforgeVersion`) on status JSON.
+- Debounced autosave snapshot helper (`.quantumforge.autosave/`).
+- Structured rotating logs with job IDs and secret redaction (`~/.quantumforge/logs/`).
+- Local-first crash reporter writing redacted diagnostic bundles (no automatic upload).
+- QE executable profile probing in `quantumforge --doctor`.
+- Per-stage run manifests (`.quantumforge.run-manifest.jsonl`) with command/hash/exit provenance.
+- Process-tree cancellation with QE EXIT file then graceful/forced descendant kill.
 
 ### Correctness and safety
 
