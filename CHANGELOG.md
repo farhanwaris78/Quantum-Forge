@@ -110,3 +110,11 @@
 - XML-first Quantum ESPRESSO `data-file-schema.xml` parser (XXE-hardened) preferred by ScfParser.
 - spglib/seekpath sidecar protocol v2: dataset, primitive/conventional standardization, k-path.
 - Remote job monitor with exponential backoff and terminal-state detection.
+
+### NEB, checkpoint resubmit, phonon thermo, Windows secrets (roadmap batch 10)
+
+- Fixed NEB lattice interpolation bug and added typed path creation with validation.
+- Checkpoint-aware resubmit planner writes explicit restart plans and preserves job history.
+- Harmonic phonon-DOS thermodynamic integration replaces fabricated thermo placeholders.
+- QE XML parser extracts total force and stress when present.
+- Windows DPAPI credential backend for SecretStore.

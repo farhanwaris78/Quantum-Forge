@@ -1,6 +1,6 @@
 # QuantumForge implementation status (roadmap inventory)
 
-Last updated: 2026-07-16 (branch batches 1–9).
+Last updated: 2026-07-16 (branch batches 1–10).
 
 Status key:
 
@@ -21,7 +21,7 @@ Status key:
 | 6 | Project schema versioning | Partial | schema v1 metadata on status |
 | 7 | Atomic project writes | Done | `AtomicFileWriter` + `.bak` |
 | 8 | Autosave and recovery | Done | export-safe autosave + recovery GUI |
-| 9 | Secret storage | Partial | `SecretStore` + process keyring (`secret-tool`/Keychain) when available |
+| 9 | Secret storage | Partial | `SecretStore` + Linux/macOS process keyring + Windows DPAPI helper |
 | 10 | SSH fail-closed | Done/Partial | No false success; real transport exists when configured |
 | 11 | Asset/license manifest | Not started | |
 | 12 | Upstream provenance map | Not started | |
@@ -57,7 +57,7 @@ Status key:
 | 39 | Geometry convergence validator | Partial | marker/threshold evidence |
 | 40 | Transactional final-geometry update | Partial | preview only; apply fail-closed |
 | 41 | SCF reference suite | Partial | golden log fixtures (not full engine corpus) |
-| 42 | XML-first parsing | Partial | `QeXmlResultParser` + ScfParser preference |
+| 42 | XML-first parsing | Partial | energy/Fermi/convergence/force/stress from XML |
 | 43 | Timing/resource parser | Not started | |
 | 44 | Input diff/preview | Not started | |
 | 45 | Dry-run/preflight | Done | binaries/disk/MPI/input/DAG/restart notes |
@@ -94,7 +94,7 @@ Status key:
 | 96 | Remote monitoring | Partial | `RemoteJobMonitor` backoff polling |
 | 97 | Safe cancellation | Partial | cancel-by-id + status verify |
 | 98 | Selective result sync | Partial | manifest + checksum cache |
-| 99 | Checkpoint-aware resubmit | Not started | |
+| 99 | Checkpoint-aware resubmit | Partial | plan generation from walltime/checkpoint evidence |
 | 100–103 | Arrays/estimator/MPI/containers | Not started | |
 | 104 | Workflow export | Done | bash/SLURM export + GUI |
 | 105 | Database-backed queue | Partial | durable JSONL queue (not SQLite yet) |

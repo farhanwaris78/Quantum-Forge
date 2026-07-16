@@ -309,3 +309,14 @@ The **ninth** batch advances secrets, XML parsing, symmetry transforms, and remo
 | 42 | **Partial** | `QeXmlResultParser` for `data-file-schema.xml` with XXE hardening; ScfParser prefers XML |
 | 71–73 | **Stronger Partial** | spglib/seekpath sidecar protocol v2: standardize primitive/conventional + k-path |
 | 96 | **Partial** | `RemoteJobMonitor` bounded polling with exponential backoff and job-queue persistence hooks |
+
+
+The **tenth** batch hardens NEB, checkpoint resubmit, phonon thermodynamics, XML forces/stress, and Windows secrets:
+
+| # | Status after batch 10 | What landed |
+|---:|---|---|
+| 50 | **Partial** | Fixed NEB lattice interpolation bug; typed path builder with order/volume checks |
+| 99 | **Partial** | `CheckpointResubmit` detects walltime/preempt and writes explicit restart plan |
+| 51/thermo | **Partial** | Real harmonic phonon-DOS thermodynamics integration (no fabricated formulas) |
+| 42 | **Stronger** | XML parser extracts total force + stress tensor when present |
+| 9 | **Stronger** | Windows DPAPI credential backend via PowerShell |

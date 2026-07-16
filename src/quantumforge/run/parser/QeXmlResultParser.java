@@ -39,10 +39,13 @@ public final class QeXmlResultParser {
         private final Boolean scfConverged;
         private final Integer nat;
         private final Integer nspins;
+        private final Double totalForce;
+        private final double[][] stressRyBohr3;
         private final Map<String, String> rawScalars;
 
         public QeXmlResults(String schemaVersion, Double fermiEnergyEv, Double totalEnergyRy,
                             Boolean scfConverged, Integer nat, Integer nspins,
+                            Double totalForce, double[][] stressRyBohr3,
                             Map<String, String> rawScalars) {
             this.schemaVersion = schemaVersion == null ? "" : schemaVersion;
             this.fermiEnergyEv = fermiEnergyEv;
@@ -50,6 +53,8 @@ public final class QeXmlResultParser {
             this.scfConverged = scfConverged;
             this.nat = nat;
             this.nspins = nspins;
+            this.totalForce = totalForce;
+            this.stressRyBohr3 = stressRyBohr3 == null ? null : copy3(stressRyBohr3);
             this.rawScalars = rawScalars == null
                     ? Map.of() : Map.copyOf(rawScalars);
         }
@@ -60,7 +65,19 @@ public final class QeXmlResultParser {
         public Optional<Boolean> getScfConverged() { return Optional.ofNullable(this.scfConverged); }
         public Optional<Integer> getNat() { return Optional.ofNullable(this.nat); }
         public Optional<Integer> getNspins() { return Optional.ofNullable(this.nspins); }
+        public Optional<Double> getTotalForce() { return Optional.ofNullable(this.totalForce); }
+        public Optional<double[][]> getStressRyBohr3() {
+            return this.stressRyBohr3 == null ? Optional.empty() : Optional.of(copy3(this.stressRyBohr3));
+        }
         public Map<String, String> getRawScalars() { return this.rawScalars; }
+
+        private static double[][] copy3(double[][] src) {
+            double[][] out = new double[3][3];
+            for (int i = 0; i < 3; i++) {
+                System.arraycopy(src[i], 0, out[i], 0, 3);
+            }
+            return out;
+        }
     }
 
     private QeXmlResultParser() {
@@ -142,8 +159,15 @@ public final class QeXmlResultParser {
                 }
             }
 
+            Double totalForce = firstDouble(
+                    scalars,
+                    "output/forces/total_force",
+                    "forces/total_force",
+                    "total_force");
+            double[][] stress = extractStress(scalars);
+
             QeXmlResults results = new QeXmlResults(
-                    schemaVersion, fermi, etot, converged, nat, nspin, scalars);
+                    schemaVersion, fermi, etot, converged, nat, nspin, totalForce, stress, scalars);
             return OperationResult.success("QE_XML_OK",
                     "Parsed QE XML from " + sourceLabel, results);
         } catch (Exception ex) {
@@ -179,8 +203,11 @@ public final class QeXmlResultParser {
             if (text != null) {
                 String trimmed = text.trim();
                 // Keep only short scalar-like values, not huge matrices.
-                if (!trimmed.isEmpty() && trimmed.length() < 200 && !trimmed.contains("\n\n")) {
-                    if (!trimmed.contains("  ") || trimmed.matches("[-+0-9eE. \t]+")) {
+                if (!trimmed.isEmpty() && trimmed.length() < 400 && !trimmed.contains("\n\n")) {
+                    if (trimmed.matches("[-+0-9eE. \t]+")) {
+                        // Keep full numeric vectors/matrices (forces/stress), not only first token.
+                        out.putIfAbsent(next, trimmed.replaceAll("\\s+", " ").trim());
+                    } else if (!trimmed.contains("  ")) {
                         out.putIfAbsent(next, trimmed.split("\\s+")[0]);
                     }
                 }
@@ -230,7 +257,8 @@ public final class QeXmlResultParser {
                 continue;
             }
             try {
-                return ScfConvergenceAnalyzer.parseFortranDouble(raw);
+                String token = raw.trim().split("\\s+")[0];
+                return ScfConvergenceAnalyzer.parseFortranDouble(token);
             } catch (NumberFormatException ignored) {
                 // try next
             }
@@ -268,6 +296,61 @@ public final class QeXmlResultParser {
             }
         }
         return null;
+    }
+
+
+    private static double[][] extractStress(Map<String, String> scalars) {
+        double[][] m = new double[3][3];
+        boolean any = false;
+        for (int i = 0; i < 3; i++) {
+            for (int j = 0; j < 3; j++) {
+                String[] candidates = {
+                        "output/stress/" + (i + 1) + (j + 1),
+                        "output/stress/sigma_" + (i + 1) + (j + 1),
+                        "stress/" + (i + 1) + "," + (j + 1),
+                        "stress_" + i + "_" + j
+                };
+                Double v = firstDouble(scalars, candidates);
+                if (v != null) {
+                    m[i][j] = v;
+                    any = true;
+                }
+            }
+        }
+        if (!any) {
+            String packed = findIgnoreCase(scalars, "output/stress/sigma");
+            if (packed == null) {
+                packed = findIgnoreCase(scalars, "stress/sigma");
+            }
+            if (packed == null) {
+                packed = findIgnoreCase(scalars, "sigma");
+            }
+            if (packed != null) {
+                String[] parts = packed.trim().split("\\s+");
+                try {
+                    if (parts.length >= 9) {
+                        int idx = 0;
+                        for (int i = 0; i < 3; i++) {
+                            for (int j = 0; j < 3; j++) {
+                                m[i][j] = Double.parseDouble(parts[idx++]);
+                            }
+                        }
+                        any = true;
+                    } else if (parts.length >= 6) {
+                        m[0][0] = Double.parseDouble(parts[0]);
+                        m[1][1] = Double.parseDouble(parts[1]);
+                        m[2][2] = Double.parseDouble(parts[2]);
+                        m[0][1] = m[1][0] = Double.parseDouble(parts[3]);
+                        m[0][2] = m[2][0] = Double.parseDouble(parts[4]);
+                        m[1][2] = m[2][1] = Double.parseDouble(parts[5]);
+                        any = true;
+                    }
+                } catch (NumberFormatException ignored) {
+                    any = false;
+                }
+            }
+        }
+        return any ? m : null;
     }
 
     private static String findIgnoreCase(Map<String, String> scalars, String key) {

@@ -59,7 +59,7 @@ public final class ProcessKeyringBackend implements SecretStore.OsKeyringBackend
             }
             return new ProcessKeyringBackend(Platform.UNAVAILABLE, null);
         }
-        // Windows Credential Manager needs a dedicated helper; do not pretend.
+        // Windows is handled by WindowsCredentialBackend (DPAPI helper).
         return new ProcessKeyringBackend(Platform.UNAVAILABLE, null);
     }
 

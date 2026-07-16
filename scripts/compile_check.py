@@ -134,6 +134,10 @@ def main() -> int:
         "quantumforge/symmetry/SeekPathResult.java",
         "quantumforge/symmetry/StandardizedCell.java",
         "quantumforge/hpc/RemoteJobMonitor.java",
+        "quantumforge/com/secrets/WindowsCredentialBackend.java",
+        "quantumforge/run/parser/PhononDosThermodynamics.java",
+        "quantumforge/run/CheckpointResubmit.java",
+        "quantumforge/builder/neb/NEBPathCreator.java",
         "quantumforge/run/parser/QeXmlResultParser.java",
         "quantumforge/com/secrets/ProcessKeyringBackend.java",
         "quantumforge/hpc/JobQueueStore.java",
@@ -156,6 +160,12 @@ def main() -> int:
     runAction = (SRC / "quantumforge/app/project/viewer/run/RunAction.java").read_text(encoding="utf-8")
     if "postJobToServerResult" not in runAction or "HostKeyAcceptance" not in runAction:
         error("RunAction still uses untyped/fake SSH submit path")
+    neb = (SRC / "quantumforge/builder/neb/NEBPathCreator.java").read_text(encoding="utf-8")
+    if "for (int k = 0; k < 3; k++)" not in neb and "for (int k = 0; k < 3; k++)" not in neb:
+        # accept either classic or enhanced form
+        if "for (int k = 0; k < 3; k++)" not in neb:
+            if "k < 3" not in neb:
+                error("NEBPathCreator lattice loop appears broken")
 
     
     cap = (SRC / "quantumforge/capability/CapabilityRegistry.java").read_text(encoding="utf-8")

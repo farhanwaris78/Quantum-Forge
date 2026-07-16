@@ -141,6 +141,16 @@ That command is installed on PATH by the portable installer (Linux/macOS/Windows
 | spglib protocol v2 | 71–73 | standardize + seekpath ops | Real primitive/conventional/k-path when packages installed | Locked env + COD fixtures |
 | Remote job monitor | 96 | backoff polling + status mapping | Reconstructable remote job status without request storms | GUI panel + offline reconnect |
 
+## Batch 10 — NEB fix, checkpoint resubmit, phonon thermo, XML force/stress, Windows keyring
+
+| Change | Roadmap # | What was implemented | Expected impact | Next improvement |
+|---|---:|---|---|---|
+| NEB path builder | 50 | Correct 3×3 lattice loop; typed `createPath` with diagnostics | Safe image interpolation without silent corruption | Climbing-image/neb.x runner |
+| Checkpoint resubmit | 99 | Walltime/preempt detection + restart plan file | Explicit resubmit preserving history | Auto scheduler clone submit |
+| Phonon DOS thermo | 51-related | Trapezoidal harmonic integrals for F/U/S/Cv/ZPE | Real numbers from DOS, not placeholders | Full matdyn/ph.x workflow |
+| QE XML force/stress | 42 | total_force + stress matrix extraction | Richer XML-first results | Forces per atom arrays |
+| Windows keyring | 9 | DPAPI-backed PowerShell credential store | Secrets on Windows without plaintext properties | Official Credential Manager API |
+
 ## Recommended next batch
 
 1. Run `mvn clean verify` on a JDK 17 host and fix any findings.

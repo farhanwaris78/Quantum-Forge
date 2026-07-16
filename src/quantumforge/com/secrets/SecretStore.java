@@ -127,17 +127,20 @@ public final class SecretStore {
     }
 
     static OsKeyringBackend detectBackend() {
+        String os = System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT);
+        if (os.contains("win")) {
+            WindowsCredentialBackend win = WindowsCredentialBackend.detect();
+            if (win.isAvailable()) {
+                return win;
+            }
+            return new UnavailableKeyringBackend("credential-manager");
+        }
         ProcessKeyringBackend process = ProcessKeyringBackend.detect();
         if (process.isAvailable()) {
             return process;
         }
-        String os = System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT);
-        // Fallback label when CLI tooling is absent. Secrets remain memory-only.
         if (os.contains("mac")) {
             return new UnavailableKeyringBackend("keychain");
-        }
-        if (os.contains("win")) {
-            return new UnavailableKeyringBackend("credential-manager");
         }
         if (os.contains("linux")) {
             return new UnavailableKeyringBackend("libsecret");
