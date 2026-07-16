@@ -12,6 +12,8 @@ package quantumforge.symmetry;
 
 import quantumforge.atoms.model.Cell;
 import quantumforge.com.math.Lattice;
+import quantumforge.operation.OperationResult;
+
 
 /**
  * Space group detector for crystalline materials.
@@ -196,4 +198,21 @@ public class SpaceGroupDetector {
     public int getNumSymOperations() {
         return this.numSymOperations;
     }
+
+    /**
+     * Attempt a real space-group determination via the isolated spglib sidecar.
+     * Returns undetermined text when the service is unavailable.
+     */
+    public String detectWithSpglib(double tolerance) {
+        SpglibService service = SpglibService.detectDefault();
+        OperationResult<SpglibService.Dataset> result = service.getDataset(this.cell, tolerance);
+        if (!result.isSuccess() || result.getValue().isEmpty()) {
+            return "Undetermined (" + result.getMessage() + ")";
+        }
+        SpglibService.Dataset dataset = result.getValue().get();
+        this.spaceGroupNumber = dataset.getSpaceGroupNumber();
+        this.spaceGroupName = dataset.getInternationalSymbol();
+        return dataset.getSpaceGroupNumber() + " (" + dataset.getInternationalSymbol() + ")";
+    }
+
 }

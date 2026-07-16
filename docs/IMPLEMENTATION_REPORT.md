@@ -100,6 +100,19 @@ That command is installed on PATH by the portable installer (Linux/macOS/Windows
 - `scripts/fixture_harness.py`
 - Full `mvn verify` still blocked in this sandbox (JDK download TLS)
 
+## Batch 6 — SSH/host keys, SLURM, site profiles, spglib protocol
+
+| Change | Roadmap # | What was implemented | Expected impact | Next improvement |
+|---|---:|---|---|---|
+| Known hosts | 91 | SHA-256 fingerprint store; reject unknown/changed keys | Prevents silent MITM on first/changed host | GUI fingerprint accept dialog |
+| JSch transport | 91/92 | Connect/exec/SFTP upload-download/mkdir with path checks | Real remote ops when credentials exist | Agent auth + keepalive tuning |
+| Remote path guard | 92 | Absolute staging root + no `..` | Safe unique remote job directories | Hash-verified selective sync |
+| SLURM adapter | 93 | Typed directives, parse job id, scancel/squeue arrays | Portable script generation | PBS/SGE adapters |
+| Site profiles | 94 | YAML-like profile loader | One project → many clusters | Full YAML + admin policy files |
+| Job state | 95 | STAGED→… transitions | Restartable job history | SQLite queue persistence |
+| SSHJob | 10/91 | Script prepare always; submit only with transport | No false “job submitted” | End-to-end cluster tests |
+| spglib service | 71 | Isolated Python sidecar protocol | Real space groups only when spglib present | Locked env + COD fixtures |
+
 ## Recommended next batch
 
 1. Run `mvn clean verify` on a JDK 17 host and fix any findings.

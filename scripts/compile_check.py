@@ -124,6 +124,11 @@ def main() -> int:
         "quantumforge/run/DryRunPreflight.java",
         "quantumforge/tools/XCrySDenLauncher.java",
         "quantumforge/app/project/viewer/recovery/RecoveryAction.java",
+        "quantumforge/ssh/KnownHostsStore.java",
+        "quantumforge/ssh/JschSshTransport.java",
+        "quantumforge/hpc/SlurmSchedulerAdapter.java",
+        "quantumforge/hpc/SiteProfile.java",
+        "quantumforge/symmetry/SpglibService.java",
     ]:
         text = (SRC / rel).read_text(encoding="utf-8")
         if "class " not in text and "enum " not in text:
@@ -135,6 +140,13 @@ def main() -> int:
     node = (SRC / "quantumforge/run/RunningNode.java").read_text(encoding="utf-8")
     if "DryRunPreflight" not in node or "ArtifactScanner" not in node or "QECommandDag" not in node:
         error("RunningNode is not wired to dry-run/DAG/artifact scanning")
+
+    
+    cap = (SRC / "quantumforge/capability/CapabilityRegistry.java").read_text(encoding="utf-8")
+    if "Strict known_hosts" not in cap:
+        error("CapabilityRegistry SSH status not updated")
+    if "spglib JSON sidecar" not in cap:
+        error("CapabilityRegistry symmetry status not updated")
 
     if ERRORS:
         print(f"Compile-check FAILED ({len(ERRORS)}):")

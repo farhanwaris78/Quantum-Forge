@@ -80,3 +80,12 @@
 - Advanced physics/catalysis/battery/topology/ML modules include unwired or simplified prototypes and are not validated research features.
 - Native Windows/macOS code signing requires owner-provided certificates and protected CI secrets; unsigned artifacts must be labeled accordingly.
 - The initial test suite is not yet the required QE multi-version golden-output corpus.
+
+### SSH/HPC and spglib foundations (roadmap batch 6)
+
+- Strict `KnownHostsStore` and `JschSshTransport` (fail-closed host keys; session-only passwords).
+- SFTP path guards, unique remote job directories, temp upload+rename pattern.
+- `SlurmSchedulerAdapter`, `SiteProfile` loader, `JobRecord` state machine.
+- `SSHJob` prepares scripts offline; submit requires a connected transport.
+- `SpglibService` + `tools/spglib_sidecar.py` isolated protocol (no invented space groups).
+- Example site profile: `packaging/sites/example-slurm.yaml`.

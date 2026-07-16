@@ -25,6 +25,19 @@ The **fifth** batch (this continuation) wires and extends those foundations:
 
 “Partially” remains intentional where full engine golden runs, native keyrings, or remote XCrySDen lifecycle tests are still required.
 
+The **sixth** batch adds HPC/SSH foundations and spglib protocol:
+
+| # | Status after batch 6 | What landed |
+|---:|---|---|
+| 91 | **Partial** | `JschSshTransport` + `KnownHostsStore` fail-closed host keys; session passwords only |
+| 92 | **Partial** | `RemotePathGuard` staging roots, unique job dirs, temp upload+rename pattern |
+| 93 | **Partial** | `SlurmSchedulerAdapter` typed `#SBATCH` + job-id parse + cancel/status arrays |
+| 94 | **Partial** | `SiteProfile` simple YAML-like loader (`packaging/sites/example-slurm.yaml`) |
+| 95 | **Partial** | `JobRecord` / `JobState` transition history |
+| 10 | **Still fail-closed without transport** | `SSHJob` prepares scripts; submit requires connected transport |
+| 71 | **Partial** | `SpglibService` JSON-line sidecar protocol + `tools/spglib_sidecar.py` |
+
+
 ## Phase 0 — trust, safety, and scope (do these first)
 
 | # | Addition/change | Implementation approach | Expected effectiveness / acceptance criterion |

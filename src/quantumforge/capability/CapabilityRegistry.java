@@ -48,9 +48,9 @@ public final class CapabilityRegistry {
         register(values, QE_LOCAL, "Local Quantum ESPRESSO execution", CapabilityStatus.PARTIAL,
                 "ProcessBuilder is driven with dry-run preflight, typed command DAG stage skipping from on-disk artifacts, run manifests, restart assessment, workflow export, process-tree cancellation, live log tailing, and SCF/geometry analysis.",
                 "Add real multi-version QE golden integration tests against installed engines.");
-        register(values, SSH_HPC, "SSH and HPC schedulers", CapabilityStatus.UNAVAILABLE,
-                "Legacy transfer/submission paths are disabled because no real secure transport exists.",
-                "Implement strict host-key SSH/SFTP and scheduler job-state adapters.");
+        register(values, SSH_HPC, "SSH and HPC schedulers", CapabilityStatus.PARTIAL,
+                "Strict known_hosts store, JSch transport with fail-closed host keys, SFTP path guards, SLURM adapter, site profiles, and job-state records exist; end-to-end cluster validation is still required.",
+                "Validate against two real clusters and complete selective result sync/cancel verification.");
         register(values, THERMO_PW, "thermo_pw", CapabilityStatus.EXPERIMENTAL,
                 "Executable detection and a narrow elastic-matrix parser exist.",
                 "Add QE compatibility checks, controls, execution DAG, units, and reference tests.");
@@ -70,8 +70,8 @@ public final class CapabilityRegistry {
                 "No .cell/.param model, execution adapter, or results parser exists.",
                 "Build a separately licensed plugin and private reference suite.");
         register(values, SYMMETRY, "Symmetry", CapabilityStatus.PARTIAL,
-                "Bravais metric helpers exist; space and magnetic group results are intentionally undetermined.",
-                "Integrate versioned spglib datasets and transformation provenance.");
+                "Bravais helpers remain; an isolated spglib JSON sidecar protocol is available when python/spglib are installed, otherwise results stay undetermined.",
+                "Ship a locked sidecar environment and round-trip fixtures for COD/ICSD-permitted cells.");
         register(values, LAMMPS, "LAMMPS", CapabilityStatus.EXPERIMENTAL,
                 "A small script skeleton exists without a data writer, runner, or parser.",
                 "Implement a unit-aware plugin and force/energy conformance fixtures.");

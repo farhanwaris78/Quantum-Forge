@@ -103,6 +103,11 @@ def main() -> int:
         "src/quantumforge/run/DryRunPreflight.java",
         "src/quantumforge/tools/XCrySDenLauncher.java",
         "src/quantumforge/app/project/viewer/recovery/RecoveryAction.java",
+        "src/quantumforge/ssh/KnownHostsStore.java",
+        "src/quantumforge/ssh/JschSshTransport.java",
+        "src/quantumforge/hpc/SlurmSchedulerAdapter.java",
+        "src/quantumforge/symmetry/SpglibService.java",
+        "tools/spglib_sidecar.py",
     ]:
         if not (ROOT / rel).is_file():
             error(f"missing source {rel}")
