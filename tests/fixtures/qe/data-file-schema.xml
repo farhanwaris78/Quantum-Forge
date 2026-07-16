@@ -16,6 +16,8 @@
     </total_energy>
     <forces>
       <total_force>0.00012</total_force>
+      <force>0.00010 0.00000 -0.00005</force>
+      <force>-0.00010 0.00000 0.00005</force>
     </forces>
     <stress>
       <sigma>-0.001 0.000 0.000 0.000 -0.001 0.000 0.000 0.000 -0.001</sigma>

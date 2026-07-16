@@ -1,6 +1,6 @@
 # QuantumForge implementation status (roadmap inventory)
 
-Last updated: 2026-07-16 (branch batches 1–10).
+Last updated: 2026-07-16 (branch batches 1–11).
 
 Status key:
 
@@ -57,7 +57,7 @@ Status key:
 | 39 | Geometry convergence validator | Partial | marker/threshold evidence |
 | 40 | Transactional final-geometry update | Partial | preview only; apply fail-closed |
 | 41 | SCF reference suite | Partial | golden log fixtures (not full engine corpus) |
-| 42 | XML-first parsing | Partial | energy/Fermi/convergence/force/stress from XML |
+| 42 | XML-first parsing | Partial | energy/Fermi/convergence/total-force/stress/atomic-forces from XML |
 | 43 | Timing/resource parser | Not started | |
 | 44 | Input diff/preview | Not started | |
 | 45 | Dry-run/preflight | Done | binaries/disk/MPI/input/DAG/restart notes |
@@ -94,7 +94,7 @@ Status key:
 | 96 | Remote monitoring | Partial | `RemoteJobMonitor` backoff polling |
 | 97 | Safe cancellation | Partial | cancel-by-id + status verify |
 | 98 | Selective result sync | Partial | manifest + checksum cache |
-| 99 | Checkpoint-aware resubmit | Partial | plan generation from walltime/checkpoint evidence |
+| 99 | Checkpoint-aware resubmit | Partial | plan + executable resubmit script export |
 | 100–103 | Arrays/estimator/MPI/containers | Not started | |
 | 104 | Workflow export | Done | bash/SLURM export + GUI |
 | 105 | Database-backed queue | Partial | durable JSONL queue (not SQLite yet) |

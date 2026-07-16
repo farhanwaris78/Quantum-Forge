@@ -118,3 +118,11 @@
 - Harmonic phonon-DOS thermodynamic integration replaces fabricated thermo placeholders.
 - QE XML parser extracts total force and stress when present.
 - Windows DPAPI credential backend for SecretStore.
+
+### NEB/phonon workflows and richer XML/resubmit (roadmap batch 11)
+
+- Added `RunningType.NEB` and `RunningType.PHONON` command lists, DAG stages, logs/errors/parsers/post hooks.
+- Registered `neb.x`/`ph.x`/`q2r.x`/`matdyn.x` command types and properties.
+- QE XML parser now extracts per-atom force vectors.
+- Checkpoint resubmit can export an executable local restart script.
+- Result-sync manifests include NEB/phonon artifacts.

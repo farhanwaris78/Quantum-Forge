@@ -99,6 +99,28 @@ public final class QECommandDag {
                     List.of("band-wavefunctions"), List.of("bands-dat-down"),
                     first(commands, 3), true));
             break;
+        case NEB:
+            stages.add(stage("scf", QECommandStage.Kind.PW_SCF, "Optional SCF precursor",
+                    List.of(), List.of("charge-density", "wavefunctions"),
+                    first(commands, 0), true));
+            stages.add(stage("neb", QECommandStage.Kind.NEB_X, "NEB path optimization (neb.x)",
+                    List.of(), List.of("neb-path", "neb-barrier"),
+                    first(commands, 1), false));
+            break;
+        case PHONON:
+            stages.add(stage("scf", QECommandStage.Kind.PW_SCF, "SCF",
+                    List.of(), List.of("charge-density", "wavefunctions"),
+                    first(commands, 0), false));
+            stages.add(stage("ph", QECommandStage.Kind.PH_X, "DFPT phonons (ph.x)",
+                    List.of("charge-density"), List.of("dynamical-matrices"),
+                    first(commands, 1), false));
+            stages.add(stage("q2r", QECommandStage.Kind.Q2R, "Fourier transform (q2r.x)",
+                    List.of("dynamical-matrices"), List.of("force-constants"),
+                    first(commands, 2), false));
+            stages.add(stage("matdyn", QECommandStage.Kind.MATDYN, "Dispersion/DOS (matdyn.x)",
+                    List.of("force-constants"), List.of("phonon-bands", "phonon-dos"),
+                    first(commands, 3), false));
+            break;
         case CONVERGE:
             throw new UnsupportedOperationException(
                     "Convergence DAG requires a configured parameter sweep and is not implemented.");

@@ -320,3 +320,14 @@ The **tenth** batch hardens NEB, checkpoint resubmit, phonon thermodynamics, XML
 | 51/thermo | **Partial** | Real harmonic phonon-DOS thermodynamics integration (no fabricated formulas) |
 | 42 | **Stronger** | XML parser extracts total force + stress tensor when present |
 | 9 | **Stronger** | Windows DPAPI credential backend via PowerShell |
+
+
+The **eleventh** batch wires NEB/phonon command DAGs and richer XML/resubmit tooling:
+
+| # | Status after batch 11 | What landed |
+|---:|---|---|
+| 50 | **Stronger Partial** | `RunningType.NEB` command list/DAG/logs/parsers/post + path creator |
+| 51 | **Partial** | `RunningType.PHONON` SCF→ph.x→q2r.x→matdyn.x DAG and stage artifacts |
+| 42 | **Stronger** | Per-atom force vectors from QE XML `<force>` entries |
+| 99 | **Stronger** | Checkpoint resubmit exports executable `resubmit-<id>.sh` |
+| 98 | **Stronger** | Result sync manifests for NEB/phonon outputs |

@@ -151,6 +151,15 @@ That command is installed on PATH by the portable installer (Linux/macOS/Windows
 | QE XML force/stress | 42 | total_force + stress matrix extraction | Richer XML-first results | Forces per atom arrays |
 | Windows keyring | 9 | DPAPI-backed PowerShell credential store | Secrets on Windows without plaintext properties | Official Credential Manager API |
 
+## Batch 11 — NEB/phonon DAGs, atomic forces XML, resubmit scripts
+
+| Change | Roadmap # | What was implemented | Expected impact | Next improvement |
+|---|---:|---|---|---|
+| NEB workflow stages | 50 | RunningType/DAG/command/log/parser wiring for neb.x | Runnable NEB stage graph from GUI run path | Full path input cards + climbing-image controls |
+| Phonon DFPT stages | 51 | SCF→ph→q2r→matdyn command DAG | Structured phonon pipeline | Dynmat parsers + eigenvector animation wiring |
+| Atomic forces XML | 42 | Parse per-atom `<force>` vectors | Geometry/force analysis without log prose | Stress convention metadata by QE version |
+| Resubmit script export | 99 | `CheckpointResubmit.exportScript` | Explicit restart launch scripts | Auto site-profile submit |
+
 ## Recommended next batch
 
 1. Run `mvn clean verify` on a JDK 17 host and fix any findings.

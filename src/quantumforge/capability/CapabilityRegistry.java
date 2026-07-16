@@ -46,7 +46,7 @@ public final class CapabilityRegistry {
                 "Core pw.x SCF, relaxation, MD, bands, and DOS models/editors are present.",
                 "Complete version-aware schema and multi-version QE golden tests.");
         register(values, QE_LOCAL, "Local Quantum ESPRESSO execution", CapabilityStatus.PARTIAL,
-                "ProcessBuilder is driven with dry-run preflight, typed command DAG stage skipping, XML-first data-file-schema parsing when present, run manifests, restart assessment, workflow export, process-tree cancellation, live log tailing, and SCF/geometry analysis.",
+                "ProcessBuilder is driven with dry-run preflight, typed command DAG stage skipping, XML-first data-file-schema parsing (energy/Fermi/force/stress/atomic forces) when present, NEB/phonon command DAGs, run manifests, restart/resubmit planning, workflow export, process-tree cancellation, live log tailing, and SCF/geometry analysis.",
                 "Add real multi-version QE golden integration tests against installed engines.");
         register(values, SSH_HPC, "SSH and HPC schedulers", CapabilityStatus.PARTIAL,
                 "Strict known_hosts store, JSch transport, host-key acceptance UI helper, selective result sync with checksum cache, remote job monitor with backoff, safe cancel-by-id, SLURM/PBS/SGE adapters, site profiles, durable job-queue store, and job-state records exist; live multi-cluster validation is still required.",

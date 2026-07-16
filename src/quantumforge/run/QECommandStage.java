@@ -22,6 +22,10 @@ public final class QECommandStage {
         DOS,
         PROJWFC,
         BANDS_X,
+        NEB_X,
+        PH_X,
+        Q2R,
+        MATDYN,
         UNKNOWN
     }
 

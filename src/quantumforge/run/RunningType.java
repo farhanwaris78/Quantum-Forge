@@ -43,6 +43,8 @@ public enum RunningType {
     MD("MD", Project.INPUT_MODE_MD),
     DOS("DOS", Project.INPUT_MODE_DOS),
     BAND("Band", Project.INPUT_MODE_BAND),
+    NEB("NEB", Project.INPUT_MODE_NEB),
+    PHONON("Phonon", Project.INPUT_MODE_PHONON),
     CONVERGE("Convergence", Project.INPUT_MODE_CONVERGENCE);
 
     private String label;
@@ -82,6 +84,12 @@ public enum RunningType {
         case Project.INPUT_MODE_BAND:
             return BAND;
 
+        case Project.INPUT_MODE_NEB:
+            return NEB;
+
+        case Project.INPUT_MODE_PHONON:
+            return PHONON;
+
         default:
             return null;
         }
@@ -114,6 +122,13 @@ public enum RunningType {
 
         case Project.INPUT_MODE_BAND:
             srcInput = project.getQEInputBand();
+            break;
+
+        case Project.INPUT_MODE_NEB:
+        case Project.INPUT_MODE_PHONON:
+            // Dedicated NEB/phonon input models are not fully wired yet; use SCF
+            // geometry/electronic setup as the structural base for command staging.
+            srcInput = project.getQEInputScf();
             break;
 
         case Project.INPUT_MODE_CONVERGENCE:
@@ -331,6 +346,38 @@ public enum RunningType {
 
             break;
 
+        case Project.INPUT_MODE_NEB:
+            // SCF (optional predecessor) then neb.x
+            command = this.createCommand(RunningCommandType.PWSCF, fileName2, numProc2, unixServer);
+            if (command != null && command.length > 0) {
+                commandList.add(command);
+            }
+            command = this.createCommand(RunningCommandType.NEB, fileName2, numProc2, unixServer);
+            if (command != null && command.length > 0) {
+                commandList.add(command);
+            }
+            break;
+
+        case Project.INPUT_MODE_PHONON:
+            // SCF -> ph.x -> q2r.x -> matdyn.x
+            command = this.createCommand(RunningCommandType.PWSCF, fileName2, numProc2, unixServer);
+            if (command != null && command.length > 0) {
+                commandList.add(command);
+            }
+            command = this.createCommand(RunningCommandType.PH, fileName2, numProc2, unixServer);
+            if (command != null && command.length > 0) {
+                commandList.add(command);
+            }
+            command = this.createCommand(RunningCommandType.Q2R, fileName2, numProc2, unixServer);
+            if (command != null && command.length > 0) {
+                commandList.add(command);
+            }
+            command = this.createCommand(RunningCommandType.MATDYN, fileName2, numProc2, unixServer);
+            if (command != null && command.length > 0) {
+                commandList.add(command);
+            }
+            break;
+
         case Project.INPUT_MODE_CONVERGENCE:
             // A fixed five-command loop is not a convergence study: no parameter
             // values, generated inputs, observable, or stopping criterion were
@@ -451,6 +498,38 @@ public enum RunningType {
 
             break;
 
+        case Project.INPUT_MODE_NEB:
+            conditionList.add((project, input) -> {
+                ProjectProperty projectProperty = project == null ? null : project.getProperty();
+                if (projectProperty == null) {
+                    return true;
+                }
+                ProjectStatus projectStatus = projectProperty.getStatus();
+                if (projectStatus == null) {
+                    return true;
+                }
+                return !(projectStatus.isScfDone() || projectStatus.isOptDone());
+            });
+            conditionList.add((project, input) -> true);
+            break;
+
+        case Project.INPUT_MODE_PHONON:
+            conditionList.add((project, input) -> {
+                ProjectProperty projectProperty = project == null ? null : project.getProperty();
+                if (projectProperty == null) {
+                    return true;
+                }
+                ProjectStatus projectStatus = projectProperty.getStatus();
+                if (projectStatus == null) {
+                    return true;
+                }
+                return !(projectStatus.isScfDone() || projectStatus.isOptDone());
+            });
+            conditionList.add((project, input) -> true);
+            conditionList.add((project, input) -> true);
+            conditionList.add((project, input) -> true);
+            break;
+
         default:
             // NOP
             break;
@@ -526,6 +605,32 @@ public enum RunningType {
 
             break;
 
+        case Project.INPUT_MODE_NEB:
+            editorList.add((input) -> {
+                QEInput input2 = project.getQEInputScf();
+                QEInput input3 = input2 == null ? null : input2.copy();
+                if (input3 != null) {
+                    this.modifyQEInput(input3, project);
+                }
+                return input3;
+            });
+            editorList.add((input) -> input);
+            break;
+
+        case Project.INPUT_MODE_PHONON:
+            editorList.add((input) -> {
+                QEInput input2 = project.getQEInputScf();
+                QEInput input3 = input2 == null ? null : input2.copy();
+                if (input3 != null) {
+                    this.modifyQEInput(input3, project);
+                }
+                return input3;
+            });
+            editorList.add((input) -> input);
+            editorList.add((input) -> input);
+            editorList.add((input) -> input);
+            break;
+
         default:
             // NOP
             break;
@@ -566,6 +671,18 @@ public enum RunningType {
             inpList.add(project.getInpFileName("bands"));
             inpList.add(project.getInpFileName("band.up"));
             inpList.add(project.getInpFileName("band.down"));
+            break;
+
+        case Project.INPUT_MODE_NEB:
+            inpList.add(project.getInpFileName("scf"));
+            inpList.add(project.getInpFileName("neb"));
+            break;
+
+        case Project.INPUT_MODE_PHONON:
+            inpList.add(project.getInpFileName("scf"));
+            inpList.add(project.getInpFileName("ph"));
+            inpList.add(project.getInpFileName("q2r"));
+            inpList.add(project.getInpFileName("matdyn"));
             break;
 
         case Project.INPUT_MODE_CONVERGENCE:
@@ -616,6 +733,18 @@ public enum RunningType {
             logList.add(project.getLogFileName("band.down"));
             break;
 
+        case Project.INPUT_MODE_NEB:
+            logList.add(project.getLogFileName("scf"));
+            logList.add(project.getLogFileName("neb"));
+            break;
+
+        case Project.INPUT_MODE_PHONON:
+            logList.add(project.getLogFileName("scf"));
+            logList.add(project.getLogFileName("ph"));
+            logList.add(project.getLogFileName("q2r"));
+            logList.add(project.getLogFileName("matdyn"));
+            break;
+
         default:
             // NOP
             break;
@@ -656,6 +785,18 @@ public enum RunningType {
             errList.add(project.getErrFileName("bands"));
             errList.add(project.getErrFileName("band.up"));
             errList.add(project.getErrFileName("band.down"));
+            break;
+
+        case Project.INPUT_MODE_NEB:
+            errList.add(project.getErrFileName("scf"));
+            errList.add(project.getErrFileName("neb"));
+            break;
+
+        case Project.INPUT_MODE_PHONON:
+            errList.add(project.getErrFileName("scf"));
+            errList.add(project.getErrFileName("ph"));
+            errList.add(project.getErrFileName("q2r"));
+            errList.add(project.getErrFileName("matdyn"));
             break;
 
         default:
@@ -714,6 +855,18 @@ public enum RunningType {
             parserList.add(new VoidParser(projectProperty));
             break;
 
+        case Project.INPUT_MODE_NEB:
+            parserList.add(new ScfParser(projectProperty));
+            parserList.add(new VoidParser(projectProperty));
+            break;
+
+        case Project.INPUT_MODE_PHONON:
+            parserList.add(new ScfParser(projectProperty));
+            parserList.add(new VoidParser(projectProperty));
+            parserList.add(new VoidParser(projectProperty));
+            parserList.add(new VoidParser(projectProperty));
+            break;
+
         default:
             // NOP
             break;
@@ -749,7 +902,6 @@ public enum RunningType {
                 if (project != null) {
                     this.setProjectStatus(project, Project.INPUT_MODE_SCF);
                 }
-                return;
             });
             postList.add((project) -> {
                 return;
@@ -767,7 +919,6 @@ public enum RunningType {
                 if (project != null) {
                     this.setProjectStatus(project, Project.INPUT_MODE_SCF);
                 }
-                return;
             });
             postList.add((project) -> {
                 return;
@@ -776,6 +927,33 @@ public enum RunningType {
                 if (project != null) {
                     this.setupSymmetricKPoints(project);
                 }
+            });
+            postList.add((project) -> {
+                return;
+            });
+            break;
+
+        case Project.INPUT_MODE_NEB:
+            postList.add((project) -> {
+                if (project != null) {
+                    this.setProjectStatus(project, Project.INPUT_MODE_SCF);
+                }
+            });
+            postList.add((project) -> {
+                return;
+            });
+            break;
+
+        case Project.INPUT_MODE_PHONON:
+            postList.add((project) -> {
+                if (project != null) {
+                    this.setProjectStatus(project, Project.INPUT_MODE_SCF);
+                }
+            });
+            postList.add((project) -> {
+                return;
+            });
+            postList.add((project) -> {
                 return;
             });
             postList.add((project) -> {
@@ -790,6 +968,7 @@ public enum RunningType {
 
         return postList;
     }
+
 
     private void updateProjectCell(Project project) {
         if (project == null) {

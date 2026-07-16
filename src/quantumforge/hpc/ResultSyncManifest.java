@@ -114,6 +114,23 @@ public final class ResultSyncManifest {
             entries.add(new Entry(p + ".log.band.down", Priority.OPTIONAL));
             entries.add(new Entry("bands.dat", Priority.REQUIRED));
             break;
+        case NEB:
+            entries.add(new Entry(p + ".log.scf", Priority.OPTIONAL));
+            entries.add(new Entry(p + ".log.neb", Priority.REQUIRED));
+            entries.add(new Entry(p + ".err.neb", Priority.OPTIONAL));
+            entries.add(new Entry("neb.dat", Priority.OPTIONAL));
+            entries.add(new Entry("prefix.path", Priority.OPTIONAL));
+            break;
+        case PHONON:
+            entries.add(new Entry(p + ".log.scf", Priority.REQUIRED));
+            entries.add(new Entry(p + ".log.ph", Priority.REQUIRED));
+            entries.add(new Entry(p + ".log.q2r", Priority.REQUIRED));
+            entries.add(new Entry(p + ".log.matdyn", Priority.REQUIRED));
+            entries.add(new Entry("matdyn.modes", Priority.OPTIONAL));
+            entries.add(new Entry("matdyn.freq", Priority.OPTIONAL));
+            entries.add(new Entry("matdyn.dos", Priority.OPTIONAL));
+            entries.add(new Entry(p + ".dyn0", Priority.LARGE_OPTIONAL));
+            break;
         default:
             entries.add(new Entry(p + ".log.scf", Priority.OPTIONAL));
             break;

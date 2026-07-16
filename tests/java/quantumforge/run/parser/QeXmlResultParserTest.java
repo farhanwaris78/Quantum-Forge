@@ -28,6 +28,9 @@ class QeXmlResultParserTest {
         assertTrue(data.getTotalForce().isPresent());
         assertEquals(0.00012, data.getTotalForce().get(), 1e-12);
         assertTrue(data.getStressRyBohr3().isPresent());
+        assertTrue(data.getAtomicForces().isPresent());
+        assertEquals(2, data.getAtomicForces().get().length);
+        assertEquals(0.00010, data.getAtomicForces().get()[0][0], 1e-12);
     }
 
     @Test

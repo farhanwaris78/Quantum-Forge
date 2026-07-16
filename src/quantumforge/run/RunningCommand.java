@@ -19,12 +19,16 @@ import quantumforge.com.path.QEPath;
 
 public class RunningCommand {
 
-    public static enum RunningCommandType {
+public static enum RunningCommandType {
         MPIRUN("command_mpirun"),
         PWSCF("command_pwscf"),
         DOS("command_dos"),
         PROJWFC("command_projwfc"),
-        BAND("command_band");
+        BAND("command_band"),
+        NEB("command_neb"),
+        PH("command_ph"),
+        Q2R("command_q2r"),
+        MATDYN("command_matdyn");
 
         private String propKey;
 

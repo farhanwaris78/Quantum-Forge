@@ -56,6 +56,17 @@ class QECommandDagTest {
     }
 
     @Test
+    void nebAndPhononDagsExist() {
+        QECommandDag neb = QECommandDag.build(RunningType.NEB, "espresso.in", 1);
+        assertEquals(2, neb.size());
+        assertEquals(QECommandStage.Kind.NEB_X, neb.getStages().get(1).getKind());
+
+        QECommandDag phonon = QECommandDag.build(RunningType.PHONON, "espresso.in", 1);
+        assertEquals(4, phonon.size());
+        assertEquals("matdyn", phonon.getStages().get(3).getId());
+    }
+
+    @Test
     void runningTypeExposesDagHelper() {
         QECommandDag dag = RunningType.SCF.getCommandDag("espresso.in", 4);
         assertEquals(RunningType.SCF, dag.getRunningType());

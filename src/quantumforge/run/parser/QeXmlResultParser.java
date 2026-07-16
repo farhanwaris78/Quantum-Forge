@@ -41,11 +41,13 @@ public final class QeXmlResultParser {
         private final Integer nspins;
         private final Double totalForce;
         private final double[][] stressRyBohr3;
+        private final double[][] atomicForces;
         private final Map<String, String> rawScalars;
 
         public QeXmlResults(String schemaVersion, Double fermiEnergyEv, Double totalEnergyRy,
                             Boolean scfConverged, Integer nat, Integer nspins,
                             Double totalForce, double[][] stressRyBohr3,
+                            double[][] atomicForces,
                             Map<String, String> rawScalars) {
             this.schemaVersion = schemaVersion == null ? "" : schemaVersion;
             this.fermiEnergyEv = fermiEnergyEv;
@@ -55,6 +57,7 @@ public final class QeXmlResultParser {
             this.nspins = nspins;
             this.totalForce = totalForce;
             this.stressRyBohr3 = stressRyBohr3 == null ? null : copy3(stressRyBohr3);
+            this.atomicForces = atomicForces == null ? null : copyNx3(atomicForces);
             this.rawScalars = rawScalars == null
                     ? Map.of() : Map.copyOf(rawScalars);
         }
@@ -69,12 +72,25 @@ public final class QeXmlResultParser {
         public Optional<double[][]> getStressRyBohr3() {
             return this.stressRyBohr3 == null ? Optional.empty() : Optional.of(copy3(this.stressRyBohr3));
         }
+        public Optional<double[][]> getAtomicForces() {
+            return this.atomicForces == null ? Optional.empty() : Optional.of(copyNx3(this.atomicForces));
+        }
         public Map<String, String> getRawScalars() { return this.rawScalars; }
 
         private static double[][] copy3(double[][] src) {
             double[][] out = new double[3][3];
             for (int i = 0; i < 3; i++) {
                 System.arraycopy(src[i], 0, out[i], 0, 3);
+            }
+            return out;
+        }
+
+        private static double[][] copyNx3(double[][] src) {
+            double[][] out = new double[src.length][3];
+            for (int i = 0; i < src.length; i++) {
+                if (src[i] != null) {
+                    System.arraycopy(src[i], 0, out[i], 0, Math.min(3, src[i].length));
+                }
             }
             return out;
         }
@@ -166,8 +182,9 @@ public final class QeXmlResultParser {
                     "total_force");
             double[][] stress = extractStress(scalars);
 
+            double[][] atomicForces = extractAtomicForces(root, nat);
             QeXmlResults results = new QeXmlResults(
-                    schemaVersion, fermi, etot, converged, nat, nspin, totalForce, stress, scalars);
+                    schemaVersion, fermi, etot, converged, nat, nspin, totalForce, stress, atomicForces, scalars);
             return OperationResult.success("QE_XML_OK",
                     "Parsed QE XML from " + sourceLabel, results);
         } catch (Exception ex) {
@@ -298,6 +315,41 @@ public final class QeXmlResultParser {
         return null;
     }
 
+
+
+    private static double[][] extractAtomicForces(Element root, Integer nat) {
+        if (root == null) {
+            return null;
+        }
+        NodeList forceNodes = root.getElementsByTagName("force");
+        java.util.List<double[]> list = new java.util.ArrayList<>();
+        for (int i = 0; i < forceNodes.getLength(); i++) {
+            Node node = forceNodes.item(i);
+            if (node == null || node.getNodeType() != Node.ELEMENT_NODE) {
+                continue;
+            }
+            String text = node.getTextContent();
+            if (text == null) {
+                continue;
+            }
+            String[] parts = text.trim().split("\\s+");
+            if (parts.length < 3) {
+                continue;
+            }
+            try {
+                list.add(new double[] {
+                        Double.parseDouble(parts[0]),
+                        Double.parseDouble(parts[1]),
+                        Double.parseDouble(parts[2])
+                });
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        if (list.isEmpty()) {
+            return null;
+        }
+        return list.toArray(new double[0][]);
+    }
 
     private static double[][] extractStress(Map<String, String> scalars) {
         double[][] m = new double[3][3];
