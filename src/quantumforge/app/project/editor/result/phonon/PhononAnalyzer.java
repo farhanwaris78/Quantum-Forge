@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025 QuantumForge Team
+ * Copyright (C) 2025-2026 QuantumForge Team
  *
  * Proprietary and Confidential - All Rights Reserved (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,15 +19,10 @@ import quantumforge.operation.OperationResult;
 import quantumforge.run.parser.PhononDosThermodynamics;
 
 /**
- * Phonon mode analysis and visualization.
+ * Phonon mode analysis, thermodynamics integration, and complex animation.
  * 
- * NanoLabo provides phonon mode visualization with animated arrows
- * showing atomic displacement vectors for each vibrational mode.
- * This class provides the data structures and calculations for:
- * - Phonon band dispersion
- * - Phonon DOS
- * - Mode animation (eigenvectors as arrows)
- * - Dielectric properties (Born charges, dielectric tensor)
+ * Provides structural definitions for dispersion, density of states (DOS),
+ * and complex, phase-modulated eigenvector animations for supercell replication.
  */
 public class PhononAnalyzer {
 
@@ -88,7 +83,9 @@ public class PhononAnalyzer {
         private int modeIndex;
         private double frequency; // cm^-1
         private int modeType;
-        private double[][] displacementVectors; // [atomIndex][x,y,z]
+        private double[][] displacementVectors; // [atomIndex][x,y,z] (Real component)
+        private double[][] displacementVectorsImag; // [atomIndex][x,y,z] (Imaginary component)
+        private double[] qVector = new double[3]; // [qx, qy, qz] wavevector
         private String[] atomLabels;
         private double[] atomPositions; // [3*atomIndex + 0/1/2] = x/y/z
         private double irIntensity;
@@ -115,6 +112,18 @@ public class PhononAnalyzer {
         }
         public double[][] getDisplacementVectors() { return this.displacementVectors; }
 
+        public void setDisplacementVectorsImag(double[][] imag) {
+            this.displacementVectorsImag = imag;
+        }
+        public double[][] getDisplacementVectorsImag() { return this.displacementVectorsImag; }
+
+        public void setQVector(double[] q) {
+            if (q != null && q.length == 3) {
+                this.qVector = q.clone();
+            }
+        }
+        public double[] getQVector() { return this.qVector.clone(); }
+
         public void setAtomPositions(double[] positions, String[] labels) {
             this.atomPositions = positions;
             this.atomLabels = labels;
@@ -136,9 +145,19 @@ public class PhononAnalyzer {
         }
 
         /**
-         * Get animation phase for a given time step
+         * Simple temporal oscillation position calculator
          */
         public double[] getAnimatedPosition(int atomIdx, double time, double amplitude) {
+            return getAnimatedPositionComplex(atomIdx, time, amplitude, new double[]{0, 0, 0});
+        }
+
+        /**
+         * Mathematically rigorous temporal and spatial phase animation:
+         * u_I(t, R) = Re [ e_I * e^(i(q.R - w*t)) ]
+         *           = e_Real * cos(q.R - w*t) - e_Imag * sin(q.R - w*t)
+         * where w*t is simulated by '2 * pi * time' and R is cellTranslation (Roadmap #52).
+         */
+        public double[] getAnimatedPositionComplex(int atomIdx, double time, double amplitude, double[] cellTranslation) {
             if (this.displacementVectors == null || atomIdx >= this.displacementVectors.length) {
                 return new double[]{0, 0, 0};
             }
@@ -147,11 +166,34 @@ public class PhononAnalyzer {
                 this.atomPositions[3*atomIdx+1],
                 this.atomPositions[3*atomIdx+2]
             };
-            double scale = amplitude * Math.sin(2.0 * Math.PI * time);
+
+            double qDotR = 0.0;
+            if (this.qVector != null && cellTranslation != null && cellTranslation.length == 3) {
+                qDotR = this.qVector[0] * cellTranslation[0] + this.qVector[1] * cellTranslation[1] + this.qVector[2] * cellTranslation[2];
+            }
+
+            double wt = 2.0 * Math.PI * time;
+            double phase = qDotR - wt;
+
+            double cosPhase = Math.cos(phase);
+            double sinPhase = Math.sin(phase);
+
+            double[] realVec = this.displacementVectors[atomIdx];
+            double[] imagVec = (this.displacementVectorsImag != null && atomIdx < this.displacementVectorsImag.length) 
+                ? this.displacementVectorsImag[atomIdx] : new double[]{0, 0, 0};
+
+            // Re [ (e_Real + i * e_Imag) * (cos(phase) + i * sin(phase)) ]
+            // = e_Real * cos(phase) - e_Imag * sin(phase)
+            double ux = amplitude * (realVec[0] * cosPhase - imagVec[0] * sinPhase);
+            double uy = amplitude * (realVec[1] * cosPhase - imagVec[1] * sinPhase);
+            double uz = amplitude * (realVec[2] * cosPhase - imagVec[2] * sinPhase);
+
+            double[] trans = cellTranslation != null && cellTranslation.length == 3 ? cellTranslation : new double[]{0,0,0};
+
             return new double[]{
-                basePos[0] + scale * this.displacementVectors[atomIdx][0],
-                basePos[1] + scale * this.displacementVectors[atomIdx][1],
-                basePos[2] + scale * this.displacementVectors[atomIdx][2]
+                basePos[0] + trans[0] + ux,
+                basePos[1] + trans[1] + uy,
+                basePos[2] + trans[2] + uz
             };
         }
 
@@ -188,10 +230,6 @@ public class PhononAnalyzer {
 
     /**
      * Get thermodynamic properties from phonon DOS (harmonic approximation).
-     *
-     * <p>Requires {@link #setDOS(double[], double[])} with frequencies in cm^-1.
-     * Returns typed failure via exception only when inputs are incomplete; numerical
-     * integration is performed by {@link PhononDosThermodynamics}.</p>
      */
     public ThermodynamicProperties calculateThermodynamics(double temperature) {
         if (this.dosEnergies == null || this.phononDOS == null) {
