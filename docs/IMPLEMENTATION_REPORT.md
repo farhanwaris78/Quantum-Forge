@@ -38,7 +38,7 @@ and cross-platform validation.
 
 ## Validation blocked outside this workspace
 
-This sandbox has **no JDK/Maven**, so `mvn verify`, GUI launch, jpackage, and clean-VM install tests cannot be executed here. GitHub workflow files are present under `.github/workflows/`; an authorized maintainer must enable Actions and signing secrets before publishing a production release.
+This sandbox has **no JDK/Maven**, so `mvn verify`, GUI launch, jpackage, and clean-VM install tests cannot be executed here. GitHub workflow **templates** are under `packaging/github-workflows/` (the GitHub App used here lacks `workflows` permission to push `.github/workflows/`). An authorized maintainer must copy those templates into `.github/workflows/`, enable Actions, and configure signing secrets before publishing a production release.
 
 ## How to start the GUI after install
 

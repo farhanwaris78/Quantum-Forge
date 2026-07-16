@@ -18,7 +18,7 @@ The second stabilization batch (this branch) adds or hardens items **4, 5, 6, 7,
 | 21 | **Partial** | `QEExecutableProfile` probes configured bin dir, lists tools, parses `pw.x` banner version; shown by `quantumforge --doctor` |
 | 28 | **Partial** | `RunManifest` JSONL provenance (command, cwd, hashes, timestamps, exit, QE version) per stage |
 | 29 | **Partial** | `ProcessTreeKiller` + QE EXIT file before destroy; cancellation recorded in manifests |
-| Packaging | **Partial → stronger** | Full multi-platform tutorial, activated `.github/workflows`, portable install/update/uninstall, `quantumforge` CLI word for GUI/MobaXterm |
+| Packaging | **Partial → stronger** | Full multi-platform tutorial, CI/release templates under `packaging/github-workflows/`, portable install/update/uninstall, `quantumforge` CLI word for GUI/MobaXterm |
 
 “Partially” remains intentional: real multi-version QE golden corpora, OS keyring backends, and signed/notarized production secrets still require maintainer CI credentials and engine fixtures. The capability registry reports this distinction at runtime with `quantumforge --capabilities`.
 

@@ -7,7 +7,7 @@
 - Added reproducible Maven/JDK 17/OpenJFX build, modern dependency declarations, JUnit tests, and CycloneDX SBOM.
 - Added `quantumforge` launcher with `--version`, `--doctor`, remote-X11 software-rendering fallback, file arguments, and clear Java errors.
 - Added platform portable archives, jpackage native packaging, Arch PKGBUILD, safe per-user install/update/uninstall, desktop/PATH integration, and checksum verification.
-- Activated CI/release workflow files under `.github/workflows/` for Ubuntu 20.04 baseline, Arch, Windows, and Intel/Apple-Silicon macOS (requires maintainer Actions permissions and signing secrets).
+- Maintained CI/release workflow templates under `packaging/github-workflows/` for Ubuntu 20.04 baseline, Arch, Windows, and Intel/Apple-Silicon macOS (copy into `.github/workflows/` with a token that has `workflows` permission; configure signing secrets before production).
 - Added full multi-platform install tutorial (`docs/TUTORIAL_INSTALL.md`) covering safe install/update/uninstall and MobaXterm `quantumforge` GUI launch.
 - Added comprehensive installation, external-engine, release-security, code-audit, and 170-item roadmap documentation.
 

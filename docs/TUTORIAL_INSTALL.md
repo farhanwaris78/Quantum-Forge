@@ -434,8 +434,9 @@ export QF_VERSION=2.0.0
 packaging/arch/build-package.sh
 ```
 
-CI and release workflows live in `.github/workflows/` (also mirrored under
-`packaging/github-workflows/`).
+CI and release workflow **templates** live under `packaging/github-workflows/`.
+Copy them into `.github/workflows/` on a machine/token with GitHub `workflows`
+permission before publishing production releases.
 
 ---
 
