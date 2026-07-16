@@ -45,6 +45,7 @@ public class QEFXProject extends QEFXAppComponent<QEFXProjectController> {
         }
 
         this.project = project;
+        this.controller.setProject(this.project);
 
         this.viewerActions = new ViewerActions(this.project, this.controller);
         this.viewerActions.actionInitially();
