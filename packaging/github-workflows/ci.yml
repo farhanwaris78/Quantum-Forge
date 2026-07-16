@@ -29,6 +29,8 @@ jobs:
           bash -n packaging/unix/*.sh packaging/build-portable.sh packaging/build-native.sh packaging/arch/build-package.sh
           git -c core.whitespace=cr-at-eol diff --check
           scripts/static_checks.py
+          scripts/compile_check.py
+          scripts/fixture_harness.py
       - name: Build, test, and generate SBOM
         run: mvn -B -ntp clean verify
       - name: Upload test reports

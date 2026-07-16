@@ -33,6 +33,15 @@
 - Final-geometry typed preview (apply remains fail-closed).
 - Maintainer first-release checklist: `docs/FIRST_RELEASE.md`.
 
+### Command DAG, restart, recovery GUI (roadmap batch 4)
+
+- Viewer menu **Recover autosave ...** with snapshot picker and pre-restore backup.
+- Typed `QECommandDag` for SCF/relax/MD/DOS/bands pipelines with artifact dependencies and resume filtering.
+- `RestartManager` validates `prefix.save` completeness before recommending restart.
+- `WorkflowExporter` writes bash/SLURM scripts from the DAG.
+- Expanded golden fixtures (Fe spin SCF, bands path, DOS) plus offline fixture/compile harnesses in CI template.
+- Fixed SCF/Fermi log parsers to accept Fortran `D` exponents.
+
 ### Correctness and safety
 
 - Added one authoritative capability registry exposed by the GUI and `quantumforge --capabilities`; executable detection no longer implies integration support.

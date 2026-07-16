@@ -24,6 +24,7 @@ public class ViewerItemSet {
     private ViewerItem runItem;
     private ViewerItem resultItem;
     private ViewerItem exportItem;
+    private ViewerItem recoverItem;
 
     public ViewerItemSet() {
         this.atomsViewerItem = new ViewerItem(SVGData.ATOMS, "Show atoms");
@@ -31,6 +32,7 @@ public class ViewerItemSet {
         this.modelerItem = new ViewerItem(SVGData.TOOL, "Modeler");
         this.saveFileItem = new ViewerItem(SVGData.SAVE, "Save");
         this.saveAsFileItem = new ViewerItem(SVGData.SAVE, "Save as ...");
+        this.recoverItem = new ViewerItem(SVGData.UNDO, "Recover autosave ...");
         this.designerItem = new ViewerItem(SVGData.COLORS, "Designer");
         this.screenShotItem = new ViewerItem(SVGData.CAMERA, "Screen-shot");
         this.runItem = new ViewerItem(SVGData.RUN, "Run");
@@ -45,6 +47,7 @@ public class ViewerItemSet {
                 this.modelerItem,
                 this.saveFileItem,
                 this.saveAsFileItem,
+                this.recoverItem,
                 this.designerItem,
                 this.screenShotItem,
                 this.runItem,
@@ -69,8 +72,12 @@ public class ViewerItemSet {
         return this.saveFileItem;
     }
 
-    public ViewerItem getSaveAsFileItem() {
+public ViewerItem getSaveAsFileItem() {
         return this.saveAsFileItem;
+    }
+
+    public ViewerItem getRecoverItem() {
+        return this.recoverItem;
     }
 
     public ViewerItem getDesignerItem() {

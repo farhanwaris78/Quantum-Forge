@@ -25,6 +25,7 @@ import quantumforge.app.project.viewer.result.ResultAction;
 import quantumforge.app.project.viewer.run.QEFXRunDialog;
 import quantumforge.app.project.viewer.run.RunAction;
 import quantumforge.app.project.viewer.run.RunEvent;
+import quantumforge.app.project.viewer.recovery.RecoveryAction;
 import quantumforge.app.project.viewer.save.SaveAction;
 import quantumforge.app.project.viewer.screenshot.QEFXScreenshotDialog;
 import quantumforge.export.AtomicExporter;
@@ -131,6 +132,9 @@ public class ViewerActions extends ProjectActions<Node> {
             } else if (item == this.itemSet.getSaveAsFileItem()) {
                 this.actions.put(item, controller2 -> this.actionSaveAsFile(controller2));
 
+            } else if (item == this.itemSet.getRecoverItem()) {
+                this.actions.put(item, controller2 -> this.actionRecover(controller2));
+
             } else if (item == this.itemSet.getDesignerItem()) {
                 this.actions.put(item, controller2 -> this.actionDesigner(controller2));
 
@@ -210,6 +214,14 @@ public class ViewerActions extends ProjectActions<Node> {
 
         SaveAction saveAction = new SaveAction(this.project, controller);
         saveAction.saveProjectAsNew();
+    }
+
+    private void actionRecover(QEFXProjectController controller) {
+        if (controller == null) {
+            return;
+        }
+        RecoveryAction recoveryAction = new RecoveryAction(this.project, controller);
+        recoveryAction.recover();
     }
 
     private void actionDesigner(QEFXProjectController controller) {

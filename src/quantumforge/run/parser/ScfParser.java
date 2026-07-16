@@ -151,9 +151,10 @@ public class ScfParser extends LogParser {
             String[] subLines = line2.split("\\s+");
             if (subLines != null && subLines.length > 3) {
                 String strValue = subLines[3];
-                if (strValue != null) {
+if (strValue != null) {
                     try {
-                        value = Double.parseDouble(strValue);
+                        // QE often prints Fortran D exponents (e.g. -1.23D+02).
+                        value = ScfConvergenceAnalyzer.parseFortranDouble(strValue);
                         return new Energy(value, converged);
                     } catch (NumberFormatException e) {
                         // NOP

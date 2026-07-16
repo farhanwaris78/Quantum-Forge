@@ -1,0 +1,14 @@
+     Program DOS v.7.5 starts on 16Jul2026 at 16: 0: 0
+
+     Reading xml data from directory:
+
+     DOS written to file espresso.dos
+
+ #  E (eV)   dos(E)     Int dos(E) EFermi =  6.543 eV
+  -10.000  0.0000E+00  0.0000E+00
+   -5.000  1.0000E+00  2.5000E+00
+    0.000  2.0000E+00  1.0000E+01
+    5.000  1.0000E+00  1.7500E+01
+   10.000  0.0000E+00  2.0000E+01
+
+     JOB DONE.

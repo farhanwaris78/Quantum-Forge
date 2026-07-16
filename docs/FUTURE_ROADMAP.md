@@ -8,22 +8,21 @@ The first stabilization batch implements or partially implements items **2, 3, 9
 
 The second stabilization batch added or hardened items **4, 5, 6, 7, 8, 21, 28, 29** and packaging/docs infrastructure.
 
-The **third** stabilization batch (continuing this branch) implements or strengthens:
+The **third** stabilization batch implemented or strengthened items **8, 9, 26, 30–32, 39–41** (units, live tailing, error KB, SCF/geometry analyzers, secret store, fixtures).
 
-| # | Status after batch 3 | What landed |
+The **fourth** batch (this continuation) adds:
+
+| # | Status after batch 4 | What landed |
 |---:|---|---|
-| 8 | **Stronger Partial** | Autosave uses `exportQEInputsTo` (no project rebinding); dirty-state probe in `QEFXProject`; `ProjectRecovery` list/restore with pre-restore backup |
-| 9 | **Partial** | `SecretStore` memory-default + pluggable OS-keyring backend; Materials API key routes through SecretStore and still deletes legacy plaintext |
-| 26 | **Implemented (library)** | `PhysicalQuantity` + `Unit` with Ry/eV/Ha, bohr/Å, kbar/GPa, cm⁻¹/THz conversions and tests |
-| 30 | **Partial** | `LiveFileTailer` incremental UTF-8 complete-line reader; wired into `LogParser` polling |
-| 31 | **Partial** | `QEErrorKnowledgeBase` deterministic signatures (pseudo/SCF/MPI/disk/symmetry/memory) + auto-diagnose on failed jobs |
-| 32 | **Partial** | `ScfConvergenceAnalyzer` + fixtures for energy/accuracy/trend/convergence |
-| 39 | **Partial** | `GeometryConvergenceValidator` BFGS/force/pressure evidence gate |
-| 40 | **Partial** | `FinalGeometryUpdater` typed preview; apply remains fail-closed |
-| 41 | **Partial (fixtures)** | Golden QE log fixtures under `tests/fixtures/qe/` (Si SCF, non-converged, relax, missing pseudo) |
-| Packaging | **Docs** | `docs/FIRST_RELEASE.md` maintainer release checklist |
+| 8 | **GUI wired** | Viewer menu **Recover autosave ...** → `RecoveryAction` choice dialog + confirm + restore |
+| 27 | **Partial** | `QECommandDag` / `QECommandStage` typed SCF→NSCF/bands→post graph with requires/produces + resume filtering |
+| 33 | **Partial** | `RestartManager` validates `.save` completeness and recommends `restart` vs `from_scratch` |
+| 41 | **Expanded fixtures** | Fe spin SCF, bands high-symmetry path, DOS header fixtures + corpus tests |
+| 104 | **Partial** | `WorkflowExporter` writes bash/SLURM scripts from the DAG (GUI-independent) |
+| Correctness | **Parser fix** | `ScfParser` / `FermiParser` accept Fortran `D` exponents via shared parser |
+| QA | **Harnesses** | `scripts/compile_check.py`, `scripts/fixture_harness.py` hooked into CI template |
 
-“Partially” remains intentional where GUI polish, native keyring bindings, or live-engine golden runs are still required. The capability registry reports distinctions via `quantumforge --capabilities`.
+“Partially” remains intentional where full engine runs, native keyrings, or complete card rewrite are still required. The capability registry reports distinctions via `quantumforge --capabilities`.
 
 ## Phase 0 — trust, safety, and scope (do these first)
 

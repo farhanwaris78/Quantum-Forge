@@ -63,11 +63,30 @@ That command is installed on PATH by the portable installer (Linux/macOS/Windows
 | Golden log fixtures | 41 | `tests/fixtures/qe/*.log` | Executable regression corpus without full QE install | Add spin/SOC/bands/DOS engine-generated fixtures |
 | First-release guide | 13–15 | `docs/FIRST_RELEASE.md` | Maintainers have a concrete publish path | Sign/notarize with org secrets |
 
+## Batch 4 — command DAG, restart, recovery GUI, workflow export
+
+| Change | Roadmap # | What was implemented | Expected impact | Next improvement |
+|---|---:|---|---|---|
+| Recovery GUI | 8 | Viewer menu item + ChoiceDialog restore | Users can recover after crash without CLI | Auto-prompt when snapshots are newer than project |
+| QE command DAG | 27 | Typed stages with requires/produces; remaining() resume filter | Clear SCF→post pipeline; exportable | Drive RunningNode exclusively from DAG |
+| Restart manager | 33 | `.save` completeness assessment | Avoid unsafe restart_mode guesses | Parse data-file-schema.xml version |
+| Workflow export | 104 | Bash/SLURM script writer | Jobs usable without GUI | Site profile modules/account injection |
+| Golden corpus | 41 | Fe spin, bands path, DOS fixtures | Broader offline regression | Real engine-generated multi-version set |
+| Fortran D exponents | parsers | Scf/Fermi parsers use shared Fortran double parse | Stops silent energy/Fermi drops | Apply to all numeric log parsers |
+| Offline harnesses | QA | compile_check + fixture_harness | Catch regressions without Maven | Keep in CI always |
+
+## Validation performed
+
+- `scripts/static_checks.py` — pass
+- `scripts/compile_check.py` — pass (string/comment-aware braces)
+- `scripts/fixture_harness.py` — pass (7 log fixtures)
+- Full `mvn verify` still blocked in this sandbox (cannot download JDK/Maven binaries over TLS to release-assets)
+
 ## Recommended next batch
 
-1. Run `mvn clean verify` on a machine with JDK 17 (blocked in this sandbox by TLS).
-2. GUI recovery picker for autosave snapshots.
-3. Expand golden fixtures: Fe collinear, molecule, bands, DOS.
-4. Native OS keyring backends behind `SecretStore`.
-5. Strict-host-key SSH/SFTP + one SLURM adapter (91–99).
-6. spglib/seekpath isolated service (71–73).
+1. Run `mvn clean verify` on a JDK 17 machine and fix any compiler findings.
+2. Drive `RunningNode` stage loop from `QECommandDag.remaining(...)`.
+3. Native OS keyring backends behind `SecretStore`.
+4. Strict-host-key SSH/SFTP + one SLURM adapter (91–99).
+5. spglib/seekpath isolated service (71–73).
+6. Real QE-generated golden outputs for Si/Fe/molecule.

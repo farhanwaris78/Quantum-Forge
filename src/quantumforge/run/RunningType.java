@@ -234,6 +234,18 @@ public enum RunningType {
         return this.getCommandList(fileName, numProc, false);
     }
 
+    /**
+     * Typed stage graph for this workflow (same order as {@link #getCommandList}).
+     */
+    public QECommandDag getCommandDag(String fileName, int numProc) {
+        return QECommandDag.build(this, fileName, numProc);
+    }
+
+    public QECommandDag getCommandDag(Project project, int numProc) {
+        String fileName = project == null ? "espresso.in" : project.getInpFileName();
+        return getCommandDag(fileName, numProc);
+    }
+
     public List<String[]> getUnixCommandList(String fileName) {
         return this.getUnixCommandList(fileName, 1);
     }
