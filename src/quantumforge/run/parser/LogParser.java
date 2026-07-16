@@ -12,7 +12,10 @@ package quantumforge.run.parser;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.Path;
 
+import quantumforge.com.io.LiveFileTailer;
+import quantumforge.com.log.AppLog;
 import quantumforge.project.property.ProjectProperty;
 
 public abstract class LogParser {
@@ -25,6 +28,9 @@ public abstract class LogParser {
 
     protected ProjectProperty property;
 
+    /** Optional line-oriented tailer for subclasses that prefer incremental UTF-8 reads. */
+    private LiveFileTailer tailer;
+
     public LogParser(ProjectProperty property) {
         if (property == null) {
             throw new IllegalArgumentException("property is null.");
@@ -33,9 +39,18 @@ public abstract class LogParser {
         this.parsing = false;
         this.ending = false;
         this.property = property;
+        this.tailer = null;
     }
 
     public abstract void parse(File file) throws IOException;
+
+    /**
+     * Optional hook: subclasses may override to consume complete lines only.
+     * Default implementation falls back to full-file {@link #parse(File)}.
+     */
+    protected void parseCompleteLines(java.util.List<String> lines) throws IOException {
+        // Default: no-op; full-file parse remains the source of truth.
+    }
 
     public void startParsing(File file) {
         if (file == null) {
@@ -45,6 +60,7 @@ public abstract class LogParser {
         synchronized (this) {
             this.parsing = true;
             this.ending = false;
+            this.tailer = new LiveFileTailer(file.toPath());
         }
 
         Thread thread = new Thread(() -> {
@@ -56,9 +72,20 @@ public abstract class LogParser {
                 }
 
                 try {
+                    LiveFileTailer active;
+                    synchronized (this) {
+                        active = this.tailer;
+                    }
+                    if (active != null) {
+                        java.util.List<String> lines = active.pollLines();
+                        if (!lines.isEmpty()) {
+                            this.parseCompleteLines(lines);
+                        }
+                    }
+                    // Full re-parse keeps existing energy/geometry models correct.
                     this.parse(file);
                 } catch (Exception e) {
-                    e.printStackTrace();
+                    AppLog.warn("parser", "Live parse failed: " + e.getMessage());
                 }
 
                 synchronized (this) {
@@ -69,23 +96,34 @@ public abstract class LogParser {
                     try {
                         this.wait(SLEEP_TIME);
                     } catch (Exception e) {
-                        e.printStackTrace();
+                        AppLog.warn("parser", "Parser wait interrupted: " + e.getMessage());
                     }
                 }
             }
 
             try {
+                LiveFileTailer active;
+                synchronized (this) {
+                    active = this.tailer;
+                }
+                if (active != null) {
+                    java.util.List<String> rest = active.flushPartial();
+                    if (!rest.isEmpty()) {
+                        this.parseCompleteLines(rest);
+                    }
+                }
                 this.parse(file);
             } catch (Exception e) {
-                e.printStackTrace();
+                AppLog.warn("parser", "Final parse failed: " + e.getMessage());
             }
 
             synchronized (this) {
                 this.ending = false;
                 this.notifyAll();
             }
-        });
+        }, "quantumforge-log-parser");
 
+        thread.setDaemon(true);
         thread.start();
     }
 
@@ -105,12 +143,19 @@ public abstract class LogParser {
                 try {
                     this.wait();
                 } catch (InterruptedException e) {
-                    e.printStackTrace();
+                    Thread.currentThread().interrupt();
+                    AppLog.warn("parser", "Interrupted while stopping parser");
+                    break;
                 }
             }
 
             this.parsing = false;
             this.ending = false;
+            this.tailer = null;
         }
+    }
+
+    protected Path currentTailPath() {
+        return this.tailer == null ? null : this.tailer.getPath();
     }
 }

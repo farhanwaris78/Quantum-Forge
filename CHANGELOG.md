@@ -22,6 +22,17 @@
 - Per-stage run manifests (`.quantumforge.run-manifest.jsonl`) with command/hash/exit provenance.
 - Process-tree cancellation with QE EXIT file then graceful/forced descendant kill.
 
+### QE reliability foundations (roadmap batch 3)
+
+- Fixed autosave so snapshots export without rebinding the live project directory; dirty-state probe in open projects; recovery list/restore API with pre-restore backup.
+- `SecretStore` (memory-default, optional OS-keyring backend) for Materials API keys.
+- Immutable `PhysicalQuantity`/`Unit` conversion library (Ry/eV/Ha, bohr/Å, kbar/GPa, cm⁻¹/THz).
+- Incremental UTF-8 `LiveFileTailer` integrated into log parsing.
+- Deterministic QE error knowledge base consulted after failed jobs.
+- SCF convergence analyzer (energy, estimated accuracy, trend) and geometry convergence validator with golden log fixtures.
+- Final-geometry typed preview (apply remains fail-closed).
+- Maintainer first-release checklist: `docs/FIRST_RELEASE.md`.
+
 ### Correctness and safety
 
 - Added one authoritative capability registry exposed by the GUI and `quantumforge --capabilities`; executable detection no longer implies integration support.

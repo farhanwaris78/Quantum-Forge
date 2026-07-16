@@ -646,7 +646,7 @@ public class ProjectBody extends Project {
         }
     }
 
-    @Override
+@Override
     public void saveQEInputs(String directoryPath) {
         String directoryPath2 = directoryPath == null ? null : directoryPath.trim();
         if (directoryPath2 == null || directoryPath2.isEmpty()) {
@@ -668,15 +668,33 @@ public class ProjectBody extends Project {
 
         this.resolveQEInputs();
         this.markQEInputs();
+        this.writeQEInputsToDirectory(directoryPath2, true);
+    }
 
-        this.saveQEInput(this.geomData.getFileName(), this.getQEInputGeometry());
-        this.saveQEInput(this.scfData.getFileName(), this.getQEInputScf());
-        this.saveQEInput(this.optData.getFileName(), this.getQEInputOptimiz());
-        this.saveQEInput(this.mdData.getFileName(), this.getQEInputMd());
-        this.saveQEInput(this.dosData.getFileName(), this.getQEInputDos());
-        this.saveQEInput(this.bandData.getFileName(), this.getQEInputBand());
+    @Override
+    public void exportQEInputsTo(String directoryPath) {
+        String directoryPath2 = directoryPath == null ? null : directoryPath.trim();
+        if (directoryPath2 == null || directoryPath2.isEmpty()) {
+            return;
+        }
+        if (!this.createDirectory(directoryPath2)) {
+            AppLog.warn("project", "Cannot create export directory: " + directoryPath2);
+            return;
+        }
+        // Resolve in memory only; never rebind this.getDirectoryPath().
+        this.resolveQEInputs();
+        this.writeQEInputsToDirectory(directoryPath2, false);
+    }
 
-        if (this.property != null) {
+    private void writeQEInputsToDirectory(String directoryPath, boolean updatePropertyInPlace) {
+        this.saveQEInput(directoryPath, this.geomData.getFileName(), this.getQEInputGeometry());
+        this.saveQEInput(directoryPath, this.scfData.getFileName(), this.getQEInputScf());
+        this.saveQEInput(directoryPath, this.optData.getFileName(), this.getQEInputOptimiz());
+        this.saveQEInput(directoryPath, this.mdData.getFileName(), this.getQEInputMd());
+        this.saveQEInput(directoryPath, this.dosData.getFileName(), this.getQEInputDos());
+        this.saveQEInput(directoryPath, this.bandData.getFileName(), this.getQEInputBand());
+
+        if (updatePropertyInPlace && this.property != null) {
             ProjectStatus status = this.property.getStatus();
             if (status != null) {
                 if (this.cell != null && this.cell.hasProperty(CellProperty.AXIS)) {

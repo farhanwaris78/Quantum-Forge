@@ -48,6 +48,7 @@ See the complete, checksum-first tutorial covering Ubuntu 20.04→current, Arch,
 Windows 10/11, macOS Intel/Apple Silicon, safe update/uninstall, and remote GUI:
 
 - **[Full multi-platform install tutorial](docs/TUTORIAL_INSTALL.md)**
+- **[How to publish the first release](docs/FIRST_RELEASE.md)**
 - **[Installation, update, uninstall, and MobaXterm/X11 guide](docs/INSTALLATION.md)**
 - **[External scientific software setup](docs/SCIENTIFIC_SOFTWARE_GUIDE.md)**
 - **[Release integrity and security model](docs/RELEASE_AND_SECURITY.md)**

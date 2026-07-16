@@ -17,8 +17,13 @@ import quantumforge.app.QEFXMainController;
 import quantumforge.app.project.editor.EditorActions;
 import quantumforge.app.project.editor.input.InputEditorActions;
 import quantumforge.app.project.viewer.ViewerActions;
+import quantumforge.com.log.AppLog;
 import quantumforge.project.Project;
+import quantumforge.project.ProjectAutosave;
+import javafx.animation.KeyFrame;
+import javafx.animation.Timeline;
 import javafx.scene.input.KeyCode;
+import javafx.util.Duration;
 
 public class QEFXProject extends QEFXAppComponent<QEFXProjectController> {
 
@@ -27,6 +32,10 @@ public class QEFXProject extends QEFXAppComponent<QEFXProjectController> {
     private ViewerActions viewerActions;
 
     private EditorActions editorActions;
+
+    private ProjectAutosave autosave;
+
+    private Timeline autosaveProbe;
 
     public QEFXProject(QEFXMainController mainController, Project project) throws IOException {
         super("QEFXProject.fxml", new QEFXProjectController(mainController));
@@ -45,7 +54,39 @@ public class QEFXProject extends QEFXAppComponent<QEFXProjectController> {
         this.editorActions.actionInitially();
         this.controller.setEditorActions(this.editorActions);
 
+        this.setupAutosave();
         this.setupKeyPressed();
+    }
+
+    private void setupAutosave() {
+        if (this.project.getDirectoryPath() == null || this.project.getDirectoryPath().isBlank()) {
+            return;
+        }
+        try {
+            this.autosave = new ProjectAutosave(this.project, 10, 8_000L);
+            // Poll dirty state without requiring every editor widget to call us.
+            this.autosaveProbe = new Timeline(new KeyFrame(Duration.seconds(12), event -> {
+                try {
+                    if (this.project.isQEInputChanged()) {
+                        this.autosave.requestSnapshot();
+                    }
+                } catch (RuntimeException ex) {
+                    AppLog.warn("autosave", "Probe failed: " + ex.getMessage());
+                }
+            }));
+            this.autosaveProbe.setCycleCount(Timeline.INDEFINITE);
+            this.autosaveProbe.play();
+            this.controller.setOnDetached(controller -> {
+                if (this.autosaveProbe != null) {
+                    this.autosaveProbe.stop();
+                }
+                if (this.autosave != null) {
+                    this.autosave.close();
+                }
+            });
+        } catch (RuntimeException ex) {
+            AppLog.warn("autosave", "Autosave disabled: " + ex.getMessage());
+        }
     }
 
     private void setupKeyPressed() {

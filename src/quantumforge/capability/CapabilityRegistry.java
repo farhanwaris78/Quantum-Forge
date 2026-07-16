@@ -46,8 +46,8 @@ public final class CapabilityRegistry {
                 "Core pw.x SCF, relaxation, MD, bands, and DOS models/editors are present.",
                 "Complete version-aware schema and multi-version QE golden tests.");
         register(values, QE_LOCAL, "Local Quantum ESPRESSO execution", CapabilityStatus.PARTIAL,
-                "ProcessBuilder command chains, deterministic preflight, run manifests, QE executable profile probing, and process-tree cancellation are present.",
-                "Add real multi-version QE golden integration tests and stage-aware restart management.");
+                "ProcessBuilder chains, preflight, run manifests, QE profile probing, process-tree cancellation, live log tailing, SCF convergence analysis, geometry convergence validation, and deterministic error signatures are present.",
+                "Add real multi-version QE golden integration tests against installed engines and stage-aware restart management.");
         register(values, SSH_HPC, "SSH and HPC schedulers", CapabilityStatus.UNAVAILABLE,
                 "Legacy transfer/submission paths are disabled because no real secure transport exists.",
                 "Implement strict host-key SSH/SFTP and scheduler job-state adapters.");

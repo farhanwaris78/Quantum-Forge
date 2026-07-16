@@ -155,6 +155,10 @@ public final class QuantumForgeLauncher {
             System.out.println("[INFO] Structured log file is not configured yet.");
         }
 
+        System.out.println("[INFO] Secret storage backend: "
+                + quantumforge.com.secrets.SecretStore.getInstance().describeBackend()
+                + " (OS keyring used only when explicitly preferred and available).");
+
         reportOptional("thermo_pw", "thermo_pw.x", CapabilityRegistry.THERMO_PW);
         reportOptional("phonopy", "phonopy", CapabilityRegistry.PHONOPY);
         reportOptional("BoltzTraP2", isWindows() ? "btp2.exe" : "btp2", CapabilityRegistry.BOLTZTRAP2);

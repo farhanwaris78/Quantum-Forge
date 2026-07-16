@@ -404,7 +404,39 @@ public class RunningNode implements Runnable {
             AppLog.info("run", "Job " + this.jobId + " completed");
         } else {
             AppLog.error("run", "Job " + this.jobId + " failed");
+            this.diagnoseLogErrors(directory);
             this.showErrorDialog(builder);
+        }
+    }
+
+    private void diagnoseLogErrors(File directory) {
+        if (directory == null) {
+            return;
+        }
+        try {
+            File[] files = directory.listFiles((dir, name) ->
+                    name != null && (name.endsWith(".log") || name.endsWith(".err")));
+            if (files == null) {
+                return;
+            }
+            StringBuilder text = new StringBuilder();
+            for (File file : files) {
+                if (file.isFile() && file.length() < 2_000_000L) {
+                    text.append(java.nio.file.Files.readString(file.toPath()));
+                    text.append('\n');
+                }
+            }
+            java.util.List<quantumforge.run.parser.QEErrorKnowledgeBase.Diagnosis> hits =
+                    quantumforge.run.parser.QEErrorKnowledgeBase.diagnose(text.toString());
+            for (quantumforge.run.parser.QEErrorKnowledgeBase.Diagnosis hit : hits) {
+                AppLog.error("qe-error", hit.toString());
+            }
+            if (!hits.isEmpty()) {
+                AppLog.info("qe-error", "Matched " + hits.size()
+                        + " deterministic QE error signature(s); see log for checks.");
+            }
+        } catch (Exception ex) {
+            AppLog.warn("qe-error", "Could not diagnose logs: " + ex.getMessage());
         }
     }
 

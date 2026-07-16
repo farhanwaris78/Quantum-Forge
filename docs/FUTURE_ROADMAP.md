@@ -6,21 +6,24 @@ This roadmap is ordered by scientific value and dependency. “Effective” mean
 
 The first stabilization batch implements or partially implements items **2, 3, 9, 16, 17, 18, 24, 25, 36, 37, 45, 47, 49, 156**, plus fail-closed portions of 54, 56, 61, 64–67, 91–99, and 161–170.
 
-The second stabilization batch (this branch) adds or hardens items **4, 5, 6, 7, 8, 21, 28, 29** and expands packaging/docs for item **13/15/20** infrastructure:
+The second stabilization batch added or hardened items **4, 5, 6, 7, 8, 21, 28, 29** and packaging/docs infrastructure.
 
-| # | Status after this batch | What landed |
+The **third** stabilization batch (continuing this branch) implements or strengthens:
+
+| # | Status after batch 3 | What landed |
 |---:|---|---|
-| 4 | **Partial → stronger Partial** | `AppLog` structured single-line logger with job IDs, severity, rotating file under `~/.quantumforge/logs/`, secret redaction |
-| 5 | **Partial** | Local-first `CrashReporter` writes redacted crash bundles; no automatic upload |
-| 6 | **Partial** | `ProjectSchema` v1 + `schemaVersion` / `quantumforgeVersion` on `ProjectStatus`; unsupported versions fail closed |
-| 7 | **Implemented (core paths)** | `AtomicFileWriter` (stage + fsync + atomic rename); project property JSON and QE input saves use it; `.bak` last-known-good |
-| 8 | **Partial** | `ProjectAutosave` debounced immutable snapshots under `.quantumforge.autosave/` with size limits |
-| 21 | **Partial** | `QEExecutableProfile` probes configured bin dir, lists tools, parses `pw.x` banner version; shown by `quantumforge --doctor` |
-| 28 | **Partial** | `RunManifest` JSONL provenance (command, cwd, hashes, timestamps, exit, QE version) per stage |
-| 29 | **Partial** | `ProcessTreeKiller` + QE EXIT file before destroy; cancellation recorded in manifests |
-| Packaging | **Partial → stronger** | Full multi-platform tutorial, CI/release templates under `packaging/github-workflows/`, portable install/update/uninstall, `quantumforge` CLI word for GUI/MobaXterm |
+| 8 | **Stronger Partial** | Autosave uses `exportQEInputsTo` (no project rebinding); dirty-state probe in `QEFXProject`; `ProjectRecovery` list/restore with pre-restore backup |
+| 9 | **Partial** | `SecretStore` memory-default + pluggable OS-keyring backend; Materials API key routes through SecretStore and still deletes legacy plaintext |
+| 26 | **Implemented (library)** | `PhysicalQuantity` + `Unit` with Ry/eV/Ha, bohr/Å, kbar/GPa, cm⁻¹/THz conversions and tests |
+| 30 | **Partial** | `LiveFileTailer` incremental UTF-8 complete-line reader; wired into `LogParser` polling |
+| 31 | **Partial** | `QEErrorKnowledgeBase` deterministic signatures (pseudo/SCF/MPI/disk/symmetry/memory) + auto-diagnose on failed jobs |
+| 32 | **Partial** | `ScfConvergenceAnalyzer` + fixtures for energy/accuracy/trend/convergence |
+| 39 | **Partial** | `GeometryConvergenceValidator` BFGS/force/pressure evidence gate |
+| 40 | **Partial** | `FinalGeometryUpdater` typed preview; apply remains fail-closed |
+| 41 | **Partial (fixtures)** | Golden QE log fixtures under `tests/fixtures/qe/` (Si SCF, non-converged, relax, missing pseudo) |
+| Packaging | **Docs** | `docs/FIRST_RELEASE.md` maintainer release checklist |
 
-“Partially” remains intentional: real multi-version QE golden corpora, OS keyring backends, and signed/notarized production secrets still require maintainer CI credentials and engine fixtures. The capability registry reports this distinction at runtime with `quantumforge --capabilities`.
+“Partially” remains intentional where GUI polish, native keyring bindings, or live-engine golden runs are still required. The capability registry reports distinctions via `quantumforge --capabilities`.
 
 ## Phase 0 — trust, safety, and scope (do these first)
 

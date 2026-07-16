@@ -210,7 +210,7 @@ public class ProjectProxy extends Project {
         return false;
     }
 
-    @Override
+@Override
     public void saveQEInputs(String directoryPath) {
         this.loadQEInputs();
 
@@ -220,6 +220,13 @@ public class ProjectProxy extends Project {
 
         if (this.getNetProject() != null) {
             this.netProject.saveQEInputs(directoryPath);
+        }
+    }
+
+    @Override
+    public void exportQEInputsTo(String directoryPath) {
+        if (this.getNetProject() != null) {
+            this.netProject.exportQEInputsTo(directoryPath);
         }
     }
 

@@ -8,6 +8,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Comparator;
+import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -69,13 +70,30 @@ public final class ProjectAutosave implements AutoCloseable {
         String stamp = Instant.now().toString().replace(':', '-');
         Path target = this.snapshotRoot.resolve("snapshot-" + stamp);
         Files.createDirectories(target);
-        // Reuse existing project save into a dedicated snapshot directory.
-        this.project.saveQEInputs(target.toString());
+        // Export only — never rebind the live project directory or clear dirty state.
+        this.project.exportQEInputsTo(target.toString());
         AtomicFileWriter.writeUtf8(target.resolve("AUTOSAVE.txt"),
-                "QuantumForge autosave snapshot\ncreated=" + Instant.now() + "\n");
+                "QuantumForge autosave snapshot\ncreated=" + Instant.now()
+                        + "\nsource=" + this.project.getDirectoryPath() + "\n");
         pruneOldSnapshots();
         AppLog.debug("autosave", "Wrote snapshot " + target);
         return target;
+    }
+
+    public Path getSnapshotRoot() {
+        return this.snapshotRoot;
+    }
+
+    public List<Path> listSnapshotsNewestFirst() throws IOException {
+        if (!Files.isDirectory(this.snapshotRoot)) {
+            return List.of();
+        }
+        try (Stream<Path> stream = Files.list(this.snapshotRoot)) {
+            return stream
+                    .filter(Files::isDirectory)
+                    .sorted(Comparator.comparing(Path::getFileName).reversed())
+                    .toList();
+        }
     }
 
     private void safeSnapshot() {

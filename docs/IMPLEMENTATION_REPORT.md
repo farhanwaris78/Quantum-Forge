@@ -48,11 +48,26 @@ quantumforge
 
 That command is installed on PATH by the portable installer (Linux/macOS/Windows) and is the recommended word to type in MobaXterm after X11 forwarding is enabled.
 
+## Batch 3 (this continuation) — QE reliability foundations
+
+| Change | Roadmap # | What was implemented | Expected impact | Next improvement |
+|---|---:|---|---|---|
+| Safe autosave export | 8 | `exportQEInputsTo` does not rebind project dir; GUI dirty probe; recovery list/restore | Autosave can no longer hijack the live project path | Recovery picker dialog in the GUI |
+| SecretStore | 9 | Memory default + injectable OS backend; Materials API integration | Secrets stay out of `.properties`; OS path ready for native bindings | Real libsecret/Keychain/Credential Manager adapters |
+| Units library | 26 | `PhysicalQuantity`/`Unit` with energy/length/pressure/frequency | Unit mistakes fail at conversion time | Adopt in all parsers/plots public APIs |
+| Live log tailer | 30 | `LiveFileTailer` + `LogParser` integration | Parsers can consume complete lines only | Drive live charts exclusively from tailed lines |
+| QE error KB | 31 | Signature table + failed-job diagnosis in `RunningNode` | Actionable deterministic hints after crashes | Expand corpus from real multi-version logs |
+| SCF convergence analyzer | 32 | Iteration energy/accuracy/trend from logs + Si fixture | Detect oscillation/divergence early | Wire chart UI to analyzer report |
+| Geometry convergence | 39 | Marker + threshold validator | “Optimized” requires evidence | Surface status badge in result viewer |
+| Final geometry preview | 40 | Typed preview; apply still unsupported | Safe inspection without destructive card wipe | Transactional card rewrite with rollback |
+| Golden log fixtures | 41 | `tests/fixtures/qe/*.log` | Executable regression corpus without full QE install | Add spin/SOC/bands/DOS engine-generated fixtures |
+| First-release guide | 13–15 | `docs/FIRST_RELEASE.md` | Maintainers have a concrete publish path | Sign/notarize with org secrets |
+
 ## Recommended next batch
 
-1. Run CI (`mvn clean verify`) and fix any compiler/test findings.
-2. Wire `ProjectAutosave` into the project editor dirty-flag path and add a recovery picker UI.
-3. Add QE 7.2–7.5 golden corpus for SCF/spin/SOC/relax/bands/DOS.
-4. Implement OS keyring secret storage (roadmap #9 completion).
-5. Implement strict-host-key SSH/SFTP and one scheduler adapter (91–99).
-6. Integrate spglib/seekpath via an isolated service (71–73).
+1. Run `mvn clean verify` on a machine with JDK 17 (blocked in this sandbox by TLS).
+2. GUI recovery picker for autosave snapshots.
+3. Expand golden fixtures: Fe collinear, molecule, bands, DOS.
+4. Native OS keyring backends behind `SecretStore`.
+5. Strict-host-key SSH/SFTP + one SLURM adapter (91–99).
+6. spglib/seekpath isolated service (71–73).

@@ -1,0 +1,16 @@
+     Program PWSCF v.7.5 starts on 16Jul2026 at 12: 0: 0
+     number of atoms/cell      =            2
+
+     BFGS Geometry Optimization
+
+     number of scf cycles    =   5
+     number of bfgs steps    =   3
+
+     Total force            =     0.000800 Ry/au
+
+     bfgs converged in   5 scf cycles and   3 bfgs steps
+     (criteria: energy <  1.0E-04 Ry, force <  1.0E-03 Ry/Bohr, cell <  0.5 kbar)
+
+     End final coordinates
+
+     JOB DONE.
