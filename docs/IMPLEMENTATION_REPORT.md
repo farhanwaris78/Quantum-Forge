@@ -123,6 +123,15 @@ That command is installed on PATH by the portable installer (Linux/macOS/Windows
 | Safe cancel | 97 | Cancel only by parsed job id + status verify | No kill-by-name disasters | Scheduler reason parsing |
 | RunAction fix | 10 | Typed submit + host-key connect | Remote run no longer pretends success | Persist JobRecord queue |
 
+## Batch 8 — SGE, job queue store, sync checksum cache
+
+| Change | Roadmap # | What was implemented | Expected impact | Next improvement |
+|---|---:|---|---|---|
+| SGE adapter | 93 | Typed `#$` directives + qsub/qdel/qstat | Covers common university GE clusters | Site-specific PE names |
+| Job queue store | 105 | Atomic JSONL persistence of JobRecords | GUI can reconstruct active remote jobs after restart | SQLite WAL migration |
+| Sync checksum cache | 98 | Local SHA-256 skip for unchanged results | Faster re-sync / less bandwidth | Remote hash probe when available |
+| Symmetry honesty | 71–72 | Conversion still refuses silent identity transforms | No fake primitive/conventional cells | Protocol v2 with standardized cell payload |
+
 ## Recommended next batch
 
 1. Run `mvn clean verify` on a JDK 17 host and fix any findings.

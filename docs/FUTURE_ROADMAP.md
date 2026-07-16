@@ -289,3 +289,13 @@ The **seventh** batch hardens HPC operations:
 | 93 | **Partial** | `PbsSchedulerAdapter` (PBS/Torque) alongside SLURM |
 | 97 | **Partial** | `JobCancellation` cancel-by-parsed-id + post-cancel status check |
 | 10 | **Stronger** | RunAction uses typed SSH results; no silent boolean success |
+
+
+The **eighth** batch completes more HPC reliability pieces:
+
+| # | Status after batch 8 | What landed |
+|---:|---|---|
+| 93 | **Stronger** | `SgeSchedulerAdapter` for SGE/UGE + example site profile |
+| 98 | **Stronger** | Selective sync checksum cache (`SyncChecksumCache`) skips unchanged files |
+| 105 | **Partial** | Durable JSONL `JobQueueStore` for job restart reconstruction |
+| 71/72 | **Honest** | Symmetry conversion still fail-closed; reports when dataset exists but transform payload is not in protocol v1 |

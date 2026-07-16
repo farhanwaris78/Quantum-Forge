@@ -17,6 +17,7 @@ import quantumforge.hpc.SchedulerResources;
 import quantumforge.hpc.SiteProfile;
 import quantumforge.hpc.SlurmSchedulerAdapter;
 import quantumforge.hpc.PbsSchedulerAdapter;
+import quantumforge.hpc.SgeSchedulerAdapter;
 import quantumforge.hpc.ResultSyncManifest;
 import quantumforge.operation.OperationResult;
 import quantumforge.project.Project;
@@ -216,12 +217,11 @@ public final class SSHJob {
             return this.siteProfile.schedulerAdapter();
         }
         String type = this.sshServer.getSchedulerType();
-        if (SSHServer.SCHEDULER_PBS.equalsIgnoreCase(type)
-                || SSHServer.SCHEDULER_SGE.equalsIgnoreCase(type)) {
-            if (SSHServer.SCHEDULER_SGE.equalsIgnoreCase(type)) {
-                throw new UnsupportedOperationException("SGE adapter is not implemented yet.");
-            }
+        if (SSHServer.SCHEDULER_PBS.equalsIgnoreCase(type)) {
             return new PbsSchedulerAdapter();
+        }
+        if (SSHServer.SCHEDULER_SGE.equalsIgnoreCase(type)) {
+            return new SgeSchedulerAdapter();
         }
         return new SlurmSchedulerAdapter();
     }

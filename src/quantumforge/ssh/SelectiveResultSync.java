@@ -36,10 +36,15 @@ public final class SelectiveResultSync {
 
     private final SshTransport transport;
     private final String stagingRoot;
+    private SyncChecksumCache checksumCache;
 
     public SelectiveResultSync(SshTransport transport, String stagingRoot) {
         this.transport = Objects.requireNonNull(transport, "transport");
         this.stagingRoot = RemotePathGuard.normalizeStagingRoot(stagingRoot);
+    }
+
+    public void setChecksumCache(SyncChecksumCache checksumCache) {
+        this.checksumCache = checksumCache;
     }
 
     public OperationResult<SyncReport> sync(String remoteJobRelativeDir, Path localDir,
@@ -56,8 +61,12 @@ public final class SelectiveResultSync {
         }
         try {
             Files.createDirectories(localDir);
+            if (this.checksumCache != null) {
+                this.checksumCache.load();
+            }
             String remoteBase = RemotePathGuard.resolveUnderRoot(this.stagingRoot, remoteJobRelativeDir);
             SyncReport report = new SyncReport();
+            int skipped = 0;
             for (ResultSyncManifest.Entry entry : manifest.getEntries()) {
                 if (entry.getPriority() == ResultSyncManifest.Priority.LARGE_OPTIONAL && !includeLarge) {
                     continue;
@@ -72,6 +81,12 @@ public final class SelectiveResultSync {
                     report.failed.add(entry.getRelativePath() + " (local escape)");
                     continue;
                 }
+                if (this.checksumCache != null
+                        && this.checksumCache.isUpToDate(localFile, entry.getRelativePath())) {
+                    skipped++;
+                    report.downloaded.add(entry.getRelativePath() + " (cache-hit)");
+                    continue;
+                }
                 Path parent = localFile.getParent();
                 if (parent != null) {
                     Files.createDirectories(parent);
@@ -79,6 +94,9 @@ public final class SelectiveResultSync {
                 OperationResult<Void> dl = this.transport.downloadFile(remotePath, localFile);
                 if (dl.isSuccess()) {
                     report.downloaded.add(entry.getRelativePath());
+                    if (this.checksumCache != null) {
+                        this.checksumCache.record(localFile, entry.getRelativePath());
+                    }
                 } else {
                     if (entry.getPriority() == ResultSyncManifest.Priority.REQUIRED) {
                         report.missingRequired.add(entry.getRelativePath());
@@ -89,12 +107,16 @@ public final class SelectiveResultSync {
                             + ": " + dl.getMessage());
                 }
             }
+            if (this.checksumCache != null) {
+                this.checksumCache.save();
+            }
             if (!report.isComplete()) {
                 return OperationResult.failed("SYNC_INCOMPLETE",
                         "Required files missing: " + report.getMissingRequired(), null);
             }
             return OperationResult.success("SYNC_OK",
-                    "Downloaded " + report.getDownloaded().size() + " file(s).", report);
+                    "Downloaded/kept " + report.getDownloaded().size()
+                            + " file(s) (cache hits ≈ " + skipped + ").", report);
         } catch (Exception ex) {
             return OperationResult.failed("SYNC_ERROR", "Selective sync failed: " + ex.getMessage(), ex);
         }

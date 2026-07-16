@@ -49,8 +49,8 @@ public final class CapabilityRegistry {
                 "ProcessBuilder is driven with dry-run preflight, typed command DAG stage skipping from on-disk artifacts, run manifests, restart assessment, workflow export, process-tree cancellation, live log tailing, and SCF/geometry analysis.",
                 "Add real multi-version QE golden integration tests against installed engines.");
         register(values, SSH_HPC, "SSH and HPC schedulers", CapabilityStatus.PARTIAL,
-                "Strict known_hosts store, JSch transport, host-key acceptance UI helper, selective result sync, safe cancel-by-id, SLURM/PBS adapters, site profiles, and job-state records exist; live multi-cluster validation is still required.",
-                "Validate against two real clusters; add SGE adapter and fingerprint dialog polish.");
+                "Strict known_hosts store, JSch transport, host-key acceptance UI helper, selective result sync with checksum cache, safe cancel-by-id, SLURM/PBS/SGE adapters, site profiles, durable job-queue store, and job-state records exist; live multi-cluster validation is still required.",
+                "Validate against two real clusters and polish fingerprint dialog UX.");
         register(values, THERMO_PW, "thermo_pw", CapabilityStatus.EXPERIMENTAL,
                 "Executable detection and a narrow elastic-matrix parser exist.",
                 "Add QE compatibility checks, controls, execution DAG, units, and reference tests.");

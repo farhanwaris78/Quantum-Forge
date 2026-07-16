@@ -96,3 +96,10 @@
 - Selective result sync via required/optional/large manifests.
 - PBS/Torque scheduler adapter; safe cancel-by-id with status verification.
 - Remote run path uses typed OperationResult (no silent boolean success).
+
+### HPC reliability (roadmap batch 8)
+
+- SGE/UGE scheduler adapter and example site profile.
+- Durable JSONL job queue store for reconstructing remote jobs after restart.
+- Selective result sync checksum cache to skip unchanged files.
+- Symmetry conversion remains fail-closed even when spglib dataset metadata is available (no silent identity transform).

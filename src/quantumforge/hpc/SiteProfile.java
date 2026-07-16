@@ -64,14 +64,12 @@ public final class SiteProfile {
         if ("slurm".equals(this.scheduler)) {
             return new SlurmSchedulerAdapter();
         }
-        if ("pbs".equals(this.scheduler) || "torque".equals(this.scheduler)
-                || "sge".equals(this.scheduler)) {
-            // SGE job scripts differ; for now reuse PBS-style directives only for pbs/torque.
-            if ("sge".equals(this.scheduler)) {
-                throw new UnsupportedOperationException(
-                        "SGE adapter is not implemented yet; use slurm or pbs.");
-            }
+        if ("pbs".equals(this.scheduler) || "torque".equals(this.scheduler)) {
             return new PbsSchedulerAdapter();
+        }
+        if ("sge".equals(this.scheduler) || "uge".equals(this.scheduler)
+                || "ge".equals(this.scheduler)) {
+            return new SgeSchedulerAdapter();
         }
         throw new UnsupportedOperationException("Scheduler not implemented: " + this.scheduler);
     }
