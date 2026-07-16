@@ -21,8 +21,7 @@ import javafx.scene.control.Alert;
 import javafx.scene.control.Alert.AlertType;
 import javafx.scene.image.Image;
 
-import org.jcodec.api.awt.AWTSequenceEncoder8Bit;
-import org.jcodec.codecs.h264.H264Encoder;
+import org.jcodec.api.awt.AWTSequenceEncoder;
 
 import quantumforge.app.QEFXMain;
 import quantumforge.app.project.QEFXProjectController;
@@ -114,17 +113,12 @@ public class MP4Maker {
             return false;
         }
 
-        AWTSequenceEncoder8Bit encoder = null;
+        AWTSequenceEncoder encoder = null;
 
         try {
-            encoder = AWTSequenceEncoder8Bit.create30Fps(file);
+            encoder = AWTSequenceEncoder.create30Fps(file);
             if (encoder == null) {
                 return false;
-            }
-
-            H264Encoder h264Encoder = encoder.getEncoder();
-            if (h264Encoder != null) {
-                h264Encoder.setKeyInterval(30);
             }
 
             for (int i = 0; i < numGeoms; i++) {
