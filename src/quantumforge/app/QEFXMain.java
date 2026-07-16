@@ -153,15 +153,19 @@ public class QEFXMain extends Application {
 
     private void setBinaryPathWindows() {
         File execDir = new File("exec.WIN");
+        File qeDir = new File(execDir, "qe");
+        File mpiDir = new File(execDir, "mpi");
 
+        // Portable releases do not bundle third-party QE/MPI binaries. Never
+        // persist a path merely because an old distribution used that layout.
         String qePath = QEPath.getPath();
-        if (qePath == null || qePath.trim().isEmpty()) {
-            QEPath.setPath(new File(execDir, "qe"));
+        if ((qePath == null || qePath.trim().isEmpty()) && qeDir.isDirectory()) {
+            QEPath.setPath(qeDir);
         }
 
         String mpiPath = QEPath.getMPIPath();
-        if (mpiPath == null || mpiPath.trim().isEmpty()) {
-            QEPath.setMPIPath(new File(execDir, "mpi"));
+        if ((mpiPath == null || mpiPath.trim().isEmpty()) && mpiDir.isDirectory()) {
+            QEPath.setMPIPath(mpiDir);
         }
     }
 
@@ -180,13 +184,13 @@ public class QEFXMain extends Application {
             try {
                 mpiDir = new File("/opt/local/libexec/openmpi-gcc6");
                 if (mpiDir.isDirectory()) {
-                    canMPI = true;
+                    canMPI = qeMpiFile.isDirectory();
                 }
             } catch (Exception e) {
                 canMPI = false;
             }
 
-            canSer = true;
+            canSer = qeSerFile.isDirectory();
 
         } else { //if (Environments.isLinux()) {
             File execDir = new File("exec.LINUX");
@@ -214,8 +218,8 @@ public class QEFXMain extends Application {
                 hasGcc = false;
             }
 
-            canMPI = hasMPI && hasGcc;
-            canSer = hasGcc;
+            canMPI = hasMPI && hasGcc && qeMpiFile.isDirectory();
+            canSer = hasGcc && qeSerFile.isDirectory();
         }
 
         if (canMPI && mpiDir != null) {
@@ -277,7 +281,7 @@ public class QEFXMain extends Application {
             }
         }
 
-        if (outStream != null) {
+        if (errStream != null) {
             try {
                 System.setErr(errStream);
             } catch (Exception e) {

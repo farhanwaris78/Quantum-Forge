@@ -68,8 +68,8 @@ public class PluginManager {
         this.registeredPlugins.add(new PluginInfo(
             PLUGIN_BOLTZTRAP2, "24.1+",
             "Transport properties (conductivity, Seebeck)",
-            "https://www.simsa.org/boltztrap2/",
-            "boltztrap.x"));
+            "https://gitlab.com/sousaw/BoltzTraP2",
+            "btp2"));
 
         this.registeredPlugins.add(new PluginInfo(
             PLUGIN_SEEKPATH, "2.1+",
@@ -159,30 +159,33 @@ public class PluginManager {
         }
 
         public void checkAvailability() {
-            if (this.executable == null) {
-                this.available = false;
-                this.execPath = null;
+            this.available = false;
+            this.execPath = null;
+            if (this.executable == null || this.executable.trim().isEmpty()) {
                 return;
             }
 
-            try {
-                // Check if executable exists in PATH
-                ProcessBuilder pb = new ProcessBuilder("which", this.executable);
-                Process process = pb.start();
-                int exitCode = process.waitFor();
-                this.available = (exitCode == 0);
-
-                if (this.available) {
-                    // Read the path
-                    java.io.BufferedReader reader =
-                        new java.io.BufferedReader(
-                            new java.io.InputStreamReader(process.getInputStream()));
-                    this.execPath = reader.readLine();
+            String path = System.getenv("PATH");
+            if (path == null || path.trim().isEmpty()) {
+                return;
+            }
+            boolean windows = System.getProperty("os.name", "").toLowerCase().startsWith("windows");
+            String[] suffixes = windows
+                    ? new String[] {"", ".exe", ".cmd", ".bat"}
+                    : new String[] {""};
+            for (String directory : path.split(java.util.regex.Pattern.quote(File.pathSeparator))) {
+                for (String suffix : suffixes) {
+                    File candidate = new File(directory, this.executable + suffix);
+                    try {
+                        if (candidate.isFile() && (windows || candidate.canExecute())) {
+                            this.available = true;
+                            this.execPath = candidate.getAbsolutePath();
+                            return;
+                        }
+                    } catch (SecurityException ignored) {
+                        // Continue checking other PATH entries.
+                    }
                 }
-
-            } catch (Exception e) {
-                this.available = false;
-                this.execPath = null;
             }
         }
     }

@@ -63,7 +63,7 @@ public abstract class QESecondaryInput extends QEInput {
         }
 
         QECard srcCard = this.parentInput.getCard(QEAtomicSpecies.CARD_NAME);
-        if (srcCard == null && !(srcCard instanceof QEAtomicSpecies)) {
+        if (srcCard == null || !(srcCard instanceof QEAtomicSpecies)) {
             return;
         }
 

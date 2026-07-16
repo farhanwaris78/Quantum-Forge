@@ -3,8 +3,7 @@
  */
 package quantumforge.ssh;
 
-import java.io.File;
-import java.util.List;
+import quantumforge.operation.OperationResult;
 
 /**
  * SSH file transfer manager for remote file operations.
@@ -47,17 +46,29 @@ public class SSHFileTransfer {
     /**
      * Download all result files from remote project directory
      */
+    public OperationResult<Integer> downloadAllFilesResult(String remoteDir, String localDir) {
+        return OperationResult.unsupported("SSH_DOWNLOAD_UNAVAILABLE",
+                "No secure SFTP transport is implemented; no files were downloaded.");
+    }
+
+    /** @deprecated use the typed result method. */
+    @Deprecated
     public boolean downloadAllFiles(String remoteDir, String localDir) {
-        // In production, uses JSch SFTP channel
-        return true;
+        return this.downloadAllFilesResult(remoteDir, localDir).isSuccess();
     }
 
     /**
      * Delete all files on remote server to free space
      */
+    public OperationResult<Integer> deleteAllOnServerResult(String remoteDir) {
+        return OperationResult.unsupported("SSH_DELETE_UNAVAILABLE",
+                "Remote deletion is disabled until canonical-path validation and confirmation exist.");
+    }
+
+    /** @deprecated use the typed result method. */
+    @Deprecated
     public boolean deleteAllOnServer(String remoteDir) {
-        // In production, executes rm -rf via SSH
-        return true;
+        return this.deleteAllOnServerResult(remoteDir).isSuccess();
     }
 
     /**
@@ -65,19 +76,8 @@ public class SSHFileTransfer {
      */
     public void startContinuousFetch(String remoteDir, String localDir) {
         if (!this.continuousFetchEnabled || this.alwaysOffline) return;
-
-        Thread fetchThread = new Thread(() -> {
-            while (!Thread.interrupted()) {
-                this.downloadAllFiles(remoteDir, localDir);
-                try {
-                    Thread.sleep(this.downloadInterval * 60 * 1000L);
-                } catch (InterruptedException e) {
-                    break;
-                }
-            }
-        });
-        fetchThread.setDaemon(true);
-        fetchThread.start();
+        throw new UnsupportedOperationException(
+                "Continuous SSH result transfer is not implemented in this release.");
     }
 
     // Getters

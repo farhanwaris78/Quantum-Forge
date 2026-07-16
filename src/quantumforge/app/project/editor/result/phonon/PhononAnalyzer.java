@@ -13,6 +13,9 @@ package quantumforge.app.project.editor.result.phonon;
 import java.util.ArrayList;
 import java.util.List;
 
+import quantumforge.capability.CapabilityRegistry;
+import quantumforge.capability.ScientificFeatureUnavailableException;
+
 /**
  * Phonon mode analysis and visualization.
  * 
@@ -185,10 +188,10 @@ public class PhononAnalyzer {
      * Get thermodynamic properties from phonon DOS
      */
     public ThermodynamicProperties calculateThermodynamics(double temperature) {
-        if (this.phononDOS == null || this.dosEnergies == null) {
-            return null;
-        }
-        return new ThermodynamicProperties(temperature, this.dosEnergies, this.phononDOS);
+        // The previous implementation ignored both supplied arrays and returned
+        // arbitrary temperature functions. Do not fabricate thermodynamics.
+        throw new ScientificFeatureUnavailableException(CapabilityRegistry.PHONOPY,
+                "Phonon-DOS thermodynamic integration");
     }
 
     /**
@@ -201,12 +204,8 @@ public class PhononAnalyzer {
         public final double heatCapacityCV;   // meV/K
 
         public ThermodynamicProperties(double T, double[] energies, double[] dos) {
-            this.temperature = T;
-            // Simplified Debye model calculations
-            // In production, these would integrate over full phonon DOS
-            this.freeEnergy = -0.025 * T * Math.log(T + 100.0);
-            this.entropy = 0.05 * Math.log(T + 10.0) + 0.1;
-            this.heatCapacityCV = 0.05 * (1.0 - Math.exp(-T / 100.0));
+            throw new ScientificFeatureUnavailableException(CapabilityRegistry.PHONOPY,
+                    "Phonon-DOS thermodynamic integration");
         }
     }
 

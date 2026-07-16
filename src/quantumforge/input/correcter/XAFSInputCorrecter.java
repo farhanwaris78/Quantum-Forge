@@ -4,7 +4,6 @@
 package quantumforge.input.correcter;
 
 import quantumforge.input.QEInput;
-import quantumforge.input.namelist.QEValue;
 
 /**
  * XAFS (X-ray Absorption Fine Structure) input corrector.
@@ -39,23 +38,12 @@ public class XAFSInputCorrecter extends QEInputCorrecter {
     public void correctInput() {
         if (!this.xafsEnabled) return;
 
-        if (this.nmlControl != null) {
-            this.nmlControl.setValue("calculation = 'scf'");
-        }
-
-        if (this.nmlSystem != null) {
-            // XANES calculation requires specific settings
-            this.nmlSystem.setValue("xunit = 'angstrom'");
-
-            // Set up empty states for absorption spectrum
-            QEValue nbnd = this.nmlSystem.getValue("nbnd");
-            if (nbnd == null) {
-                this.nmlSystem.setValue("nbnd = 100");
-            }
-
-            // No smearing for core-level spectroscopy
-            this.nmlSystem.setValue("occupations = 'fixed'");
-        }
+        // XSpectra requires a converged pw.x charge density, an absorbing-atom
+        // core-hole pseudopotential, and a separate xspectra.x input. "xunit" is
+        // not a pw.x SYSTEM keyword, and a hard-coded nbnd cannot represent a
+        // convergence-tested XANES/XAFS workflow.
+        throw new UnsupportedOperationException(
+                "XAFS requires a dedicated XSpectra workflow and is not implemented in this release.");
     }
 
     public int getTargetAtomIndex() { return this.targetAtomIndex; }

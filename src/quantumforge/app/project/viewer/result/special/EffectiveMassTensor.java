@@ -1,32 +1,21 @@
 /*
- * Copyright (C) 2025 QuantumForge Team
+ * Copyright (C) 2025-2026 QuantumForge Development Team.
  */
-
 package quantumforge.app.project.viewer.result.special;
 
+import quantumforge.capability.CapabilityRegistry;
+import quantumforge.capability.ScientificFeatureUnavailableException;
 import quantumforge.project.property.BandData;
 
 /**
- * Effective Mass Tensor calculation from band curvature.
- * m* = hbar^2 / (d^2E / dk^2)
+ * Placeholder API retained for source compatibility.
+ * A path coordinate does not define a 3D reciprocal-space Hessian or its units.
  */
-public class EffectiveMassTensor {
+public final class EffectiveMassTensor {
+    private EffectiveMassTensor() { }
 
     public static double calculateMass(BandData bandData, int kIndex) {
-        if (bandData == null || kIndex <= 0 || kIndex >= bandData.numPoints() - 1) {
-            return 1.0; // Default to free electron mass
-        }
-
-        // Second order finite difference
-        double dk = bandData.getCoordinate(kIndex + 1) - bandData.getCoordinate(kIndex);
-        double e1 = bandData.getEnergy(kIndex - 1);
-        double e2 = bandData.getEnergy(kIndex);
-        double e3 = bandData.getEnergy(kIndex + 1);
-
-        double d2Edk2 = (e1 - 2*e2 + e3) / (dk * dk);
-        if (Math.abs(d2Edk2) < 1e-9) return 999.9;
-
-        // Constants conversion for QE units (Ry, Bohr)
-        return 1.0 / d2Edk2; 
+        throw new ScientificFeatureUnavailableException(CapabilityRegistry.ADVANCED_SCIENCE,
+                "Effective-mass tensor fitting");
     }
 }

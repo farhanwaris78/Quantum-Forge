@@ -49,9 +49,9 @@ public class SpaceGroupDetector {
         this.cell = cell;
         this.ibrav = 0;
         this.spaceGroupNumber = 0;
-        this.spaceGroupName = "P1";
+        this.spaceGroupName = "Undetermined";
         this.crystalSystem = CRYSTAL_SYSTEM_TRICLINIC;
-        this.numSymOperations = 1;
+        this.numSymOperations = 0;
     }
 
     /**
@@ -149,61 +149,24 @@ public class SpaceGroupDetector {
     }
 
     /**
-     * Get the space group number based on ibrav and cell content.
-     * This provides a simplified mapping. For full space group 
-     * determination, spglib should be used.
+     * Return the detected international space-group number.
+     *
+     * <p>The present implementation detects lattice metrics only. A Bravais
+     * lattice does not uniquely determine a space group: atomic species and
+     * fractional coordinates must also be tested against symmetry operations.
+     * Returning a representative high-symmetry group (as older code did) can
+     * silently assign the wrong physics, so zero explicitly means undetermined
+     * until a validated spglib integration is available.</p>
      */
     public int getSpaceGroupNumber() {
-        if (this.spaceGroupNumber > 0) {
-            return this.spaceGroupNumber;
-        }
-
-        // Simplified mapping based on ibrav
-        // For accurate space group, use spglib integration
-        switch (this.ibrav) {
-            case 1:  this.spaceGroupNumber = 221; break; // Pm-3m (cubic)
-            case 2:  this.spaceGroupNumber = 229; break; // Im-3m (bcc)
-            case 3:  this.spaceGroupNumber = 225; break; // Fm-3m (fcc)
-            case -3: this.spaceGroupNumber = 166; break; // R-3m (rhombohedral)
-            case 4:  this.spaceGroupNumber = 194; break; // P6_3/mmc (hexagonal)
-            case 5:  this.spaceGroupNumber = 166; break; // R-3m (trigonal)
-            case 6:  this.spaceGroupNumber = 139; break; // I4/mmm (tetragonal)
-            case 7:  this.spaceGroupNumber = 139; break; // I4/mmm (tetragonal)
-            case 8:  this.spaceGroupNumber = 65;  break; // Cmmm (orthorhombic)
-            case 12: this.spaceGroupNumber = 12;  break; // C2/m (monoclinic)
-            case 14: this.spaceGroupNumber = 2;   break; // P-1 (triclinic)
-            default: this.spaceGroupNumber = 1;   break; // P1
-        }
-
-        return this.spaceGroupNumber;
+        return 0;
     }
 
     /**
-     * Get the space group name (Hermann-Mauguin notation)
+     * Return a space-group name, or an explicit undetermined marker.
      */
     public String getSpaceGroupName() {
-        if (this.spaceGroupName != null && !this.spaceGroupName.equals("P1")) {
-            return this.spaceGroupName;
-        }
-
-        this.getSpaceGroupNumber(); // Ensure number is computed
-
-        // Simplified name mapping
-        switch (this.ibrav) {
-            case 1:  this.spaceGroupName = "Pm-3m"; break;
-            case 2:  this.spaceGroupName = "Im-3m"; break;
-            case 3:  this.spaceGroupName = "Fm-3m"; break;
-            case -3: this.spaceGroupName = "R-3m"; break;
-            case 4:  this.spaceGroupName = "P6_3/mmc"; break;
-            case 5:  this.spaceGroupName = "R-3m"; break;
-            case 6:  this.spaceGroupName = "I4/mmm"; break;
-            case 8:  this.spaceGroupName = "Cmmm"; break;
-            case 12: this.spaceGroupName = "C2/m"; break;
-            case 14: this.spaceGroupName = "P-1"; break;
-            default: this.spaceGroupName = "P1"; break;
-        }
-
-        return this.spaceGroupName;
+        return "Undetermined";
     }
 
     /**

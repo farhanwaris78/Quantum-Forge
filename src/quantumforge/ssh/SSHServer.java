@@ -39,7 +39,9 @@ public class SSHServer {
 
     private String user;
 
-    private String password;
+    // Session-only secret. Gson does not serialize transient fields, preventing
+    // SSH passwords from being written in plaintext to ~/.quantumforge/.ssh.
+    private transient String password;
 
     private String keyPath;
 

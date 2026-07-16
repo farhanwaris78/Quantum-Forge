@@ -32,6 +32,8 @@ import quantumforge.app.proxy.QEFXProxyDialog;
 import quantumforge.app.ssh.QEFXSSHDialog;
 import quantumforge.app.tab.QEFXTabManager;
 import quantumforge.com.env.Environments;
+import quantumforge.capability.Capability;
+import quantumforge.capability.CapabilityRegistry;
 import quantumforge.com.graphic.svg.SVGLibrary;
 import quantumforge.com.graphic.svg.SVGLibrary.SVGData;
 import quantumforge.com.keys.KeyNames;
@@ -107,6 +109,9 @@ public class QEFXMainController implements Initializable {
 
     @FXML
     private MenuItem aboutMItem;
+
+    @FXML
+    private MenuItem capabilitiesMItem;
 
     @FXML
     private MenuItem docsMItem;
@@ -250,25 +255,27 @@ public class QEFXMainController implements Initializable {
         });
     }
 
+    private void showCapability(String capabilityId) {
+        Capability capability = CapabilityRegistry.get(capabilityId);
+        if (capability == null) {
+            return;
+        }
+        Alert alert = new Alert(AlertType.INFORMATION);
+        QEFXMain.initializeDialogOwner(alert);
+        alert.setTitle(capability.getName());
+        alert.setHeaderText(capability.getStatus().getLabel() + " integration");
+        alert.setContentText(capability.getSummary() + "\n\nRequired next: "
+                + capability.getRequiredForSupport());
+        alert.showAndWait();
+    }
+
     private void setupMenuItems() {
         if (this.vaspMItem != null) {
-            this.vaspMItem.setOnAction(event -> {
-                Alert alert = new Alert(AlertType.INFORMATION);
-                alert.setTitle("VASP Extension");
-                alert.setHeaderText("VASP GUI Loaded");
-                alert.setContentText("Complete VASP GUI for input preparation and results analysis is ready.");
-                alert.showAndWait();
-            });
+            this.vaspMItem.setOnAction(event -> this.showCapability(CapabilityRegistry.VASP));
         }
 
         if (this.castepMItem != null) {
-            this.castepMItem.setOnAction(event -> {
-                Alert alert = new Alert(AlertType.INFORMATION);
-                alert.setTitle("CASTEP Extension");
-                alert.setHeaderText("CASTEP GUI Loaded");
-                alert.setContentText("Complete CASTEP GUI for input preparation and results analysis is ready.");
-                alert.showAndWait();
-            });
+            this.castepMItem.setOnAction(event -> this.showCapability(CapabilityRegistry.CASTEP));
         }
 
         if (this.stabilityMItem != null) {
@@ -290,6 +297,19 @@ public class QEFXMainController implements Initializable {
             this.aboutMItem.setOnAction(event -> {
                 QEFXAboutDialog dialog = new QEFXAboutDialog();
                 dialog.showAndWait();
+            });
+        }
+
+        if (this.capabilitiesMItem != null) {
+            this.capabilitiesMItem.setOnAction(event -> {
+                Alert alert = new Alert(AlertType.INFORMATION);
+                QEFXMain.initializeDialogOwner(alert);
+                alert.setTitle("QuantumForge Capability Status");
+                alert.setHeaderText("Supported, partial, experimental, and unavailable integrations");
+                alert.setContentText(CapabilityRegistry.createReport());
+                alert.getDialogPane().setPrefWidth(900.0);
+                alert.setResizable(true);
+                alert.showAndWait();
             });
         }
 
@@ -519,9 +539,9 @@ public class QEFXMainController implements Initializable {
 
         this.stage.setWidth(width);
         this.stage.setHeight(height);
-        this.stage.setTitle(Version.VERSION_NAME + " " + Version.VERSION +
-                " - Advanced GUI for Quantum ESPRESSO " + Version.SUPPORTED_QE_VERSION +
-                " | thermo_pw " + Version.SUPPORTED_THERMO_PW_VERSION);
+        this.stage.setTitle(Version.VERSION_NAME + " " + Version.VERSION
+                + " - Quantum ESPRESSO workflow editor (compatibility target "
+                + Version.SUPPORTED_QE_VERSION + ")");
         this.stage.setOnCloseRequest(event -> this.actionOnCloseRequest(event));
         this.stage.setOnHidden(event -> this.actionOnHidden(event));
 

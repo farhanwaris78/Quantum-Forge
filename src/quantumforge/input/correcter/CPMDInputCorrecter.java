@@ -38,14 +38,11 @@ public class CPMDInputCorrecter extends QEInputCorrecter {
     public void correctInput() {
         if (!this.cpmdEnabled) return;
 
-        if (this.nmlControl != null) {
-            this.nmlControl.setValue("calculation = 'cp'");
-            this.nmlControl.setValue("nstep = " + this.numSteps);
-            this.nmlControl.setValue("dt = " + this.timeStep);
-        }
-
-        if (this.nmlSystem != null) {
-            this.nmlSystem.setValue("electron_maxstep = " + (this.numSteps * 5));
-        }
+        // Car-Parrinello calculations run through cp.x and use the CP input
+        // schema; "calculation='cp'" is not a valid pw.x calculation mode.
+        // Failing explicitly is safer than writing an input that QE rejects or,
+        // worse, that appears to represent dynamics it does not configure.
+        throw new UnsupportedOperationException(
+                "CPMD requires a dedicated cp.x input model and is not implemented in this release.");
     }
 }

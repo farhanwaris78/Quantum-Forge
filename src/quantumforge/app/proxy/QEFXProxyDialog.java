@@ -133,7 +133,7 @@ public class QEFXProxyDialog extends Dialog<ButtonType> implements Initializable
             return;
         }
 
-        String passStr = Environments.getProperty(ProxyServer.PROP_KEY_PASSWORD);
+        String passStr = ProxyServer.getSessionPassword();
         if (passStr == null) {
             this.passField.setText("");
         } else {
@@ -146,7 +146,9 @@ public class QEFXProxyDialog extends Dialog<ButtonType> implements Initializable
             return;
         }
 
-        this.passCheck.setSelected(Environments.getBoolProperty(ProxyServer.PROP_KEY_SAVEPASSWORD));
+        this.passCheck.setSelected(false);
+        this.passCheck.setDisable(true);
+        this.passCheck.setText("Password persistence disabled (session only)");
     }
 
     public void showAndSetProperties() {
@@ -162,7 +164,6 @@ public class QEFXProxyDialog extends Dialog<ButtonType> implements Initializable
         String portStr = this.getPort();
         String userStr = this.getUser();
         String passStr = this.getPassword();
-        boolean passSaved = this.isPasswordSaved();
 
         if (hostStr != null && (!hostStr.isEmpty())) {
             Environments.setProperty(ProxyServer.PROP_KEY_HOST, hostStr);
@@ -182,13 +183,9 @@ public class QEFXProxyDialog extends Dialog<ButtonType> implements Initializable
             Environments.removeProperty(ProxyServer.PROP_KEY_USER);
         }
 
-        if (passSaved && passStr != null && (!passStr.isEmpty())) {
-            Environments.setProperty(ProxyServer.PROP_KEY_PASSWORD, passStr);
-        } else {
-            Environments.removeProperty(ProxyServer.PROP_KEY_PASSWORD);
-        }
-
-        Environments.setProperty(ProxyServer.PROP_KEY_SAVEPASSWORD, passSaved);
+        // Passwords are session-only until an OS-keyring backend is available.
+        Environments.removeProperty(ProxyServer.PROP_KEY_PASSWORD);
+        Environments.setProperty(ProxyServer.PROP_KEY_SAVEPASSWORD, false);
 
         ProxyServer.initProxyServer(passStr);
     }
@@ -229,11 +226,4 @@ public class QEFXProxyDialog extends Dialog<ButtonType> implements Initializable
         return value == null ? null : value.trim();
     }
 
-    private boolean isPasswordSaved() {
-        if (this.passCheck == null) {
-            return false;
-        }
-
-        return this.passCheck.isSelected();
-    }
 }

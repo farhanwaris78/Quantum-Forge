@@ -15,8 +15,9 @@ import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.io.PrintWriter;
-import java.util.List;
+import java.util.Locale;
 
+import quantumforge.atoms.element.ElementUtil;
 import quantumforge.atoms.model.Atom;
 import quantumforge.atoms.model.Cell;
 import quantumforge.com.math.Lattice;
@@ -94,15 +95,15 @@ public class AtomicExporter {
         double beta = Lattice.getBeta(cell.copyLattice());
         double gamma = Lattice.getGamma(cell.copyLattice());
 
-        sb.append("_cell_length_a ").append(String.format("%.6f", a)).append("\n");
-        sb.append("_cell_length_b ").append(String.format("%.6f", b)).append("\n");
-        sb.append("_cell_length_c ").append(String.format("%.6f", c)).append("\n");
-        sb.append("_cell_angle_alpha ").append(String.format("%.4f", alpha)).append("\n");
-        sb.append("_cell_angle_beta ").append(String.format("%.4f", beta)).append("\n");
-        sb.append("_cell_angle_gamma ").append(String.format("%.4f", gamma)).append("\n\n");
+        sb.append("_cell_length_a ").append(String.format(Locale.ROOT, "%.6f", a)).append("\n");
+        sb.append("_cell_length_b ").append(String.format(Locale.ROOT, "%.6f", b)).append("\n");
+        sb.append("_cell_length_c ").append(String.format(Locale.ROOT, "%.6f", c)).append("\n");
+        sb.append("_cell_angle_alpha ").append(String.format(Locale.ROOT, "%.4f", alpha)).append("\n");
+        sb.append("_cell_angle_beta ").append(String.format(Locale.ROOT, "%.4f", beta)).append("\n");
+        sb.append("_cell_angle_gamma ").append(String.format(Locale.ROOT, "%.4f", gamma)).append("\n\n");
 
-        int nAtoms = cell.numAtoms(true);
-        sb.append("_atom_site_count ").append(nAtoms).append("\n");
+        sb.append("loop_\n");
+        sb.append("_atom_site_label\n");
         sb.append("_atom_site_type_symbol\n");
         sb.append("_atom_site_fract_x\n");
         sb.append("_atom_site_fract_y\n");
@@ -110,15 +111,20 @@ public class AtomicExporter {
 
         Atom[] atoms = cell.listAtoms(true);
         double[][] recLattice = Matrix3D.inverse(cell.copyLattice());
+        java.util.Map<String, Integer> labelCounts = new java.util.HashMap<>();
         if (atoms != null) {
             for (Atom atom : atoms) {
                 if (atom == null) continue;
+                String element = atom.getElementName();
+                int labelIndex = labelCounts.getOrDefault(element, 0) + 1;
+                labelCounts.put(element, labelIndex);
                 double[] frac = Matrix3D.mult(
                     new double[]{atom.getX(), atom.getY(), atom.getZ()}, recLattice);
-                sb.append(" ").append(atom.getName())
-                  .append(" ").append(String.format("%.6f", frac[0]))
-                  .append(" ").append(String.format("%.6f", frac[1]))
-                  .append(" ").append(String.format("%.6f", frac[2]))
+                sb.append(" ").append(element).append(labelIndex)
+                  .append(" ").append(element)
+                  .append(" ").append(String.format(Locale.ROOT, "%.6f", frac[0]))
+                  .append(" ").append(String.format(Locale.ROOT, "%.6f", frac[1]))
+                  .append(" ").append(String.format(Locale.ROOT, "%.6f", frac[2]))
                   .append("\n");
             }
         }
@@ -145,7 +151,7 @@ public class AtomicExporter {
         double[][] lattice = cell.copyLattice();
         for (int i = 0; i < 3; i++) {
             for (int j = 0; j < 3; j++) {
-                sb.append(String.format("%.6f", lattice[i][j]));
+                sb.append(String.format(Locale.ROOT, "%.6f", lattice[i][j]));
                 if (i < 2 || j < 2) sb.append(" ");
             }
         }
@@ -154,9 +160,9 @@ public class AtomicExporter {
         for (Atom atom : atoms) {
             if (atom == null) continue;
             sb.append(atom.getElementName())
-              .append(" ").append(String.format("%.6f", atom.getX()))
-              .append(" ").append(String.format("%.6f", atom.getY()))
-              .append(" ").append(String.format("%.6f", atom.getZ()))
+              .append(" ").append(String.format(Locale.ROOT, "%.6f", atom.getX()))
+              .append(" ").append(String.format(Locale.ROOT, "%.6f", atom.getY()))
+              .append(" ").append(String.format(Locale.ROOT, "%.6f", atom.getZ()))
               .append("\n");
         }
 
@@ -177,9 +183,9 @@ public class AtomicExporter {
 
         double[][] lattice = cell.copyLattice();
         for (int i = 0; i < 3; i++) {
-            sb.append("  ").append(String.format("%.10f", lattice[i][0]))
-              .append(" ").append(String.format("%.10f", lattice[i][1]))
-              .append(" ").append(String.format("%.10f", lattice[i][2]))
+            sb.append("  ").append(String.format(Locale.ROOT, "%.10f", lattice[i][0]))
+              .append(" ").append(String.format(Locale.ROOT, "%.10f", lattice[i][1]))
+              .append(" ").append(String.format(Locale.ROOT, "%.10f", lattice[i][2]))
               .append("\n");
         }
 
@@ -209,14 +215,18 @@ public class AtomicExporter {
         sb.append("Direct\n");
 
         double[][] recLattice = Matrix3D.inverse(lattice);
-        for (Atom atom : atoms) {
-            if (atom == null) continue;
-            double[] frac = Matrix3D.mult(
-                new double[]{atom.getX(), atom.getY(), atom.getZ()}, recLattice);
-            sb.append("  ").append(String.format("%.10f", frac[0]))
-              .append(" ").append(String.format("%.10f", frac[1]))
-              .append(" ").append(String.format("%.10f", frac[2]))
-              .append("\n");
+        // POSCAR coordinates must follow the same species grouping as the
+        // element/count lines, even when the Cell's atoms are interleaved.
+        for (String element : elementCount.keySet()) {
+            for (Atom atom : atoms) {
+                if (atom == null || !element.equals(atom.getElementName())) continue;
+                double[] frac = Matrix3D.mult(
+                    new double[]{atom.getX(), atom.getY(), atom.getZ()}, recLattice);
+                sb.append("  ").append(String.format(Locale.ROOT, "%.10f", frac[0]))
+                  .append(" ").append(String.format(Locale.ROOT, "%.10f", frac[1]))
+                  .append(" ").append(String.format(Locale.ROOT, "%.10f", frac[2]))
+                  .append("\n");
+            }
         }
 
         return sb.toString();
@@ -238,13 +248,10 @@ public class AtomicExporter {
 
         sb.append("&SYSTEM\n");
         double[][] lattice = cell.copyLattice();
-        double a = Lattice.getA(lattice);
         sb.append("  ibrav = 0\n");
-        sb.append("  a = ").append(String.format("%.6f", a)).append("\n");
         sb.append("  nat = ").append(cell.numAtoms(true)).append("\n");
         sb.append("  ntyp = ").append(countSpecies(cell)).append("\n");
-        sb.append("  ecutwfc = 50.0\n");
-        sb.append("  ecutrho = 400.0\n");
+        sb.append("  ! REQUIRED: add convergence-tested ecutwfc/ecutrho values\n");
         sb.append("/\n\n");
 
         sb.append("&ELECTRONS\n");
@@ -253,9 +260,9 @@ public class AtomicExporter {
 
         sb.append("CELL_PARAMETERS {angstrom}\n");
         for (int i = 0; i < 3; i++) {
-            sb.append("  ").append(String.format("%.10f", lattice[i][0]))
-              .append(" ").append(String.format("%.10f", lattice[i][1]))
-              .append(" ").append(String.format("%.10f", lattice[i][2]))
+            sb.append("  ").append(String.format(Locale.ROOT, "%.10f", lattice[i][0]))
+              .append(" ").append(String.format(Locale.ROOT, "%.10f", lattice[i][1]))
+              .append(" ").append(String.format(Locale.ROOT, "%.10f", lattice[i][2]))
               .append("\n");
         }
         sb.append("\n");
@@ -268,7 +275,9 @@ public class AtomicExporter {
             String elem = atom.getElementName();
             if (!counted.containsKey(elem)) {
                 counted.put(elem, 1);
-                sb.append("  ").append(elem).append("  1.0  ").append(elem).append(".upf\n");
+                sb.append("  ").append(elem)
+                  .append("  ").append(String.format(Locale.ROOT, "%.8f", ElementUtil.getMass(elem)))
+                  .append("  MISSING_").append(elem).append(".UPF\n");
             }
         }
         sb.append("\n");
@@ -277,9 +286,9 @@ public class AtomicExporter {
         for (Atom atom : atoms) {
             if (atom == null) continue;
             sb.append("  ").append(atom.getElementName())
-              .append(" ").append(String.format("%.10f", atom.getX()))
-              .append(" ").append(String.format("%.10f", atom.getY()))
-              .append(" ").append(String.format("%.10f", atom.getZ()))
+              .append(" ").append(String.format(Locale.ROOT, "%.10f", atom.getX()))
+              .append(" ").append(String.format(Locale.ROOT, "%.10f", atom.getY()))
+              .append(" ").append(String.format(Locale.ROOT, "%.10f", atom.getZ()))
               .append("\n");
         }
         sb.append("\n");

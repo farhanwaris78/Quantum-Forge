@@ -1,84 +1,131 @@
 /*
- * Copyright (C) 2025 QuantumForge Team
+ * Copyright (C) 2025-2026 QuantumForge Development Team.
  */
 package quantumforge.run.parser;
 
 import java.io.BufferedReader;
-import java.io.File;
-import java.io.FileReader;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Locale;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
- * Parser for band gap from QE output files.
- * 
- * Extracts the band gap value from SCF/NSCF output,
- * Fermi energy, and band structure information.
+ * Parses explicit gap summaries and QE occupied/unoccupied level summaries.
+ * It does not infer directness unless the input explicitly states it; rigorous
+ * direct/indirect analysis belongs in the k-resolved BandGapDetector.
  */
-public class BandGapParser {
+public final class BandGapParser {
+    private static final String NUMBER = "([-+]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:[EeDd][-+]?\\d+)?)";
+    private static final Pattern FERMI = Pattern.compile(
+            "(?i)the\\s+Fermi\\s+energy\\s+is\\s+" + NUMBER);
+    private static final Pattern OCCUPIED_UNOCCUPIED = Pattern.compile(
+            "(?i)highest\\s+occupied\\s*,\\s*lowest\\s+unoccupied\\s+level\\s*\\(ev\\)\\s*:\\s*"
+                    + NUMBER + "\\s+" + NUMBER);
+    private static final Pattern EXPLICIT_GAP = Pattern.compile(
+            "(?i)\\b(?:(direct|indirect)\\s+)?band\\s+gap\\s*(?:=|:|is)\\s*" + NUMBER);
 
-    private String filePath;
+    private final Path file;
+    private final List<String> diagnostics = new ArrayList<>();
     private double bandGap;
     private double fermiEnergy;
-    private boolean isInsulator;
-    private boolean isDirect;
+    private boolean insulator;
+    private boolean direct;
+    private boolean directKnown;
 
     public BandGapParser(String filePath) {
-        this.filePath = filePath;
-        this.bandGap = -1.0;
-        this.fermiEnergy = 0.0;
-        this.isInsulator = false;
-        this.isDirect = false;
+        this.file = filePath == null ? null : Paths.get(filePath);
+        this.reset();
     }
 
-    /**
-     * Parse QE output file for band gap information
-     */
+    private void reset() {
+        this.bandGap = Double.NaN;
+        this.fermiEnergy = Double.NaN;
+        this.insulator = false;
+        this.direct = false;
+        this.directKnown = false;
+        this.diagnostics.clear();
+    }
+
     public boolean parse() {
-        if (this.filePath == null) return false;
-
-        File file = new File(this.filePath);
-        if (!file.exists()) return false;
-
-        try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                // Fermi energy
-                if (line.contains("the Fermi energy is")) {
-                    String[] parts = line.split("\\s+");
-                    for (int i = 0; i < parts.length; i++) {
-                        if (parts[i].equals("is") && i + 1 < parts.length) {
-                            try { this.fermiEnergy = Double.parseDouble(parts[i + 1]); } catch (Exception e) {}
-                        }
-                    }
-                }
-
-                // Band gap from scf output
-                if (line.contains("highest occupied")) {
-                    this.isInsulator = true;
-                }
-
-                // Band gap from bands output
-                if (line.contains("band gap") || line.contains("Band gap")) {
-                    String[] parts = line.split("\\s+");
-                    for (int i = 0; i < parts.length; i++) {
-                        if (parts[i].equals("gap") && i + 2 < parts.length) {
-                            try { this.bandGap = Double.parseDouble(parts[i + 2]); } catch (Exception e) {}
-                        }
-                        if (parts[i].equals("Direct") || parts[i].equals("Indirect")) {
-                            this.isDirect = parts[i].equals("Direct");
-                        }
-                    }
-                }
-            }
-        } catch (IOException e) {
+        this.reset();
+        if (this.file == null || !Files.isRegularFile(this.file)) {
+            this.diagnostics.add("Output file does not exist or is not a regular file.");
             return false;
         }
 
-        return this.bandGap >= 0;
+        try (BufferedReader reader = Files.newBufferedReader(this.file, StandardCharsets.UTF_8)) {
+            String line;
+            int lineNumber = 0;
+            while ((line = reader.readLine()) != null) {
+                lineNumber++;
+                parseLine(line, lineNumber);
+            }
+        } catch (IOException e) {
+            this.diagnostics.add("I/O error: " + e.getMessage());
+            return false;
+        }
+
+        if (!Double.isFinite(this.bandGap) || this.bandGap < 0.0) {
+            this.diagnostics.add("No explicit or occupied/unoccupied band-gap summary was found.");
+            return false;
+        }
+        this.insulator = this.bandGap > 0.01;
+        return true;
+    }
+
+    private void parseLine(String line, int lineNumber) {
+        Matcher fermiMatcher = FERMI.matcher(line);
+        if (fermiMatcher.find()) {
+            this.fermiEnergy = parseNumber(fermiMatcher.group(1), "Fermi energy", lineNumber);
+        }
+
+        Matcher levelsMatcher = OCCUPIED_UNOCCUPIED.matcher(line);
+        if (levelsMatcher.find()) {
+            double occupied = parseNumber(levelsMatcher.group(1), "highest occupied level", lineNumber);
+            double unoccupied = parseNumber(levelsMatcher.group(2), "lowest unoccupied level", lineNumber);
+            if (Double.isFinite(occupied) && Double.isFinite(unoccupied)) {
+                double gap = unoccupied - occupied;
+                if (gap >= 0.0) {
+                    this.bandGap = gap;
+                    this.directKnown = false;
+                } else {
+                    this.diagnostics.add("Line " + lineNumber + " has unoccupied energy below occupied energy.");
+                }
+            }
+        }
+
+        Matcher gapMatcher = EXPLICIT_GAP.matcher(line);
+        if (gapMatcher.find()) {
+            double gap = parseNumber(gapMatcher.group(2), "band gap", lineNumber);
+            if (Double.isFinite(gap) && gap >= 0.0) {
+                this.bandGap = gap;
+                String type = gapMatcher.group(1);
+                this.directKnown = type != null;
+                this.direct = type != null && "direct".equals(type.toLowerCase(Locale.ROOT));
+            }
+        }
+    }
+
+    private double parseNumber(String value, String field, int lineNumber) {
+        try {
+            return Double.parseDouble(value.replace('d', 'e').replace('D', 'E'));
+        } catch (NumberFormatException e) {
+            this.diagnostics.add("Line " + lineNumber + " has invalid " + field + ": " + value);
+            return Double.NaN;
+        }
     }
 
     public double getBandGap() { return this.bandGap; }
     public double getFermiEnergy() { return this.fermiEnergy; }
-    public boolean isInsulator() { return this.isInsulator; }
-    public boolean isDirect() { return this.isDirect; }
+    public boolean isInsulator() { return this.insulator; }
+    public boolean isDirect() { return this.directKnown && this.direct; }
+    public boolean isDirectKnown() { return this.directKnown; }
+    public List<String> getDiagnostics() { return Collections.unmodifiableList(this.diagnostics); }
 }

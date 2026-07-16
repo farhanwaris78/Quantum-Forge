@@ -1,21 +1,17 @@
 /*
- * Copyright (C) 2025 QuantumForge Team
+ * Copyright (C) 2025-2026 QuantumForge Development Team.
  */
-
 package quantumforge.app.project.viewer.result.special;
 
-/**
- * Hyperfine Interaction Mapping tool.
- * Visualizes Fermi contact term and dipole-dipole interaction.
- */
-public class HyperfineMapper {
+import quantumforge.capability.CapabilityRegistry;
+import quantumforge.capability.ScientificFeatureUnavailableException;
 
-    /**
-     * Calculate hyperfine constant A_iso (MHz)
-     * A_iso = (2/3) * mu0 * ge * gn * muN * |psi(0)|^2
-     */
+/** Hyperfine analysis requires parsed all-electron/GIPAW tensors and isotope metadata. */
+public final class HyperfineMapper {
+    private HyperfineMapper() { }
+
     public static double calculateAiso(double psi0sq, double gn) {
-        double constant = 23.685; // Mock constant for ge, mu0, etc.
-        return constant * gn * psi0sq;
+        throw new ScientificFeatureUnavailableException(CapabilityRegistry.ADVANCED_SCIENCE,
+                "Hyperfine contact calculation");
     }
 }

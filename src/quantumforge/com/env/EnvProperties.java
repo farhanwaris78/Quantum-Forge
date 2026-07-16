@@ -72,27 +72,20 @@ public final class EnvProperties {
             return;
         }
 
-        // check version
-        String ver = this.propertiesUser.getProperty("version");
-
-        double verNum = 0.0;
-        if (ver != null) {
-            try {
-                verNum = Double.parseDouble(ver);
-            } catch (NumberFormatException e) {
-                verNum = 0.0;
+        // Migrate settings without destroying user-selected QE paths, API keys,
+        // proxy settings, or command customizations. Older code parsed semantic
+        // versions as doubles and replaced the complete user file on every
+        // upgrade ("2.0.0" is not a valid double).
+        String version = this.propertiesUser.getProperty("version", "").trim();
+        if (!Version.VERSION.equals(version)) {
+            Properties merged = new Properties();
+            if (this.propertiesSystem != null) {
+                merged.putAll(this.propertiesSystem);
             }
-        }
-
-        if (Math.abs(verNum - Version.VERSION_NUMBER) > 1.0e-8) {
-            try {
-                this.clonePropertiesSystem(filePath2);
-            } catch (IOException e) {
-                e.printStackTrace();
-                return;
-            }
-
-            this.createPropertiesUser(filePath2);
+            merged.putAll(this.propertiesUser);
+            merged.setProperty("version", Version.VERSION);
+            this.propertiesUser = merged;
+            this.printPropertiesUser();
         }
     }
 

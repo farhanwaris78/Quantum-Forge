@@ -14,7 +14,13 @@ public interface Version {
 
     public static final String VERSION = "2.0.0";
 
-    public static final double VERSION_NUMBER = Double.parseDouble(VERSION);
+    /**
+     * Legacy major/minor value retained for binary compatibility only.
+     * Semantic versions such as "2.0.0" are not valid Java doubles; new code
+     * must compare {@link #VERSION} as a string/semantic version instead.
+     */
+    @Deprecated
+    public static final double VERSION_NUMBER = 2.0d;
 
     public static final String VERSION_NAME = "QuantumForge";
 

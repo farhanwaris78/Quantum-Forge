@@ -40,7 +40,8 @@
               <menus>
                 <Menu fx:id="topMenu" mnemonicParsing="false" styleClass="picblack-button" text="Menu">
                   <items>
-                        <MenuItem fx:id="aboutMItem" mnemonicParsing="false" text="About QUANTUMFORGE" />
+                        <MenuItem fx:id="aboutMItem" mnemonicParsing="false" text="About QuantumForge" />
+                        <MenuItem fx:id="capabilitiesMItem" mnemonicParsing="false" text="Capability Status" />
                         <MenuItem fx:id="docsMItem" mnemonicParsing="false" text="Documents" />
                         <Menu fx:id="extensionsMenu" mnemonicParsing="false" text="Extensions">
                            <items>

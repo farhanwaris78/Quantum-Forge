@@ -6,7 +6,6 @@ package quantumforge.symmetry;
 
 import quantumforge.atoms.model.Cell;
 import quantumforge.atoms.model.exception.ZeroVolumCellException;
-import quantumforge.com.math.Matrix3D;
 
 /**
  * Symmetry Utility for crystal lattice conversion.
@@ -20,9 +19,8 @@ public class SymmetryUtility {
     public static Cell convertToPrimitive(Cell cell) throws ZeroVolumCellException {
         if (cell == null) return null;
         
-        // This is a placeholder. In a full implementation, this calls spglib.
-        // For now, if it's already primitive, we return as is.
-        return cell; 
+        throw new UnsupportedOperationException(
+                "Primitive-cell conversion requires spglib and is not implemented in this release.");
     }
 
     /**
@@ -30,6 +28,7 @@ public class SymmetryUtility {
      */
     public static Cell convertToConventional(Cell cell) throws ZeroVolumCellException {
         if (cell == null) return null;
-        return cell;
+        throw new UnsupportedOperationException(
+                "Conventional-cell conversion requires spglib and is not implemented in this release.");
     }
 }

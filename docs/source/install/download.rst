@@ -1,11 +1,16 @@
-Download
-========
+Download and integrity
+======================
 
-You can download executables from here:
+Current release artifacts are published at:
 
-- `Windows <https://github.com/QUANTUMFORGE-team/quantumforge/releases/download/ver.1.3/QUANTUMFORGE1.3_Windows.zip>`_
-- `Mac OSX <https://github.com/QUANTUMFORGE-team/quantumforge/releases/download/ver.1.3/QUANTUMFORGE1.3_MacOSX.zip>`_
-- `Ubuntu <https://github.com/QUANTUMFORGE-team/quantumforge/releases/download/ver.1.3-linux/QUANTUMFORGE1.3_Linux.tgz>`_
+- `QuantumForge releases <https://github.com/farhanwaris78/Quantum-Forge/releases>`_
 
-.. note::
-	These zip-files contain precompiled executable files of Quantum ESPRESSO.
+Download the platform artifact and ``SHA256SUMS`` from the same release, then
+verify the checksum before installation. The full maintained instructions are in
+`docs/INSTALLATION.md <../../INSTALLATION.md>`_.
+
+.. warning::
+
+   Current QuantumForge packages do not bundle Quantum ESPRESSO,
+   pseudopotentials, VASP, CASTEP, thermo_pw, phonopy, BoltzTraP2, or XCrySDen.
+   Install calculation engines separately under their own licenses.

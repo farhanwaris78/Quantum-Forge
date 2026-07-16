@@ -33,14 +33,10 @@ public class NMRInputCorrecter extends QEInputCorrecter {
     public void correctInput() {
         if (!this.nmrEnabled) return;
 
-        if (this.nmlControl != null) {
-            this.nmlControl.setValue("calculation = 'scf'");
-        }
-
-        if (this.nmlSystem != null) {
-            // NMR requires more empty bands
-            // GIPAW pseudopotentials are needed
-            this.nmlSystem.setValue("nbnd = 50");
-        }
+        // NMR shielding/EFG is a multi-step GIPAW workflow with a separate
+        // gipaw.x input and validated GIPAW pseudopotentials. Arbitrarily setting
+        // nbnd=50 in pw.x neither configures nor runs that workflow.
+        throw new UnsupportedOperationException(
+                "NMR requires a dedicated GIPAW workflow and is not implemented in this release.");
     }
 }

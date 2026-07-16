@@ -40,7 +40,9 @@ public class MagneticSpaceGroupDetector {
             return "Paramagnetic / Non-magnetic (Use standard SpaceGroupDetector)";
         }
 
-        // Return a mock result for now
-        return "Shubnikov group: P4/mmm' (Mock)";
+        // A Shubnikov group cannot be inferred from the presence of a magnetic
+        // property. It requires atomic moments plus magnetic symmetry operations
+        // (for example, spglib's magnetic dataset API).
+        return "Undetermined (magnetic spglib integration is not implemented)";
     }
 }
