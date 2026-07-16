@@ -24,6 +24,9 @@ public class ViewerItemSet {
     private ViewerItem runItem;
     private ViewerItem resultItem;
     private ViewerItem exportItem;
+    private ViewerItem recoverItem;
+    private ViewerItem xcrysdenItem;
+    private ViewerItem exportWorkflowItem;
 
     public ViewerItemSet() {
         this.atomsViewerItem = new ViewerItem(SVGData.ATOMS, "Show atoms");
@@ -31,11 +34,14 @@ public class ViewerItemSet {
         this.modelerItem = new ViewerItem(SVGData.TOOL, "Modeler");
         this.saveFileItem = new ViewerItem(SVGData.SAVE, "Save");
         this.saveAsFileItem = new ViewerItem(SVGData.SAVE, "Save as ...");
+        this.recoverItem = new ViewerItem(SVGData.UNDO, "Recover autosave ...");
         this.designerItem = new ViewerItem(SVGData.COLORS, "Designer");
         this.screenShotItem = new ViewerItem(SVGData.CAMERA, "Screen-shot");
         this.runItem = new ViewerItem(SVGData.RUN, "Run");
         this.resultItem = new ViewerItem(SVGData.RESULT, "Result");
-        this.exportItem = new ViewerItem(SVGData.EXPORT, "Export");
+        this.exportItem = new ViewerItem(SVGData.EXPORT, "Export structure");
+        this.exportWorkflowItem = new ViewerItem(SVGData.FILE, "Export workflow script");
+        this.xcrysdenItem = new ViewerItem(SVGData.CRYSTAL, "Open in XCrySDen");
     }
 
     public ViewerItem[] getItems() {
@@ -45,11 +51,14 @@ public class ViewerItemSet {
                 this.modelerItem,
                 this.saveFileItem,
                 this.saveAsFileItem,
+                this.recoverItem,
                 this.designerItem,
                 this.screenShotItem,
                 this.runItem,
                 this.resultItem,
-                this.exportItem
+                this.exportItem,
+                this.exportWorkflowItem,
+                this.xcrysdenItem
         };
     }
 
@@ -69,8 +78,12 @@ public class ViewerItemSet {
         return this.saveFileItem;
     }
 
-    public ViewerItem getSaveAsFileItem() {
+public ViewerItem getSaveAsFileItem() {
         return this.saveAsFileItem;
+    }
+
+    public ViewerItem getRecoverItem() {
+        return this.recoverItem;
     }
 
     public ViewerItem getDesignerItem() {
@@ -91,5 +104,13 @@ public class ViewerItemSet {
 
     public ViewerItem getExportItem() {
         return this.exportItem;
+    }
+
+    public ViewerItem getExportWorkflowItem() {
+        return this.exportWorkflowItem;
+    }
+
+    public ViewerItem getXcrysdenItem() {
+        return this.xcrysdenItem;
     }
 }

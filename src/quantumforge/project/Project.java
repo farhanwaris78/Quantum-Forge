@@ -380,11 +380,18 @@ public abstract class Project {
 
     public abstract boolean isQEInputChanged();
 
-    public abstract void saveQEInputs(String directoryPath);
+public abstract void saveQEInputs(String directoryPath);
 
     public void saveQEInputs() {
         this.saveQEInputs(null);
     }
+
+    /**
+     * Write current QE inputs into {@code directoryPath} without rebinding this
+     * project's active directory or clearing the dirty/mark state.
+     * Used by autosave snapshots and recovery export.
+     */
+    public abstract void exportQEInputsTo(String directoryPath);
 
     public abstract Project cloneProject(String directoryPath);
 

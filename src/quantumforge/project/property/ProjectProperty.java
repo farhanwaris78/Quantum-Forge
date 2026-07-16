@@ -10,17 +10,21 @@
 
 package quantumforge.project.property;
 
-import java.io.BufferedReader;
-import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileNotFoundException;
-import java.io.FileReader;
-import java.io.FileWriter;
 import java.io.IOException;
 import java.io.Reader;
-import java.io.Writer;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 
 import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+
+import quantumforge.com.file.AtomicFileWriter;
+import quantumforge.com.log.AppLog;
+import quantumforge.project.ProjectSchema;
+import quantumforge.ver.Version;
 
 public class ProjectProperty {
 
@@ -186,11 +190,19 @@ public class ProjectProperty {
         try {
             this.status = this.<ProjectStatus> readFile(FILE_NAME_STATUS, ProjectStatus.class);
         } catch (IOException e) {
+            AppLog.warn("project", "Could not read project status: " + e.getMessage());
             this.status = null;
         }
 
         if (this.status == null) {
             this.status = new ProjectStatus();
+        } else {
+            try {
+                this.status.ensureSchemaMetadata();
+            } catch (IllegalStateException ex) {
+                AppLog.error("project", "Unsupported project schema in " + this.directoryPath, ex);
+                throw ex;
+            }
         }
     }
 
@@ -258,57 +270,54 @@ public class ProjectProperty {
         if (this.status == null) {
             this.createStatus();
         }
+        this.status.ensureSchemaMetadata();
+        this.status.setSchemaVersion(ProjectSchema.CURRENT_VERSION);
+        this.status.setQuantumforgeVersion(Version.VERSION);
 
         try {
             this.<ProjectStatus> writeFile(FILE_NAME_STATUS, this.status);
-
         } catch (IOException e) {
-            e.printStackTrace();
+            AppLog.error("project", "Failed to save project status", e);
         }
     }
 
     public synchronized void saveScfEnergies() {
         try {
             this.<ProjectEnergies> writeFile(FILE_NAME_SCF, this.scfEnergies);
-
         } catch (IOException e) {
-            e.printStackTrace();
+            AppLog.error("project", "Failed to save SCF energies", e);
         }
     }
 
     public synchronized void saveFermiEnergies() {
         try {
             this.<ProjectEnergies> writeFile(FILE_NAME_FERMI, this.fermiEnergies);
-
         } catch (IOException e) {
-            e.printStackTrace();
+            AppLog.error("project", "Failed to save Fermi energies", e);
         }
     }
 
     public synchronized void saveOptList() {
         try {
             this.<ProjectGeometryList> writeFile(FILE_NAME_OPT, this.optList);
-
         } catch (IOException e) {
-            e.printStackTrace();
+            AppLog.error("project", "Failed to save optimization geometry list", e);
         }
     }
 
     public synchronized void saveMdList() {
         try {
             this.<ProjectGeometryList> writeFile(FILE_NAME_MD, this.mdList);
-
         } catch (IOException e) {
-            e.printStackTrace();
+            AppLog.error("project", "Failed to save MD geometry list", e);
         }
     }
 
     public synchronized void saveBandPaths() {
         try {
             this.<ProjectBandPaths> writeFile(FILE_NAME_PATH, this.bandPaths);
-
         } catch (IOException e) {
-            e.printStackTrace();
+            AppLog.error("project", "Failed to save band paths", e);
         }
     }
 
@@ -317,71 +326,41 @@ public class ProjectProperty {
             return null;
         }
 
-        T objT = null;
-        Reader reader = null;
-
-        try {
-            File file = new File(this.directoryPath, fileName);
-            if (!file.isFile()) {
-                return null;
-            }
-
-            reader = new BufferedReader(new FileReader(file));
-
-            Gson gson = new Gson();
-            objT = gson.<T> fromJson(reader, classT);
-
-        } catch (FileNotFoundException e1) {
-            throw e1;
-
-        } catch (Exception e2) {
-            throw new IOException(e2);
-
-        } finally {
-            if (reader != null) {
-                try {
-                    reader.close();
-                } catch (IOException e3) {
-                    throw e3;
-                }
-            }
+        Path path = Path.of(this.directoryPath, fileName);
+        if (!Files.isRegularFile(path)) {
+            return null;
         }
 
-        return objT;
+        try (Reader reader = Files.newBufferedReader(path, StandardCharsets.UTF_8)) {
+            Gson gson = new GsonBuilder().create();
+            return gson.fromJson(reader, classT);
+        } catch (FileNotFoundException e1) {
+            throw e1;
+        } catch (IOException e1) {
+            throw e1;
+        } catch (Exception e2) {
+            throw new IOException(e2);
+        }
     }
 
     private <T> void writeFile(String fileName, T objT) throws IOException {
-        if (fileName == null || fileName.isEmpty()) {
+        if (fileName == null || fileName.isEmpty() || objT == null) {
             return;
         }
 
-        if (objT == null) {
-            return;
-        }
-
-        Writer writer = null;
-
+        Path path = Path.of(this.directoryPath, fileName);
         try {
-            File file = new File(this.directoryPath, fileName);
-            writer = new BufferedWriter(new FileWriter(file));
-
-            Gson gson = new Gson();
-            gson.toJson(objT, writer);
-
+            // Keep last-known-good copy before replacement.
+            if (Files.isRegularFile(path)) {
+                Path backup = path.resolveSibling(fileName + ".bak");
+                Files.copy(path, backup, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            }
+            Gson gson = new GsonBuilder().setPrettyPrinting().create();
+            AtomicFileWriter.writeUtf8(path, gson.toJson(objT));
         } catch (IOException e1) {
             throw e1;
-
         } catch (Exception e2) {
             throw new IOException(e2);
-
-        } finally {
-            if (writer != null) {
-                try {
-                    writer.close();
-                } catch (IOException e3) {
-                    throw e3;
-                }
-            }
         }
     }
 }

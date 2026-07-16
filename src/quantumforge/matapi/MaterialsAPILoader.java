@@ -20,10 +20,12 @@ import java.util.List;
 
 import quantumforge.com.env.Environments;
 import quantumforge.com.file.FileTools;
+import quantumforge.com.secrets.SecretStore;
 
 public class MaterialsAPILoader {
 
     private static final String PROP_API_KEY = "material_api_key";
+    // Session / keyring-backed secret; never re-persist to .properties.
 
     private static volatile String sessionApiKey;
 
@@ -33,9 +35,18 @@ public class MaterialsAPILoader {
 
     public static String getApiKey() {
         if (sessionApiKey == null) {
-            // Migrate away from plaintext persistence. The old value is usable
-            // only for this process and is removed from the properties file.
-            sessionApiKey = Environments.getProperty(PROP_API_KEY);
+            // Prefer SecretStore (memory / optional OS keyring), then migrate any
+            // legacy plaintext property into the store and delete it from disk.
+            sessionApiKey = SecretStore.getInstance()
+                    .getString(SecretStore.KEY_MATERIALS_API)
+                    .orElse(null);
+            if (sessionApiKey == null) {
+                String legacy = Environments.getProperty(PROP_API_KEY);
+                if (legacy != null && !legacy.isBlank()) {
+                    sessionApiKey = legacy.trim();
+                    SecretStore.getInstance().putString(SecretStore.KEY_MATERIALS_API, sessionApiKey);
+                }
+            }
             Environments.removeProperty(PROP_API_KEY);
         }
         return sessionApiKey;
@@ -43,6 +54,11 @@ public class MaterialsAPILoader {
 
     public static void setApiKey(String apiKey) {
         sessionApiKey = apiKey == null || apiKey.trim().isEmpty() ? null : apiKey.trim();
+        if (sessionApiKey == null) {
+            SecretStore.getInstance().delete(SecretStore.KEY_MATERIALS_API);
+        } else {
+            SecretStore.getInstance().putString(SecretStore.KEY_MATERIALS_API, sessionApiKey);
+        }
         Environments.removeProperty(PROP_API_KEY);
     }
 

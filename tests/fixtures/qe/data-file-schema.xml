@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<qes:espresso xmlns:qes="http://www.quantum-espresso.org/ns/qes/qes-1.0" Units="Hartree atomic units">
+  <general_info>
+    <xml_format NAME="QEXSD" VERSION="21.11.12"/>
+    <creator NAME="pwscf" VERSION="7.5"/>
+  </general_info>
+  <output>
+    <atomic_structure nat="2">
+      <atomic_positions>
+        <atom name="Si" index="1">0.0 0.0 0.0</atom>
+        <atom name="Si" index="2">1.0 1.0 1.0</atom>
+      </atomic_positions>
+    </atomic_structure>
+    <total_energy>
+      <etot>-15.85245678</etot>
+    </total_energy>
+    <forces>
+      <total_force>0.00012</total_force>
+      <force>0.00010 0.00000 -0.00005</force>
+      <force>-0.00010 0.00000 0.00005</force>
+    </forces>
+    <stress>
+      <sigma>-0.001 0.000 0.000 0.000 -0.001 0.000 0.000 0.000 -0.001</sigma>
+    </stress>
+    <band_structure>
+      <nspin>1</nspin>
+      <fermi_energy>0.2405</fermi_energy>
+    </band_structure>
+    <convergence_info>
+      <scf_conv>
+        <n_scf_steps>12</n_scf_steps>
+        <scf_error>1.2e-9</scf_error>
+        <convergence_achieved>true</convergence_achieved>
+      </scf_conv>
+    </convergence_info>
+  </output>
+</qes:espresso>

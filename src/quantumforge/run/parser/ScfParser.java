@@ -35,8 +35,32 @@ public class ScfParser extends LogParser {
         this.scfEnergies = this.property.getScfEnergies();
     }
 
-    @Override
+@Override
     public void parse(File file) throws IOException {
+        // Prefer QE XML when a sibling .save/data-file-schema.xml exists.
+        try {
+            File dir = file == null ? null : file.getParentFile();
+            if (dir != null) {
+                var xml = QeXmlResultParser.parseProjectSave(dir.toPath(), "espresso");
+                if (xml.isSuccess() && xml.getValue().isPresent()) {
+                    QeXmlResultParser.QeXmlResults results = xml.getValue().get();
+                    if (this.scfEnergies != null) {
+                        this.scfEnergies.clearEnergies();
+                        results.getTotalEnergyRy().ifPresent(this.scfEnergies::addEnergy);
+                        results.getScfConverged().ifPresent(this.scfEnergies::setConverged);
+                        this.property.saveScfEnergies();
+                    }
+                    if (this.property.getFermiEnergies() != null) {
+                        this.property.getFermiEnergies().clearEnergies();
+                        results.getFermiEnergyEv().ifPresent(this.property.getFermiEnergies()::addEnergy);
+                        this.property.saveFermiEnergies();
+                    }
+                    return;
+                }
+            }
+        } catch (RuntimeException ignored) {
+            // Fall back to text log parsing.
+        }
         this.fermiParser.parse(file);
         this.parseScf(file);
     }
@@ -151,9 +175,10 @@ public class ScfParser extends LogParser {
             String[] subLines = line2.split("\\s+");
             if (subLines != null && subLines.length > 3) {
                 String strValue = subLines[3];
-                if (strValue != null) {
+if (strValue != null) {
                     try {
-                        value = Double.parseDouble(strValue);
+                        // QE often prints Fortran D exponents (e.g. -1.23D+02).
+                        value = ScfConvergenceAnalyzer.parseFortranDouble(strValue);
                         return new Energy(value, converged);
                     } catch (NumberFormatException e) {
                         // NOP

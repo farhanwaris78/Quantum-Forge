@@ -88,9 +88,9 @@ public class FermiParser extends LogParser {
                     }
                 }
 
-                if (strFermi != null) {
+if (strFermi != null) {
                     try {
-                        double fermi = Double.parseDouble(strFermi);
+                        double fermi = ScfConvergenceAnalyzer.parseFortranDouble(strFermi);
                         if (this.fermiEnergies != null) {
                             this.fermiEnergies.addEnergy(fermi);
                         }

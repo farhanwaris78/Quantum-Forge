@@ -10,25 +10,27 @@
 
 package quantumforge.run;
 
-import java.io.BufferedWriter;
 import java.io.File;
-import java.io.FileWriter;
 import java.io.IOException;
-import java.io.PrintWriter;
+import java.nio.file.Path;
+import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 import javafx.application.Platform;
 import javafx.scene.control.Alert;
 import javafx.scene.control.Alert.AlertType;
 import quantumforge.app.QEFXMain;
+import quantumforge.com.file.AtomicFileWriter;
 import quantumforge.com.file.FileTools;
+import quantumforge.com.log.AppLog;
 import quantumforge.com.path.QEPath;
 import quantumforge.input.QEInput;
-import quantumforge.input.validation.QEInputValidator;
 import quantumforge.input.validation.ValidationIssue;
 import quantumforge.project.Project;
 import quantumforge.run.parser.LogParser;
+import quantumforge.run.parser.ScfConvergenceAnalyzer;
 
 public class RunningNode implements Runnable {
 
@@ -50,12 +52,17 @@ public class RunningNode implements Runnable {
 
     private Process objProcess;
 
+    private volatile boolean cancelled;
+
+    private String jobId;
+
     public RunningNode(Project project) {
         if (project == null) {
             throw new IllegalArgumentException("project is null.");
         }
 
         this.alive = true;
+        this.cancelled = false;
 
         this.project = project;
 
@@ -67,6 +74,7 @@ public class RunningNode implements Runnable {
         this.numThreads = 1;
 
         this.objProcess = null;
+        this.jobId = null;
     }
 
     public Project getProject() {
@@ -137,10 +145,17 @@ public class RunningNode implements Runnable {
 
     public synchronized void stop() {
         this.alive = false;
+        this.cancelled = true;
 
         if (this.objProcess != null) {
-            this.objProcess.destroy();
+            // Prefer QE graceful exit file first, then process-tree kill.
+            this.requestGracefulExit();
+            ProcessTreeKiller.stop(this.objProcess, Duration.ofSeconds(5), Duration.ofSeconds(5));
         }
+    }
+
+    public synchronized boolean wasCancelled() {
+        return this.cancelled;
     }
 
     @Override
@@ -155,6 +170,9 @@ public class RunningNode implements Runnable {
         if (directory == null) {
             return;
         }
+
+        this.jobId = AppLog.newJobId();
+        AppLog.info("run", "Starting calculation job " + this.jobId + " in " + directory.getPath());
 
         RunningType type2 = null;
         int numProcesses2 = -1;
@@ -176,13 +194,21 @@ public class RunningNode implements Runnable {
             numThreads2 = 1;
         }
 
-        QEInput input = new FXQEInputFactory(type2).getQEInput(this.project);
-        if (input == null) {
+        // Full dry-run: input semantics + binaries + disk + DAG integrity.
+        DryRunPreflight.Report preflight = DryRunPreflight.run(this.project, type2, numProcesses2);
+        QEExecutableProfile profile = preflight.getProfile();
+        if (preflight.hasErrors()) {
+            this.showValidationDialog(preflight.getIssues());
             return;
         }
-        List<ValidationIssue> validationIssues = new QEInputValidator().validate(input);
-        if (QEInputValidator.hasErrors(validationIssues)) {
-            this.showValidationDialog(validationIssues);
+        for (ValidationIssue issue : preflight.getIssues()) {
+            if (issue != null && issue.getSeverity() == quantumforge.input.validation.ValidationSeverity.WARNING) {
+                AppLog.warn("preflight", issue.toString());
+            }
+        }
+
+        QEInput input = new FXQEInputFactory(type2).getQEInput(this.project);
+        if (input == null) {
             return;
         }
 
@@ -228,16 +254,57 @@ public class RunningNode implements Runnable {
             return;
         }
 
+        QECommandDag dag = preflight.getDag();
+        if (dag == null) {
+            try {
+                dag = type2.getCommandDag(inpName, numProcesses2);
+            } catch (RuntimeException ex) {
+                AppLog.error("run", "Cannot build command DAG: " + ex.getMessage());
+                return;
+            }
+        }
+        java.util.Set<String> available = ArtifactScanner.scan(
+                directory.toPath(), this.project.getPrefixName());
+        java.util.Set<String> remainingIds = new java.util.LinkedHashSet<>();
+        for (QECommandStage stage : dag.remaining(available)) {
+            remainingIds.add(stage.getId());
+        }
+        AppLog.info("run", "DAG " + type2.name() + " stages=" + dag.size()
+                + " availableArtifacts=" + available
+                + " remaining=" + remainingIds);
+        // Export a GUI-independent script for this run (best effort).
+        try {
+            Path script = directory.toPath().resolve(".quantumforge.workflow.sh");
+            WorkflowExporter.export(script, dag, WorkflowExporter.Format.BASH,
+                    this.project.getDirectoryName(), 1, numProcesses2, null);
+        } catch (RuntimeException ex) {
+            AppLog.warn("run", "Workflow export skipped: " + ex.getMessage());
+        }
+
         this.deleteExitFile(directory);
 
         ProcessBuilder builder = null;
         boolean errOccurred = false;
+        boolean wasCancelled = false;
+        List<QECommandStage> stages = dag.getStages();
 
         for (int i = 0; i < commandList.size(); i++) {
             synchronized (this) {
                 if (!this.alive) {
-                    return;
+                    wasCancelled = true;
+                    break;
                 }
+            }
+
+            QECommandStage stage = i < stages.size() ? stages.get(i) : null;
+            String stageId = stage == null ? ("stage-" + i) : stage.getId();
+
+            // Skip completed DAG stages when artifacts already exist, unless the
+            // stage is required and still listed in remainingIds.
+            if (stage != null && !remainingIds.contains(stage.getId())) {
+                AppLog.info("run", "Skipping completed DAG stage " + stageId
+                        + " (artifacts already present)");
+                continue;
             }
 
             String[] command = commandList.get(i);
@@ -283,6 +350,11 @@ public class RunningNode implements Runnable {
             }
 
             if (!condition.toRun(this.project, input2)) {
+                AppLog.info("run", "Condition skipped stage " + stageId);
+                // Keep legacy condition skips in sync with artifact set when possible.
+                if (stage != null) {
+                    available.addAll(stage.getProduces());
+                }
                 continue;
             }
 
@@ -303,6 +375,27 @@ public class RunningNode implements Runnable {
             builder.environment().put("OMP_NUM_THREADS", Integer.toString(numThreads2));
             this.setPathToBuilder(builder);
 
+            RunManifest manifest = new RunManifest(this.jobId,
+                    type2.name() + "-" + stageId,
+                    Arrays.asList(command), directory.toPath());
+            manifest.setQeVersion(profile.getVersion());
+            manifest.putEnvironment("OMP_NUM_THREADS", Integer.toString(numThreads2));
+            if (stage != null) {
+                manifest.putEnvironment("QF_STAGE_KIND", stage.getKind().name());
+                manifest.putEnvironment("QF_STAGE_ID", stage.getId());
+            }
+            if (command.length > 0) {
+                Path executable = Path.of(command[0]);
+                if (!executable.isAbsolute() && profile.getBinDirectory() != null) {
+                    Path candidate = profile.getBinDirectory().resolve(command[0]);
+                    if (java.nio.file.Files.isRegularFile(candidate)) {
+                        executable = candidate;
+                    }
+                }
+                manifest.setExecutable(executable);
+            }
+            manifest.setInput(inpFile.toPath());
+
             try {
                 synchronized (this) {
                     this.objProcess = builder.start();
@@ -311,15 +404,33 @@ public class RunningNode implements Runnable {
                 parser.startParsing(logFile);
 
                 if (this.objProcess != null) {
-                    if (this.objProcess.waitFor() != 0) {
-                        errOccurred = true;
+                    int exit = this.objProcess.waitFor();
+                    manifest.setOutputs(logFile.toPath(), errFile.toPath());
+                    if (this.wasCancelled()) {
+                        wasCancelled = true;
+                        manifest.finish(exit, "CANCELLED");
                         break;
+                    }
+                    if (exit != 0) {
+                        errOccurred = true;
+                        manifest.finish(exit, "FAILED");
+                        break;
+                    }
+                    manifest.finish(exit, "COMPLETED");
+                    if (stage != null) {
+                        available.addAll(stage.getProduces());
                     }
                 }
 
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                wasCancelled = true;
+                manifest.finish(-1, "CANCELLED");
+                break;
             } catch (Exception e) {
-                e.printStackTrace();
+                AppLog.error("run", "Stage failed for job " + this.jobId + " / " + stageId, e);
                 errOccurred = true;
+                manifest.finish(-1, "FAILED");
                 break;
 
             } finally {
@@ -328,18 +439,89 @@ public class RunningNode implements Runnable {
                 }
 
                 parser.endParsing();
+                try {
+                    // Post-stage SCF summary when the log looks electronic.
+                    if (logFile.isFile()) {
+                        try {
+                            String logText = java.nio.file.Files.readString(logFile.toPath());
+                            ScfConvergenceAnalyzer.Report scf =
+                                    ScfConvergenceAnalyzer.analyze(logText);
+                            if (!scf.getIterations().isEmpty()) {
+                                AppLog.info("scf", ScfConvergenceAnalyzer.formatSummary(scf));
+                            }
+                        } catch (Exception parseEx) {
+                            AppLog.debug("scf", "No SCF summary: " + parseEx.getMessage());
+                        }
+                    }
+                    manifest.appendToProject(directory.toPath());
+                } catch (IOException ex) {
+                    AppLog.warn("run", "Could not write run manifest: " + ex.getMessage());
+                }
             }
 
-            if (!errOccurred) {
+            if (!errOccurred && !wasCancelled) {
                 post.operate(this.project);
             }
         }
 
-        if (!errOccurred) {
+        if (wasCancelled) {
+            AppLog.info("run", "Job " + this.jobId + " cancelled");
+            this.setStatus(RunningStatus.IDLE);
+        } else if (!errOccurred) {
             type2.setProjectStatus(this.project);
-
+            AppLog.info("run", "Job " + this.jobId + " completed");
         } else {
+            AppLog.error("run", "Job " + this.jobId + " failed");
+            this.diagnoseLogErrors(directory);
             this.showErrorDialog(builder);
+        }
+    }
+
+    private void diagnoseLogErrors(File directory) {
+        if (directory == null) {
+            return;
+        }
+        try {
+            File[] files = directory.listFiles((dir, name) ->
+                    name != null && (name.endsWith(".log") || name.endsWith(".err")));
+            if (files == null) {
+                return;
+            }
+            StringBuilder text = new StringBuilder();
+            for (File file : files) {
+                if (file.isFile() && file.length() < 2_000_000L) {
+                    text.append(java.nio.file.Files.readString(file.toPath()));
+                    text.append('\n');
+                }
+            }
+            java.util.List<quantumforge.run.parser.QEErrorKnowledgeBase.Diagnosis> hits =
+                    quantumforge.run.parser.QEErrorKnowledgeBase.diagnose(text.toString());
+            for (quantumforge.run.parser.QEErrorKnowledgeBase.Diagnosis hit : hits) {
+                AppLog.error("qe-error", hit.toString());
+            }
+            if (!hits.isEmpty()) {
+                AppLog.info("qe-error", "Matched " + hits.size()
+                        + " deterministic QE error signature(s); see log for checks.");
+            }
+        } catch (Exception ex) {
+            AppLog.warn("qe-error", "Could not diagnose logs: " + ex.getMessage());
+        }
+    }
+
+    private void requestGracefulExit() {
+        File directory = this.getDirectory();
+        if (directory == null) {
+            return;
+        }
+        String exitName = this.project.getExitFileName();
+        if (exitName == null || exitName.trim().isEmpty()) {
+            return;
+        }
+        try {
+            AtomicFileWriter.writeUtf8(Path.of(directory.getPath(), exitName.trim()), "1\n");
+            AppLog.info("run", "Wrote QE EXIT file " + exitName);
+        } catch (IOException ex) {
+            AppLog.warn("run", "Could not write QE EXIT file: " + ex.getMessage());
         }
     }
 
@@ -356,7 +538,7 @@ public class RunningNode implements Runnable {
             }
 
         } catch (Exception e) {
-            e.printStackTrace();
+            AppLog.error("run", "Cannot access project directory", e);
             return null;
         }
 
@@ -364,11 +546,7 @@ public class RunningNode implements Runnable {
     }
 
     private boolean writeQEInput(QEInput input, File file) {
-        if (input == null) {
-            return false;
-        }
-
-        if (file == null) {
+        if (input == null || file == null) {
             return false;
         }
 
@@ -376,24 +554,17 @@ public class RunningNode implements Runnable {
         if (strInput == null) {
             return false;
         }
-
-        PrintWriter writer = null;
-
-        try {
-            writer = new PrintWriter(new BufferedWriter(new FileWriter(file)));
-            writer.println(strInput);
-
-        } catch (IOException e) {
-            e.printStackTrace();
-            return false;
-
-        } finally {
-            if (writer != null) {
-                writer.close();
-            }
+        if (!strInput.endsWith("\n")) {
+            strInput = strInput + System.lineSeparator();
         }
 
-        return true;
+        try {
+            AtomicFileWriter.writeUtf8(file.toPath(), strInput);
+            return true;
+        } catch (IOException e) {
+            AppLog.error("run", "Failed to write QE input " + file, e);
+            return false;
+        }
     }
 
     private void deleteExitFile(File directory) {
@@ -410,7 +581,7 @@ public class RunningNode implements Runnable {
                     FileTools.deleteAllFiles(exitFile, false);
                 }
             } catch (Exception e) {
-                e.printStackTrace();
+                AppLog.warn("run", "Could not delete EXIT file: " + e.getMessage());
             }
         }
     }
@@ -426,7 +597,7 @@ public class RunningNode implements Runnable {
             }
 
         } catch (Exception e) {
-            e.printStackTrace();
+            AppLog.warn("run", "Could not delete previous log files: " + e.getMessage());
         }
     }
 

@@ -1,0 +1,9 @@
+     Program PWSCF v.7.5 starts on 16Jul2026 at 13: 0: 0
+
+ %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+     Error in routine read_pseudopot (1):
+     file Si.pbe-n-rrkjus_psl.1.0.0.UPF not found
+ %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+     stopping ...
+     MPI_Abort

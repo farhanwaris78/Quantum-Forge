@@ -46,11 +46,11 @@ public final class CapabilityRegistry {
                 "Core pw.x SCF, relaxation, MD, bands, and DOS models/editors are present.",
                 "Complete version-aware schema and multi-version QE golden tests.");
         register(values, QE_LOCAL, "Local Quantum ESPRESSO execution", CapabilityStatus.PARTIAL,
-                "ProcessBuilder command chains and established output parsers are present.",
-                "Add preflight, manifests, process-tree cancellation, and real QE integration tests.");
-        register(values, SSH_HPC, "SSH and HPC schedulers", CapabilityStatus.UNAVAILABLE,
-                "Legacy transfer/submission paths are disabled because no real secure transport exists.",
-                "Implement strict host-key SSH/SFTP and scheduler job-state adapters.");
+                "ProcessBuilder is driven with dry-run preflight, typed command DAG stage skipping, XML-first data-file-schema parsing (energy/Fermi/force/stress/atomic forces) when present, NEB/phonon command DAGs, run manifests, restart/resubmit planning, workflow export, process-tree cancellation, live log tailing, and SCF/geometry analysis.",
+                "Add real multi-version QE golden integration tests against installed engines.");
+        register(values, SSH_HPC, "SSH and HPC schedulers", CapabilityStatus.PARTIAL,
+                "Strict known_hosts store, JSch transport, host-key acceptance UI helper, selective result sync with checksum cache, remote job monitor with backoff, safe cancel-by-id, SLURM/PBS/SGE adapters, site profiles, durable job-queue store, and job-state records exist; live multi-cluster validation is still required.",
+                "Validate against two real clusters and polish fingerprint dialog UX.");
         register(values, THERMO_PW, "thermo_pw", CapabilityStatus.EXPERIMENTAL,
                 "Executable detection and a narrow elastic-matrix parser exist.",
                 "Add QE compatibility checks, controls, execution DAG, units, and reference tests.");
@@ -60,9 +60,9 @@ public final class CapabilityRegistry {
         register(values, BOLTZTRAP2, "BoltzTraP2", CapabilityStatus.UNAVAILABLE,
                 "The btp2 command can be detected but no conversion, execution, or parser exists.",
                 "Implement dense-band conversion, interpolation diagnostics, tensors, and unit tests.");
-        register(values, XCRYSDEN, "XCrySDen", CapabilityStatus.UNAVAILABLE,
-                "Executable detection exists without an export-and-launch action.",
-                "Add safe XSF export, argument-array launch, and local/X11 smoke tests.");
+        register(values, XCRYSDEN, "XCrySDen", CapabilityStatus.PARTIAL,
+                "Safe temp XSF export and argument-array launch are implemented; requires a local xcrysden binary and display.",
+                "Add remote/X11 lifecycle tests and density/grid XSF export.");
         register(values, VASP, "VASP", CapabilityStatus.EXPERIMENTAL,
                 "POSCAR I/O and a disconnected INCAR form exist; no complete licensed workflow exists.",
                 "Add private licensed schema/execution/vasprun.xml tests without distributing POTCAR data.");
@@ -70,8 +70,8 @@ public final class CapabilityRegistry {
                 "No .cell/.param model, execution adapter, or results parser exists.",
                 "Build a separately licensed plugin and private reference suite.");
         register(values, SYMMETRY, "Symmetry", CapabilityStatus.PARTIAL,
-                "Bravais metric helpers exist; space and magnetic group results are intentionally undetermined.",
-                "Integrate versioned spglib datasets and transformation provenance.");
+                "Bravais helpers remain; spglib/seekpath sidecar protocol v2 supports dataset, primitive/conventional standardization, and k-path when python packages are installed; otherwise results stay undetermined/fail-closed.",
+                "Ship a locked sidecar environment and COD/ICSD-permitted round-trip fixtures.");
         register(values, LAMMPS, "LAMMPS", CapabilityStatus.EXPERIMENTAL,
                 "A small script skeleton exists without a data writer, runner, or parser.",
                 "Implement a unit-aware plugin and force/energy conformance fixtures.");
@@ -82,8 +82,8 @@ public final class CapabilityRegistry {
                 "Topology, catalysis, battery, spectroscopy, and superconductivity sketches are not validated workflows.",
                 "Implement as reviewed plugins backed by real engines and benchmark data.");
         register(values, PACKAGING, "Cross-platform packaging", CapabilityStatus.PARTIAL,
-                "Versioned portable/native installers, update, uninstall, SBOM, and workflow templates exist.",
-                "Run authorized cross-platform CI and configure Windows/macOS code signing.");
+                "Versioned portable/native installers, update/uninstall, SBOM, Ubuntu 20.04 baseline, Arch PKGBUILD, Windows/macOS scripts, and the quantumforge CLI exist.",
+                "Activate authorized cross-platform CI runners and configure Windows/macOS code signing.");
         return Collections.unmodifiableMap(values);
     }
 

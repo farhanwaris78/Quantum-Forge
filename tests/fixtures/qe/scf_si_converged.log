@@ -1,0 +1,40 @@
+     Program PWSCF v.7.5 starts on 16Jul2026 at 10: 0: 0
+
+     This program is part of the open-source Quantum ESPRESSO suite
+     number of atoms/cell      =            2
+     number of atomic types    =            1
+     number of electrons       =         8.00
+     number of Kohn-Sham states=            8
+     kinetic-energy cutoff     =      25.0000  Ry
+     charge density cutoff     =     200.0000  Ry
+
+     celldm(1)=  10.20000  celldm(2)=   0.00000  celldm(3)=   0.00000
+
+     crystal axes: (cart. coord. in units of alat)
+               a(1) = (  0.500000  0.500000  0.000000 )
+               a(2) = (  0.500000  0.000000  0.500000 )
+               a(3) = (  0.000000  0.500000  0.500000 )
+
+     Self-consistent Calculation
+
+     iteration #  1     ecut=    25.00 Ry     beta= 0.70
+     total energy              =     -15.84012345 Ry
+     estimated scf accuracy    <       0.01200000 Ry
+
+     iteration #  2     ecut=    25.00 Ry     beta= 0.70
+     total energy              =     -15.85123456 Ry
+     estimated scf accuracy    <       0.00120000 Ry
+
+     iteration #  3     ecut=    25.00 Ry     beta= 0.70
+     total energy              =     -15.85234567 Ry
+     estimated scf accuracy    <       0.00012000 Ry
+
+     iteration #  4     ecut=    25.00 Ry     beta= 0.70
+!    total energy              =     -15.85245678 Ry
+     estimated scf accuracy    <       0.00000120 Ry
+
+     End of self-consistent calculation
+
+     the Fermi energy is    6.5432 ev
+
+     JOB DONE.

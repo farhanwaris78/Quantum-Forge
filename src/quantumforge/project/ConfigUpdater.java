@@ -25,8 +25,8 @@ public final class ConfigUpdater {
         if (this.project == null) {
             return OperationResult.failed("PROJECT_MISSING", "No project was supplied.", null);
         }
-        return OperationResult.unsupported("FINAL_GEOMETRY_UPDATE_UNAVAILABLE",
-                "Final QE geometry parsing and transactional input update are not implemented; nothing was changed.");
+        // Preview path is available; apply remains fail-closed until card rewrite lands.
+        return quantumforge.run.parser.FinalGeometryUpdater.apply(this.project);
     }
 
     /** @deprecated use the typed result method. */

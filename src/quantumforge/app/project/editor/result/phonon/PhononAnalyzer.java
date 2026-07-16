@@ -15,6 +15,8 @@ import java.util.List;
 
 import quantumforge.capability.CapabilityRegistry;
 import quantumforge.capability.ScientificFeatureUnavailableException;
+import quantumforge.operation.OperationResult;
+import quantumforge.run.parser.PhononDosThermodynamics;
 
 /**
  * Phonon mode analysis and visualization.
@@ -185,13 +187,32 @@ public class PhononAnalyzer {
     }
 
     /**
-     * Get thermodynamic properties from phonon DOS
+     * Get thermodynamic properties from phonon DOS (harmonic approximation).
+     *
+     * <p>Requires {@link #setDOS(double[], double[])} with frequencies in cm^-1.
+     * Returns typed failure via exception only when inputs are incomplete; numerical
+     * integration is performed by {@link PhononDosThermodynamics}.</p>
      */
     public ThermodynamicProperties calculateThermodynamics(double temperature) {
-        // The previous implementation ignored both supplied arrays and returned
-        // arbitrary temperature functions. Do not fabricate thermodynamics.
-        throw new ScientificFeatureUnavailableException(CapabilityRegistry.PHONOPY,
-                "Phonon-DOS thermodynamic integration");
+        if (this.dosEnergies == null || this.phononDOS == null) {
+            throw new ScientificFeatureUnavailableException(CapabilityRegistry.PHONOPY,
+                    "Phonon DOS is not set; load a real phonon DOS before thermodynamics.");
+        }
+        OperationResult<PhononDosThermodynamics.Result> result =
+                PhononDosThermodynamics.integrate(this.dosEnergies, this.phononDOS, temperature);
+        if (!result.isSuccess() || result.getValue().isEmpty()) {
+            throw new IllegalArgumentException("Phonon thermodynamics failed: " + result.getMessage());
+        }
+        PhononDosThermodynamics.Result r = result.getValue().get();
+        return new ThermodynamicProperties(
+                r.getTemperatureK(),
+                r.getHelmholtzFreeEnergyEv(),
+                r.getEntropyEvPerK() * 1000.0,      // eV/K -> meV/K
+                r.getHeatCapacityEvPerK() * 1000.0, // eV/K -> meV/K
+                r.getZeroPointEnergyEv(),
+                r.getInternalEnergyEv(),
+                r.getIntegratedDos(),
+                r.getNotes());
     }
 
     /**
@@ -202,10 +223,42 @@ public class PhononAnalyzer {
         public final double freeEnergy;      // eV
         public final double entropy;          // meV/K
         public final double heatCapacityCV;   // meV/K
+        public final double zeroPointEnergyEv;
+        public final double internalEnergyEv;
+        public final double integratedDos;
+        public final String notes;
 
+        public ThermodynamicProperties(double temperature, double freeEnergyEv,
+                                       double entropyMevPerK, double heatCapacityMevPerK,
+                                       double zeroPointEnergyEv, double internalEnergyEv,
+                                       double integratedDos, String notes) {
+            this.temperature = temperature;
+            this.freeEnergy = freeEnergyEv;
+            this.entropy = entropyMevPerK;
+            this.heatCapacityCV = heatCapacityMevPerK;
+            this.zeroPointEnergyEv = zeroPointEnergyEv;
+            this.internalEnergyEv = internalEnergyEv;
+            this.integratedDos = integratedDos;
+            this.notes = notes == null ? "" : notes;
+        }
+
+        /** @deprecated incomplete constructor retained only for compile compatibility */
+        @Deprecated
         public ThermodynamicProperties(double T, double[] energies, double[] dos) {
-            throw new ScientificFeatureUnavailableException(CapabilityRegistry.PHONOPY,
-                    "Phonon-DOS thermodynamic integration");
+            OperationResult<PhononDosThermodynamics.Result> result =
+                    PhononDosThermodynamics.integrate(energies, dos, T);
+            if (!result.isSuccess() || result.getValue().isEmpty()) {
+                throw new IllegalArgumentException(result.getMessage());
+            }
+            PhononDosThermodynamics.Result r = result.getValue().get();
+            this.temperature = r.getTemperatureK();
+            this.freeEnergy = r.getHelmholtzFreeEnergyEv();
+            this.entropy = r.getEntropyEvPerK() * 1000.0;
+            this.heatCapacityCV = r.getHeatCapacityEvPerK() * 1000.0;
+            this.zeroPointEnergyEv = r.getZeroPointEnergyEv();
+            this.internalEnergyEv = r.getInternalEnergyEv();
+            this.integratedDos = r.getIntegratedDos();
+            this.notes = r.getNotes();
         }
     }
 

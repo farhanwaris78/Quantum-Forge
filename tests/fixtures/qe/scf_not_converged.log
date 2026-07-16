@@ -1,0 +1,17 @@
+     Program PWSCF v.7.5 starts on 16Jul2026 at 11: 0: 0
+
+     iteration #  1
+     total energy              =     -10.00000000 Ry
+     estimated scf accuracy    <       0.50000000 Ry
+
+     iteration #  2
+     total energy              =     -10.20000000 Ry
+     estimated scf accuracy    <       0.80000000 Ry
+
+     iteration #  3
+     total energy              =      -9.50000000 Ry
+     estimated scf accuracy    <       1.20000000 Ry
+
+     convergence NOT achieved after 100 iterations: stopping
+
+     MPI_Abort

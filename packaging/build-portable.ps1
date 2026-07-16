@@ -31,12 +31,18 @@ Copy-Item "packaging\windows\Install-QuantumForge.ps1" "$Bundle\management\Insta
 Copy-Item "packaging\windows\Update-QuantumForge.ps1" "$Bundle\management\Update-QuantumForge.ps1"
 Copy-Item "packaging\windows\Uninstall-QuantumForge.ps1" "$Bundle\management\Uninstall-QuantumForge.ps1"
 Copy-Item "packaging\windows\Install-QuantumForge.ps1" "$Bundle\Install-QuantumForge.ps1"
+Copy-Item "packaging\windows\Update-QuantumForge.ps1" "$Bundle\Update-QuantumForge.ps1"
+Copy-Item "packaging\windows\Uninstall-QuantumForge.ps1" "$Bundle\Uninstall-QuantumForge.ps1"
 Copy-Item "LICENSE", "README.md" "$Bundle\"
 @("docs\INSTALLATION.md", "docs\RELEASE_AND_SECURITY.md", "docs\SCIENTIFIC_SOFTWARE_GUIDE.md",
-  "docs\CODE_AUDIT.md", "docs\FUTURE_ROADMAP.md", "docs\IMPLEMENTATION_REPORT.md") |
-    ForEach-Object { Copy-Item $_ "$Bundle\docs\" }
+  "docs\CODE_AUDIT.md", "docs\FUTURE_ROADMAP.md", "docs\IMPLEMENTATION_REPORT.md",
+  "docs\TUTORIAL_INSTALL.md") |
+    ForEach-Object {
+        if (Test-Path $_) { Copy-Item $_ "$Bundle\docs\" }
+    }
 Copy-Item "src\quantumforge\app\resource\image\icon_256.png" "$Bundle\resources\quantumforge.png"
 Set-Content -LiteralPath "$Bundle\VERSION" -Value $Version -Encoding ASCII
+Set-Content -LiteralPath "$Bundle\LAUNCH_COMMAND.txt" -Value "command=quantumforge" -Encoding ASCII
 Copy-Item "target\quantumforge-sbom.json" "$Bundle\quantumforge-sbom.cdx.json"
 New-Item -ItemType Directory -Force -Path "target\release" | Out-Null
 $Archive = Join-Path $Root "target\release\$Name.zip"

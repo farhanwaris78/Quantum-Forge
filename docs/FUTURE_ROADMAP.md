@@ -4,7 +4,39 @@ This roadmap is ordered by scientific value and dependency. “Effective” mean
 
 ## Implementation progress
 
-The first stabilization batch now implements or partially implements items **2, 3, 9, 16, 17, 18, 24, 25, 36, 37, 45, 47, 49, 156**, plus fail-closed portions of 54, 56, 61, 64–67, 91–99, and 161–170. “Partially” is intentional: for example, deterministic QE preflight exists, but a complete version-generated schema and real-engine golden corpus do not. The capability registry reports this distinction at runtime with `quantumforge --capabilities`.
+The first stabilization batch implements or partially implements items **2, 3, 9, 16, 17, 18, 24, 25, 36, 37, 45, 47, 49, 156**, plus fail-closed portions of 54, 56, 61, 64–67, 91–99, and 161–170.
+
+The second stabilization batch added or hardened items **4, 5, 6, 7, 8, 21, 28, 29** and packaging/docs infrastructure.
+
+The **third** stabilization batch implemented or strengthened items **8, 9, 26, 30–32, 39–41** (units, live tailing, error KB, SCF/geometry analyzers, secret store, fixtures).
+
+The **fourth** batch added recovery GUI, command DAG model, restart manager, workflow export, fixtures, and offline harnesses.
+
+The **fifth** batch (this continuation) wires and extends those foundations:
+
+| # | Status after batch 5 | What landed |
+|---:|---|---|
+| 27 | **Wired into runner** | `RunningNode` uses `QECommandDag` stage IDs, skips completed stages via `ArtifactScanner`, logs remaining work |
+| 33 | **Used in preflight** | Restart assessment surfaced in dry-run report |
+| 45 | **Stronger** | `DryRunPreflight` checks binaries, disk, MPI, input semantics, DAG integrity before launch |
+| 104 | **GUI + auto** | Viewer **Export workflow script**; auto-write `.quantumforge.workflow.sh` on run |
+| 110 | **Partial** | `XCrySDenLauncher` temp XSF + argument-array launch; viewer menu **Open in XCrySDen** |
+| 32 | **Runner feedback** | SCF convergence summary logged after each stage when present |
+
+“Partially” remains intentional where full engine golden runs, native keyrings, or remote XCrySDen lifecycle tests are still required.
+
+The **sixth** batch adds HPC/SSH foundations and spglib protocol:
+
+| # | Status after batch 6 | What landed |
+|---:|---|---|
+| 91 | **Partial** | `JschSshTransport` + `KnownHostsStore` fail-closed host keys; session passwords only |
+| 92 | **Partial** | `RemotePathGuard` staging roots, unique job dirs, temp upload+rename pattern |
+| 93 | **Partial** | `SlurmSchedulerAdapter` typed `#SBATCH` + job-id parse + cancel/status arrays |
+| 94 | **Partial** | `SiteProfile` simple YAML-like loader (`packaging/sites/example-slurm.yaml`) |
+| 95 | **Partial** | `JobRecord` / `JobState` transition history |
+| 10 | **Still fail-closed without transport** | `SSHJob` prepares scripts; submit requires connected transport |
+| 71 | **Partial** | `SpglibService` JSON-line sidecar protocol + `tools/spglib_sidecar.py` |
+
 
 ## Phase 0 — trust, safety, and scope (do these first)
 
@@ -246,3 +278,56 @@ A feature is not “done” when a class or button exists. It is done when:
 - GUI cancellation/restart/error paths work;
 - clean-platform package smoke tests pass;
 - the capability registry marks it supported with links to that evidence.
+
+
+The **seventh** batch hardens HPC operations:
+
+| # | Status after batch 7 | What landed |
+|---:|---|---|
+| 91 | **Stronger** | `HostKeyAcceptance` interactive unknown-host prompt used by RunAction |
+| 92/98 | **Partial** | `ResultSyncManifest` + `SelectiveResultSync` required/optional/large downloads |
+| 93 | **Partial** | `PbsSchedulerAdapter` (PBS/Torque) alongside SLURM |
+| 97 | **Partial** | `JobCancellation` cancel-by-parsed-id + post-cancel status check |
+| 10 | **Stronger** | RunAction uses typed SSH results; no silent boolean success |
+
+
+The **eighth** batch completes more HPC reliability pieces:
+
+| # | Status after batch 8 | What landed |
+|---:|---|---|
+| 93 | **Stronger** | `SgeSchedulerAdapter` for SGE/UGE + example site profile |
+| 98 | **Stronger** | Selective sync checksum cache (`SyncChecksumCache`) skips unchanged files |
+| 105 | **Partial** | Durable JSONL `JobQueueStore` for job restart reconstruction |
+| 71/72 | **Honest** | Symmetry conversion still fail-closed; reports when dataset exists but transform payload is not in protocol v1 |
+
+
+The **ninth** batch advances secrets, XML parsing, symmetry transforms, and remote monitoring:
+
+| # | Status after batch 9 | What landed |
+|---:|---|---|
+| 9 | **Stronger Partial** | `ProcessKeyringBackend` uses `secret-tool` / macOS `security` when present |
+| 42 | **Partial** | `QeXmlResultParser` for `data-file-schema.xml` with XXE hardening; ScfParser prefers XML |
+| 71–73 | **Stronger Partial** | spglib/seekpath sidecar protocol v2: standardize primitive/conventional + k-path |
+| 96 | **Partial** | `RemoteJobMonitor` bounded polling with exponential backoff and job-queue persistence hooks |
+
+
+The **tenth** batch hardens NEB, checkpoint resubmit, phonon thermodynamics, XML forces/stress, and Windows secrets:
+
+| # | Status after batch 10 | What landed |
+|---:|---|---|
+| 50 | **Partial** | Fixed NEB lattice interpolation bug; typed path builder with order/volume checks |
+| 99 | **Partial** | `CheckpointResubmit` detects walltime/preempt and writes explicit restart plan |
+| 51/thermo | **Partial** | Real harmonic phonon-DOS thermodynamics integration (no fabricated formulas) |
+| 42 | **Stronger** | XML parser extracts total force + stress tensor when present |
+| 9 | **Stronger** | Windows DPAPI credential backend via PowerShell |
+
+
+The **eleventh** batch wires NEB/phonon command DAGs and richer XML/resubmit tooling:
+
+| # | Status after batch 11 | What landed |
+|---:|---|---|
+| 50 | **Stronger Partial** | `RunningType.NEB` command list/DAG/logs/parsers/post + path creator |
+| 51 | **Partial** | `RunningType.PHONON` SCF→ph.x→q2r.x→matdyn.x DAG and stage artifacts |
+| 42 | **Stronger** | Per-atom force vectors from QE XML `<force>` entries |
+| 99 | **Stronger** | Checkpoint resubmit exports executable `resubmit-<id>.sh` |
+| 98 | **Stronger** | Result sync manifests for NEB/phonon outputs |

@@ -10,11 +10,9 @@
 
 package quantumforge.project;
 
-import java.io.BufferedWriter;
 import java.io.File;
-import java.io.FileWriter;
 import java.io.IOException;
-import java.io.PrintWriter;
+import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -22,6 +20,8 @@ import quantumforge.atoms.model.Cell;
 import quantumforge.atoms.model.property.CellProperty;
 import quantumforge.atoms.reader.AtomsReader;
 import quantumforge.atoms.reader.QEReader;
+import quantumforge.com.file.AtomicFileWriter;
+import quantumforge.com.log.AppLog;
 import quantumforge.input.QEBandInput;
 import quantumforge.input.QEDOSInput;
 import quantumforge.input.QEGeometryInput;
@@ -646,7 +646,7 @@ public class ProjectBody extends Project {
         }
     }
 
-    @Override
+@Override
     public void saveQEInputs(String directoryPath) {
         String directoryPath2 = directoryPath == null ? null : directoryPath.trim();
         if (directoryPath2 == null || directoryPath2.isEmpty()) {
@@ -668,15 +668,33 @@ public class ProjectBody extends Project {
 
         this.resolveQEInputs();
         this.markQEInputs();
+        this.writeQEInputsToDirectory(directoryPath2, true);
+    }
 
-        this.saveQEInput(this.geomData.getFileName(), this.getQEInputGeometry());
-        this.saveQEInput(this.scfData.getFileName(), this.getQEInputScf());
-        this.saveQEInput(this.optData.getFileName(), this.getQEInputOptimiz());
-        this.saveQEInput(this.mdData.getFileName(), this.getQEInputMd());
-        this.saveQEInput(this.dosData.getFileName(), this.getQEInputDos());
-        this.saveQEInput(this.bandData.getFileName(), this.getQEInputBand());
+    @Override
+    public void exportQEInputsTo(String directoryPath) {
+        String directoryPath2 = directoryPath == null ? null : directoryPath.trim();
+        if (directoryPath2 == null || directoryPath2.isEmpty()) {
+            return;
+        }
+        if (!this.createDirectory(directoryPath2)) {
+            AppLog.warn("project", "Cannot create export directory: " + directoryPath2);
+            return;
+        }
+        // Resolve in memory only; never rebind this.getDirectoryPath().
+        this.resolveQEInputs();
+        this.writeQEInputsToDirectory(directoryPath2, false);
+    }
 
-        if (this.property != null) {
+    private void writeQEInputsToDirectory(String directoryPath, boolean updatePropertyInPlace) {
+        this.saveQEInput(directoryPath, this.geomData.getFileName(), this.getQEInputGeometry());
+        this.saveQEInput(directoryPath, this.scfData.getFileName(), this.getQEInputScf());
+        this.saveQEInput(directoryPath, this.optData.getFileName(), this.getQEInputOptimiz());
+        this.saveQEInput(directoryPath, this.mdData.getFileName(), this.getQEInputMd());
+        this.saveQEInput(directoryPath, this.dosData.getFileName(), this.getQEInputDos());
+        this.saveQEInput(directoryPath, this.bandData.getFileName(), this.getQEInputBand());
+
+        if (updatePropertyInPlace && this.property != null) {
             ProjectStatus status = this.property.getStatus();
             if (status != null) {
                 if (this.cell != null && this.cell.hasProperty(CellProperty.AXIS)) {
@@ -701,32 +719,22 @@ public class ProjectBody extends Project {
     }
 
     private void saveQEInput(String directoryPath, String fileName, QEInput input) {
-        if (directoryPath == null) {
+        if (directoryPath == null || fileName == null || input == null) {
             return;
         }
 
-        if (fileName == null) {
-            return;
-        }
-
-        if (input == null) {
-            return;
-        }
-
-        PrintWriter writer = null;
-        File file = new File(directoryPath, fileName);
-
+        Path path = Path.of(directoryPath, fileName);
         try {
-            writer = new PrintWriter(new BufferedWriter(new FileWriter(file)));
-            writer.println(input.toString());
-
-        } catch (IOException e) {
-            e.printStackTrace();
-
-        } finally {
-            if (writer != null) {
-                writer.close();
+            String content = input.toString();
+            if (content == null) {
+                content = "";
             }
+            if (!content.endsWith("\n")) {
+                content = content + System.lineSeparator();
+            }
+            AtomicFileWriter.writeUtf8(path, content);
+        } catch (IOException e) {
+            AppLog.error("project", "Failed to save QE input " + path, e);
         }
     }
 

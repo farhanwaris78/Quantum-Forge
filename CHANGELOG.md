@@ -7,8 +7,47 @@
 - Added reproducible Maven/JDK 17/OpenJFX build, modern dependency declarations, JUnit tests, and CycloneDX SBOM.
 - Added `quantumforge` launcher with `--version`, `--doctor`, remote-X11 software-rendering fallback, file arguments, and clear Java errors.
 - Added platform portable archives, jpackage native packaging, Arch PKGBUILD, safe per-user install/update/uninstall, desktop/PATH integration, and checksum verification.
-- Added ready-to-activate CI/release workflow templates for Ubuntu 20.04 baseline, Arch, Windows, and Intel/Apple-Silicon macOS.
+- Maintained CI/release workflow templates under `packaging/github-workflows/` for Ubuntu 20.04 baseline, Arch, Windows, and Intel/Apple-Silicon macOS (copy into `.github/workflows/` with a token that has `workflows` permission; configure signing secrets before production).
+- Added full multi-platform install tutorial (`docs/TUTORIAL_INSTALL.md`) covering safe install/update/uninstall and MobaXterm `quantumforge` GUI launch.
 - Added comprehensive installation, external-engine, release-security, code-audit, and 170-item roadmap documentation.
+
+### Project safety and run provenance (roadmap batch 2)
+
+- Atomic project property/input writes via stage+fsync+rename (`AtomicFileWriter`) with last-known-good `.bak` copies.
+- Project schema v1 metadata (`schemaVersion`, `quantumforgeVersion`) on status JSON.
+- Debounced autosave snapshot helper (`.quantumforge.autosave/`).
+- Structured rotating logs with job IDs and secret redaction (`~/.quantumforge/logs/`).
+- Local-first crash reporter writing redacted diagnostic bundles (no automatic upload).
+- QE executable profile probing in `quantumforge --doctor`.
+- Per-stage run manifests (`.quantumforge.run-manifest.jsonl`) with command/hash/exit provenance.
+- Process-tree cancellation with QE EXIT file then graceful/forced descendant kill.
+
+### QE reliability foundations (roadmap batch 3)
+
+- Fixed autosave so snapshots export without rebinding the live project directory; dirty-state probe in open projects; recovery list/restore API with pre-restore backup.
+- `SecretStore` (memory-default, optional OS-keyring backend) for Materials API keys.
+- Immutable `PhysicalQuantity`/`Unit` conversion library (Ry/eV/Ha, bohr/Å, kbar/GPa, cm⁻¹/THz).
+- Incremental UTF-8 `LiveFileTailer` integrated into log parsing.
+- Deterministic QE error knowledge base consulted after failed jobs.
+- SCF convergence analyzer (energy, estimated accuracy, trend) and geometry convergence validator with golden log fixtures.
+- Final-geometry typed preview (apply remains fail-closed).
+- Maintainer first-release checklist: `docs/FIRST_RELEASE.md`.
+
+### Command DAG, restart, recovery GUI (roadmap batch 4)
+
+- Viewer menu **Recover autosave ...** with snapshot picker and pre-restore backup.
+- Typed `QECommandDag` for SCF/relax/MD/DOS/bands pipelines with artifact dependencies and resume filtering.
+- `RestartManager` validates `prefix.save` completeness before recommending restart.
+- `WorkflowExporter` writes bash/SLURM scripts from the DAG.
+- Expanded golden fixtures (Fe spin SCF, bands path, DOS) plus offline fixture/compile harnesses in CI template.
+- Fixed SCF/Fermi log parsers to accept Fortran `D` exponents.
+
+### Runner wiring and external tools (roadmap batch 5)
+
+- `RunningNode` dry-run preflight, DAG stage IDs, on-disk artifact stage skipping, auto workflow script export.
+- Viewer menus: **Export workflow script**, **Open in XCrySDen** (safe temp XSF + argument-array launch).
+- `ArtifactScanner` and `DryRunPreflight` for resume/preflight decisions.
+- SCF convergence summary written to structured logs after stages.
 
 ### Correctness and safety
 
@@ -41,3 +80,49 @@
 - Advanced physics/catalysis/battery/topology/ML modules include unwired or simplified prototypes and are not validated research features.
 - Native Windows/macOS code signing requires owner-provided certificates and protected CI secrets; unsigned artifacts must be labeled accordingly.
 - The initial test suite is not yet the required QE multi-version golden-output corpus.
+
+### SSH/HPC and spglib foundations (roadmap batch 6)
+
+- Strict `KnownHostsStore` and `JschSshTransport` (fail-closed host keys; session-only passwords).
+- SFTP path guards, unique remote job directories, temp upload+rename pattern.
+- `SlurmSchedulerAdapter`, `SiteProfile` loader, `JobRecord` state machine.
+- `SSHJob` prepares scripts offline; submit requires a connected transport.
+- `SpglibService` + `tools/spglib_sidecar.py` isolated protocol (no invented space groups).
+- Example site profile: `packaging/sites/example-slurm.yaml`.
+
+### HPC hardening (roadmap batch 7)
+
+- Interactive host-key acceptance helper wired into remote RunAction.
+- Selective result sync via required/optional/large manifests.
+- PBS/Torque scheduler adapter; safe cancel-by-id with status verification.
+- Remote run path uses typed OperationResult (no silent boolean success).
+
+### HPC reliability (roadmap batch 8)
+
+- SGE/UGE scheduler adapter and example site profile.
+- Durable JSONL job queue store for reconstructing remote jobs after restart.
+- Selective result sync checksum cache to skip unchanged files.
+- Symmetry conversion remains fail-closed even when spglib dataset metadata is available (no silent identity transform).
+
+### Secrets, XML results, symmetry v2, remote monitor (roadmap batch 9)
+
+- Process-based OS keyring backend (`secret-tool` / macOS `security`) with memory fallback.
+- XML-first Quantum ESPRESSO `data-file-schema.xml` parser (XXE-hardened) preferred by ScfParser.
+- spglib/seekpath sidecar protocol v2: dataset, primitive/conventional standardization, k-path.
+- Remote job monitor with exponential backoff and terminal-state detection.
+
+### NEB, checkpoint resubmit, phonon thermo, Windows secrets (roadmap batch 10)
+
+- Fixed NEB lattice interpolation bug and added typed path creation with validation.
+- Checkpoint-aware resubmit planner writes explicit restart plans and preserves job history.
+- Harmonic phonon-DOS thermodynamic integration replaces fabricated thermo placeholders.
+- QE XML parser extracts total force and stress when present.
+- Windows DPAPI credential backend for SecretStore.
+
+### NEB/phonon workflows and richer XML/resubmit (roadmap batch 11)
+
+- Added `RunningType.NEB` and `RunningType.PHONON` command lists, DAG stages, logs/errors/parsers/post hooks.
+- Registered `neb.x`/`ph.x`/`q2r.x`/`matdyn.x` command types and properties.
+- QE XML parser now extracts per-atom force vectors.
+- Checkpoint resubmit can export an executable local restart script.
+- Result-sync manifests include NEB/phonon artifacts.

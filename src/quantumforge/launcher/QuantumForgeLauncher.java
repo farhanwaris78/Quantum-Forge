@@ -5,12 +5,17 @@ package quantumforge.launcher;
 
 import java.awt.GraphicsEnvironment;
 import java.io.File;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
 import quantumforge.app.QEFXMain;
 import quantumforge.capability.CapabilityRegistry;
+import quantumforge.com.env.Environments;
+import quantumforge.com.log.AppLog;
+import quantumforge.com.log.CrashReporter;
+import quantumforge.run.QEExecutableProfile;
 import quantumforge.ver.Version;
 
 /**
@@ -30,6 +35,7 @@ public final class QuantumForgeLauncher {
     }
 
     public static void main(String[] args) {
+        configureDiagnostics();
         if (hasOnlyOption(args, "--version") || hasOnlyOption(args, "-V")) {
             printVersion();
             return;
@@ -56,7 +62,21 @@ public final class QuantumForgeLauncher {
             System.exit(2);
         }
 
+        AppLog.info("launcher", "Starting QuantumForge GUI " + Version.VERSION);
         QEFXMain.main(args == null ? new String[0] : args);
+    }
+
+    private static void configureDiagnostics() {
+        try {
+            String projects = Environments.getProjectsPath();
+            if (projects != null && !projects.isBlank()) {
+                Path logDir = Path.of(projects, "logs");
+                AppLog.configure(logDir.resolve("quantumforge.log"));
+                CrashReporter.install(logDir.resolve("crashes"));
+            }
+        } catch (RuntimeException ignored) {
+            // Headless doctor and packaging smoke tests must still run.
+        }
     }
 
     private static boolean hasOnlyOption(String[] args, String option) {
@@ -125,6 +145,19 @@ public final class QuantumForgeLauncher {
                     + String.join(", ", missingQe));
             System.out.println("       Configure the QE directory inside QuantumForge before calculations.");
         }
+
+        System.out.println(QEExecutableProfile.probeConfigured().toDoctorReport());
+
+        Path log = AppLog.currentLogFile();
+        if (log != null) {
+            System.out.println("[OK] Structured log file: " + log);
+        } else {
+            System.out.println("[INFO] Structured log file is not configured yet.");
+        }
+
+        System.out.println("[INFO] Secret storage backend: "
+                + quantumforge.com.secrets.SecretStore.getInstance().describeBackend()
+                + " (OS keyring used only when explicitly preferred and available).");
 
         reportOptional("thermo_pw", "thermo_pw.x", CapabilityRegistry.THERMO_PW);
         reportOptional("phonopy", "phonopy", CapabilityRegistry.PHONOPY);

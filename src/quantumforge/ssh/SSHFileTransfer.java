@@ -1,34 +1,35 @@
 /*
- * Copyright (C) 2025 QuantumForge Team
+ * Copyright (C) 2025-2026 QuantumForge Development Team.
  */
 package quantumforge.ssh;
+
+import java.nio.file.Files;
+import java.nio.file.Path;
 
 import quantumforge.operation.OperationResult;
 
 /**
- * SSH file transfer manager for remote file operations.
- * 
- * NanoLabo provides:
- * - Continuous file fetching from remote servers
- * - Download all files from server
- * - Delete all files on server
- * - Auto-download of result files
- * - Offline mode with scheduled downloads
- * 
- * This is essential for remote job workflow management.
+ * SFTP transfer helper with path guards and fail-closed defaults.
  */
 public class SSHFileTransfer {
 
-    private SSHServer server;
-    private boolean continuousFetchEnabled;
-    private boolean alwaysOffline;
-    private int downloadInterval; // minutes
+    private final SSHServer server;
+    private SshTransport transport;
+    private String stagingRoot = "/tmp/quantumforge";
+    private boolean continuousFetchEnabled = true;
+    private boolean alwaysOffline = false;
+    private int downloadInterval = 5;
 
     public SSHFileTransfer(SSHServer server) {
         this.server = server;
-        this.continuousFetchEnabled = true;
-        this.alwaysOffline = false;
-        this.downloadInterval = 5;
+    }
+
+    public void setTransport(SshTransport transport) {
+        this.transport = transport;
+    }
+
+    public void setStagingRoot(String stagingRoot) {
+        this.stagingRoot = RemotePathGuard.normalizeStagingRoot(stagingRoot);
     }
 
     public void setContinuousFetch(boolean enabled) {
@@ -43,12 +44,47 @@ public class SSHFileTransfer {
         this.downloadInterval = Math.max(1, minutes);
     }
 
-    /**
-     * Download all result files from remote project directory
-     */
     public OperationResult<Integer> downloadAllFilesResult(String remoteDir, String localDir) {
-        return OperationResult.unsupported("SSH_DOWNLOAD_UNAVAILABLE",
-                "No secure SFTP transport is implemented; no files were downloaded.");
+        if (this.transport == null || !this.transport.isConnected()) {
+            return OperationResult.unsupported("SSH_DOWNLOAD_UNAVAILABLE",
+                    "No secure SFTP transport is connected; no files were downloaded.");
+        }
+        if (remoteDir == null || remoteDir.contains("..") || localDir == null || localDir.isBlank()) {
+            return OperationResult.failed("SSH_PATH_INVALID", "Remote/local path rejected.", null);
+        }
+        // Selective sync is not yet implemented; refuse broad recursive download.
+        return OperationResult.unsupported("SSH_BULK_DOWNLOAD_UNAVAILABLE",
+                "Bulk remote directory download is disabled until a selective manifest sync exists. "
+                        + "Use downloadFile for required parser inputs.");
+    }
+
+    public OperationResult<Void> downloadFileResult(String remoteRelative, Path localFile) {
+        if (this.transport == null || !this.transport.isConnected()) {
+            return OperationResult.unsupported("SSH_DOWNLOAD_UNAVAILABLE",
+                    "No secure SFTP transport is connected; no files were downloaded.");
+        }
+        try {
+            String remote = RemotePathGuard.resolveUnderRoot(this.stagingRoot, remoteRelative);
+            return this.transport.downloadFile(remote, localFile);
+        } catch (RuntimeException ex) {
+            return OperationResult.failed("SSH_PATH_INVALID", ex.getMessage(), ex);
+        }
+    }
+
+    public OperationResult<Void> uploadFileResult(Path localFile, String remoteRelative) {
+        if (this.transport == null || !this.transport.isConnected()) {
+            return OperationResult.unsupported("SSH_UPLOAD_UNAVAILABLE",
+                    "No secure SFTP transport is connected; no files were uploaded.");
+        }
+        if (localFile == null || !Files.isRegularFile(localFile)) {
+            return OperationResult.failed("SSH_LOCAL_MISSING", "Local file missing.", null);
+        }
+        try {
+            String remote = RemotePathGuard.resolveUnderRoot(this.stagingRoot, remoteRelative);
+            return this.transport.uploadFile(localFile, remote);
+        } catch (RuntimeException ex) {
+            return OperationResult.failed("SSH_PATH_INVALID", ex.getMessage(), ex);
+        }
     }
 
     /** @deprecated use the typed result method. */
@@ -57,9 +93,6 @@ public class SSHFileTransfer {
         return this.downloadAllFilesResult(remoteDir, localDir).isSuccess();
     }
 
-    /**
-     * Delete all files on remote server to free space
-     */
     public OperationResult<Integer> deleteAllOnServerResult(String remoteDir) {
         return OperationResult.unsupported("SSH_DELETE_UNAVAILABLE",
                 "Remote deletion is disabled until canonical-path validation and confirmation exist.");
@@ -71,17 +104,27 @@ public class SSHFileTransfer {
         return this.deleteAllOnServerResult(remoteDir).isSuccess();
     }
 
-    /**
-     * Start continuous file fetching
-     */
     public void startContinuousFetch(String remoteDir, String localDir) {
-        if (!this.continuousFetchEnabled || this.alwaysOffline) return;
+        if (!this.continuousFetchEnabled || this.alwaysOffline) {
+            return;
+        }
         throw new UnsupportedOperationException(
                 "Continuous SSH result transfer is not implemented in this release.");
     }
 
-    // Getters
-    public boolean isContinuousFetchEnabled() { return this.continuousFetchEnabled; }
-    public boolean isAlwaysOffline() { return this.alwaysOffline; }
-    public int getDownloadInterval() { return this.downloadInterval; }
+    public boolean isContinuousFetchEnabled() {
+        return this.continuousFetchEnabled;
+    }
+
+    public boolean isAlwaysOffline() {
+        return this.alwaysOffline;
+    }
+
+    public int getDownloadInterval() {
+        return this.downloadInterval;
+    }
+
+    public SSHServer getServer() {
+        return this.server;
+    }
 }
