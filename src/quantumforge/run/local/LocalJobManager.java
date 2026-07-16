@@ -6,6 +6,7 @@ package quantumforge.run.local;
 import java.util.ArrayList;
 import java.util.List;
 
+import quantumforge.operation.OperationResult;
 import quantumforge.project.Project;
 
 /**
@@ -101,14 +102,24 @@ public class LocalJobManager {
     /**
      * Submit a project calculation to the specified queue
      */
-    public boolean submitToQueue(Project project, String queueName) {
+    public OperationResult<String> submitToQueueResult(Project project, String queueName) {
+        if (project == null) {
+            return OperationResult.failed("JOB_PROJECT_MISSING", "No project was supplied.", null);
+        }
         JobQueue queue = this.getQueue(queueName);
-        if (queue == null) return false;
+        if (queue == null) {
+            return OperationResult.failed("JOB_QUEUE_UNKNOWN", "Unknown local queue: " + queueName, null);
+        }
+        // A future implementation must write a quoted script, submit it, parse
+        // and persist a scheduler job ID before returning SUCCESS.
+        return OperationResult.unsupported("LOCAL_SCHEDULER_UNAVAILABLE",
+                "Local PBS/SLURM/PJM submission is not implemented; no job was submitted.");
+    }
 
-        // Fail closed. A future implementation must write a quoted script,
-        // submit it, parse a scheduler job ID, and persist that ID before it can
-        // report success.
-        return false;
+    /** @deprecated use the typed result method. */
+    @Deprecated
+    public boolean submitToQueue(Project project, String queueName) {
+        return this.submitToQueueResult(project, queueName).isSuccess();
     }
 
     public boolean isRunning() { return this.running; }

@@ -9,6 +9,7 @@ creates the same command on every supported platform:
 
    quantumforge --version
    quantumforge --doctor
+   quantumforge --capabilities
    quantumforge
 
 Inside the GUI, open **Menu > Path** and select the directory that contains

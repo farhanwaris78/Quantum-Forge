@@ -10,6 +10,9 @@
 
 package quantumforge.app.project.editor.result.isosurface;
 
+import quantumforge.capability.CapabilityRegistry;
+import quantumforge.capability.ScientificFeatureUnavailableException;
+
 /**
  * Isosurface rendering for 3D volumetric data visualization.
  * 
@@ -86,9 +89,8 @@ public class IsosurfaceData {
      * Cube files are the standard format for volumetric data in QE.
      */
     public boolean loadFromCubeFile(String filePath) {
-        // Placeholder for cube file parser
-        // In production, this would parse Gaussian cube format
-        return false;
+        throw new ScientificFeatureUnavailableException(CapabilityRegistry.ADVANCED_SCIENCE,
+                "Volumetric cube-grid loading and isosurface rendering");
     }
 
     /**
@@ -97,9 +99,8 @@ public class IsosurfaceData {
     public static IsosurfaceData calculateDifference(IsosurfaceData current,
                                                       IsosurfaceData ref1,
                                                       IsosurfaceData ref2) {
-        IsosurfaceData diff = new IsosurfaceData(TYPE_DIFFERENCE_DENSITY);
-        diff.setLabel("Difference (current - #1 - #2)");
-        return diff;
+        throw new ScientificFeatureUnavailableException(CapabilityRegistry.ADVANCED_SCIENCE,
+                "Grid-aligned volumetric density differences");
     }
 
     /**

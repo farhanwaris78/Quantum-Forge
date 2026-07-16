@@ -1,7 +1,7 @@
 # QuantumForge 2.0.0 deep code and scientific audit
 
 **Audit date:** 2026-07-16  
-**Scope:** all tracked source/build/documentation paths in the repository snapshot (approximately 692 Java classes, 54 FXML files, 13 CSS files, and 103,000 Java/FXML/CSS lines).  
+**Scope:** all tracked source/build/documentation paths in the repository snapshot (approximately 701 Java classes after stabilization additions, 54 FXML files, 13 CSS files, and over 103,000 Java/FXML/CSS lines).
 **Method:** package/file inventory, import/reference/dead-code analysis, placeholder/TODO scan, command/network/credential scan, source-encoding check, scientific formula/input review, build-system reconstruction, and initial unit/integration test creation.
 
 This is a code audit, not formal verification or certification. No finite review can prove every calculation path correct. Scientific acceptance requires reference-output regression tests with the actual external engines.
@@ -129,8 +129,8 @@ Hashes and SBOM are implemented. Production release still needs Windows signing 
 1. **Zero historical tests.** Initial JUnit tests now cover matrix/expression math, QE namelists, band-gap summaries, structure I/O/export, resources, and CLI version. This is far below the required parser corpus.
 2. **Mixed encodings.** Fourteen Java files contained non-UTF-8 mojibake comments. They were normalized; CI should enforce UTF-8.
 3. **Legacy dependencies.** Bundled Gson 2.6.1, JCodec 0.2.0, exp4j 0.4.6, and JSch 0.1.54 were from 2016. Maven now uses reviewed current versions, including maintained JSch fork. Delete checked-in binaries after confirming no offline-build requirement.
-4. **Materials Project v1 API is obsolete.** Migrate to `mp-api` v2 through a Python sidecar or current HTTPS client. Current API key is plaintext.
-5. **Plaintext secrets.** Proxy password and Materials Project key can live in `~/.quantumforge/.properties`; SSH password lives in memory/model and serialization behavior needs review. Use OS keyring and default not to save.
+4. **Materials Project v1 API is obsolete.** Migrate to `mp-api` v2 through a Python sidecar or current HTTPS client. New API-key handling is session-only and removes a legacy plaintext value on access, but the endpoint remains obsolete.
+5. **Plaintext secrets — immediate persistence closed, OS keyring still needed.** SSH passwords are now transient and excluded from Gson, proxy password saving is disabled/session-only, and Materials API keys migrate to memory-only. Add Secret Service/Keychain/Credential Manager before restoring opt-in persistence.
 6. **SSH cryptographic model absent.** No real connection, known-host verification, host-key UI, agent support, timeout, or safe transfer exists.
 7. **Shell command construction.** SSH job scripts concatenate tokens/redirects without robust POSIX quoting. Model arguments as arrays locally and use a quoting library/template remotely.
 8. **Network timeouts/limits inconsistent.** API/WebView/download paths need connect/read timeouts, response-size ceilings, content-type checks, cancellation, and TLS-only URLs.
@@ -138,7 +138,7 @@ Hashes and SBOM are implemented. Production release still needs Windows signing 
 10. **Log redirection hides startup failures.** GUI exceptions go to home log files by default; provide crash dialog/path and rotating logs.
 11. **Silent parse errors.** Number format exceptions are often swallowed. Parsers need line/field diagnostics and completeness status.
 12. **Parser format fragility.** Many parsers match English prose and token positions. QE-version golden files and tolerant state machines are needed.
-13. **Band-gap parser is not a real band-gap algorithm.** It only recognizes an externally produced “band gap” line; QE normally requires eigenvalue/occupation analysis across k points/spins.
+13. **Band-gap analysis — substantially addressed, engine corpus pending.** The parser now handles explicit and QE occupied/unoccupied summaries without inventing directness; the analyzer validates rectangular data, state degeneracy, explicit occupations, metallicity, direct/indirect k indices, and DOS threshold limits. Real QE multi-spin/version fixtures remain required.
 14. **Elastic parser assumes a literal header and six raw lines.** Units, row labels, symmetry, malformed matrices, and thermo_pw version are not handled.
 15. **Space-group claim remains in class naming/docs.** Only Bravais metric detection exists; rename until spglib is integrated.
 16. **QE command chain may overrun incorrect stages.** Spin-up/down and condition lists need golden end-to-end tests for nonmagnetic, collinear and noncollinear workflows.
@@ -147,12 +147,12 @@ Hashes and SBOM are implemented. Production release still needs Windows signing 
 19. **Unvalidated structure transformations.** Many builder classes are unreferenced and use hard-coded geometry/random positions. Keep out of production.
 20. **CIF/POSCAR export defects.** CIF lacked `loop_`; POSCAR did not group coordinates by species; locale-dependent decimals and fake mass/cutoff values existed. Corrected, with missing pseudopotentials now made explicit. Add formal format validators.
 21. **Volumetric viewer is a shell.** Cube load returns false; difference returns an empty dataset; no marching cubes.
-22. **Phonon thermodynamics ignores input DOS.** Current formulas use only temperature and arbitrary constants—must be removed/disabled.
-23. **PDOS integral ignores energy spacing.** It sums DOS values rather than numerical integration over the energy grid.
-24. **Effective mass lacks units/tensor fit.** Uses one path coordinate and returns `1/curvature`; cannot claim `m_e`.
-25. **Diffusivity uses first-to-last slope.** No unwrapping, origin averaging, diffusive-window fit, uncertainty, or unit conversion.
-26. **Pourbaix helper omits reference states and thermochemical corrections.** A pH term alone is not a Pourbaix diagram.
-27. **Superconducting helper labels McMillan/Allen–Dynes but uses Debye temperature and a simplified expression.** Real EPW/α²F workflow is absent.
+22. **Phonon thermodynamics ignored input DOS — fail-closed.** Arbitrary formulas were removed; the operation now remains unavailable until a real DOS integration is implemented.
+23. **PDOS integration — addressed.** It now uses trapezoidal integration on a validated nonuniform energy grid and defensive copies.
+24. **Effective mass lacks units/tensor fit — fail-closed.** The misleading path-curvature result was removed pending a reciprocal-space Hessian fit.
+25. **Diffusivity — helper improved, trajectory workflow pending.** MSD fitting now uses a selectable least-squares window, R² and slope uncertainty; unwrapping, multiple origins and block uncertainty still belong in the future trajectory pipeline.
+26. **Pourbaix helper — narrowed.** It is now explicitly a temperature-aware CHE correction with signed stoichiometry, not a phase-diagram claim; full references/convex stability remain future work.
+27. **Superconducting helper — clarified.** The implementation is explicitly validated as the McMillan estimate with input-domain checks, not full Allen–Dynes; real EPW/α²F convergence remains absent.
 28. **VASP/CASTEP menu claims were false.** Changed to honest prototype/not-implemented messages.
 29. **Plugin manager only detects PATH.** Availability is not compatibility, health, version, license, or workflow readiness.
 30. **No schema/version migration for projects.** Add transactional backups and forward/backward compatibility tests.
@@ -217,6 +217,21 @@ Hashes and SBOM are implemented. Production release still needs Windows signing 
 - updated obsolete/broken documentation URLs and dependency declarations;
 - reconciled top-level documentation with repository license and added notices;
 - documented honest capability, safe installation, external engines, and scientific validation.
+
+### Follow-up stabilization batch
+
+- added one capability registry used by GUI and CLI, so finding an executable no longer implies end-to-end support;
+- added typed operation outcomes and fail-closed SSH/scheduler compatibility wrappers;
+- added deterministic QE preflight and blocks invalid structure/count/cutoff/smearing/SOC/k-point inputs before launch;
+- fixed three atom-position binder OR/AND bounds defects and the secondary-card type guard;
+- fixed Γ centering to update the actual three-element offset array;
+- rebuilt k-resolved/occupation-aware/DOS-threshold band-gap analysis with explicit directness limits;
+- corrected PDOS integration on nonuniform energy grids;
+- replaced endpoint MSD diffusivity with regression diagnostics and strengthened low-level scientific helper contracts;
+- converted known random/mock/zero advanced result methods and fake phonon thermodynamics to explicit unsupported errors;
+- secured UPF XML parsing and file-size/encoding handling;
+- stopped plaintext persistence of SSH/proxy/API credentials pending an OS-keyring backend;
+- expanded deterministic unit/security/regression tests for these changes.
 
 ## 8. Required validation matrix before a production claim
 

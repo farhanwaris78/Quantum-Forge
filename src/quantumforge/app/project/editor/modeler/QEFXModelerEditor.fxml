@@ -319,7 +319,6 @@
                   <Insets left="10.0" />
                </padding>
             </GridPane>
-            <BorderPane prefWidth="395.0">
             <GridPane hgap="5.0" prefWidth="395.0" vgap="5.0">
                <children>
                   <Label text="Vacuum (\u00c5)" />

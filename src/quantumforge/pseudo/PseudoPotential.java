@@ -14,11 +14,13 @@ import java.io.BufferedReader;
 import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.FileNotFoundException;
-import java.io.FileReader;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.StringReader;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 
+import javax.xml.XMLConstants;
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
 
@@ -31,6 +33,8 @@ import quantumforge.input.namelist.QEValue;
 import quantumforge.input.namelist.QEValueBase;
 
 public class PseudoPotential implements Comparable<PseudoPotential> {
+
+    private static final long MAX_UPF_BYTES = 128L * 1024L * 1024L;
 
     private boolean available;
 
@@ -132,6 +136,19 @@ public class PseudoPotential implements Comparable<PseudoPotential> {
         return false;
     }
 
+    private static DocumentBuilderFactory createSecureDocumentBuilderFactory() throws Exception {
+        DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+        factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+        factory.setFeature("http://xml.org/sax/features/external-general-entities", false);
+        factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false);
+        factory.setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false);
+        factory.setXIncludeAware(false);
+        factory.setExpandEntityReferences(false);
+        factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_DTD, "");
+        factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_SCHEMA, "");
+        return factory;
+    }
+
     private void readUpfFile() throws IOException {
 
         InputStream inputStream = null;
@@ -142,12 +159,8 @@ public class PseudoPotential implements Comparable<PseudoPotential> {
                 throw new IOException("cannot create InputStream.");
             }
 
-            DocumentBuilderFactory documentFactory = DocumentBuilderFactory.newInstance();
-
-            DocumentBuilder documentBuilder = null;
-            if (documentFactory != null) {
-                documentBuilder = documentFactory.newDocumentBuilder();
-            }
+            DocumentBuilderFactory documentFactory = createSecureDocumentBuilderFactory();
+            DocumentBuilder documentBuilder = documentFactory.newDocumentBuilder();
 
             Document document = null;
             if (documentBuilder != null) {
@@ -214,7 +227,11 @@ public class PseudoPotential implements Comparable<PseudoPotential> {
         BufferedReader reader = null;
 
         try {
-            reader = new BufferedReader(new FileReader(this.upfFile));
+            long fileSize = Files.size(this.upfFile.toPath());
+            if (fileSize > MAX_UPF_BYTES) {
+                throw new IOException("UPF file exceeds the " + MAX_UPF_BYTES + " byte safety limit.");
+            }
+            reader = Files.newBufferedReader(this.upfFile.toPath(), StandardCharsets.UTF_8);
 
             StringBuilder strBuilder = new StringBuilder("<root>");
 
@@ -229,7 +246,7 @@ public class PseudoPotential implements Comparable<PseudoPotential> {
 
             String str = strBuilder.toString();
             if (str != null) {
-                byte[] strBytes = str.getBytes();
+                byte[] strBytes = str.getBytes(StandardCharsets.UTF_8);
                 if (strBytes != null && strBytes.length > 0) {
                     inputStream = new ByteArrayInputStream(strBytes);
                 }

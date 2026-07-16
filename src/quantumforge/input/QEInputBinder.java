@@ -443,7 +443,7 @@ public class QEInputBinder implements AtomEventListener, CellEventListener {
         QECard card = this.input.getCard(QEAtomicPositions.CARD_NAME);
         if (card != null && card instanceof QEAtomicPositions) {
             QEAtomicPositions atomicPositions = (QEAtomicPositions) card;
-            if (0 <= index || index < atomicPositions.numPositions()) {
+            if (0 <= index && index < atomicPositions.numPositions()) {
                 atomicPositions.removePosition(index);
             }
         }
@@ -504,7 +504,7 @@ public class QEInputBinder implements AtomEventListener, CellEventListener {
         if (card != null && card instanceof QEAtomicPositions) {
             QEAtomicPositions atomicPositions = (QEAtomicPositions) card;
             int index = atom.intProperty(AtomProperty.INPUT_INDEX);
-            if (0 <= index || index < atomicPositions.numPositions()) {
+            if (0 <= index && index < atomicPositions.numPositions()) {
                 atomicPositions.setLabel(index, atom.getName());
             }
         }
@@ -583,7 +583,7 @@ public class QEInputBinder implements AtomEventListener, CellEventListener {
         if (card != null && card instanceof QEAtomicPositions) {
             QEAtomicPositions atomicPositions = (QEAtomicPositions) card;
             int index = atom.intProperty(AtomProperty.INPUT_INDEX);
-            if (0 <= index || index < atomicPositions.numPositions()) {
+            if (0 <= index && index < atomicPositions.numPositions()) {
                 boolean[] mobile1 = atomicPositions.getMobile(index);
                 if (mobile1 == null || mobile1.length < 3) {
                     mobile1 = new boolean[] { true, true, true };

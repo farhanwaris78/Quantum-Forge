@@ -59,6 +59,7 @@ exit /b %ERRORLEVEL%
     }
     Write-Host "QuantumForge $Version installed safely."
     Write-Host "Open a new Command Prompt or PowerShell, then run: quantumforge --doctor"
+    Write-Host "Review integration maturity with: quantumforge --capabilities"
     Write-Host "Existing $HOME\.quantumforge research data was not modified."
 }
 catch {

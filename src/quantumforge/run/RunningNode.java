@@ -25,6 +25,8 @@ import quantumforge.app.QEFXMain;
 import quantumforge.com.file.FileTools;
 import quantumforge.com.path.QEPath;
 import quantumforge.input.QEInput;
+import quantumforge.input.validation.QEInputValidator;
+import quantumforge.input.validation.ValidationIssue;
 import quantumforge.project.Project;
 import quantumforge.run.parser.LogParser;
 
@@ -176,6 +178,11 @@ public class RunningNode implements Runnable {
 
         QEInput input = new FXQEInputFactory(type2).getQEInput(this.project);
         if (input == null) {
+            return;
+        }
+        List<ValidationIssue> validationIssues = new QEInputValidator().validate(input);
+        if (QEInputValidator.hasErrors(validationIssues)) {
+            this.showValidationDialog(validationIssues);
             return;
         }
 
@@ -458,6 +465,25 @@ public class RunningNode implements Runnable {
             builder.environment().put("Path", path);
             builder.environment().put("path", path);
         }
+    }
+
+    private void showValidationDialog(List<ValidationIssue> issues) {
+        StringBuilder message = new StringBuilder();
+        for (ValidationIssue issue : issues) {
+            if (issue != null) {
+                message.append(issue).append(System.lineSeparator());
+            }
+        }
+        Platform.runLater(() -> {
+            Alert alert = new Alert(AlertType.ERROR);
+            QEFXMain.initializeDialogOwner(alert);
+            alert.setTitle("Quantum ESPRESSO input preflight failed");
+            alert.setHeaderText("Calculation was not started because the generated input has errors.");
+            alert.setContentText(message.toString());
+            alert.setResizable(true);
+            alert.getDialogPane().setPrefWidth(820.0);
+            alert.showAndWait();
+        });
     }
 
     private void showErrorDialog(ProcessBuilder buider) {

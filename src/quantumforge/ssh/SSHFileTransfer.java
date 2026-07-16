@@ -3,6 +3,8 @@
  */
 package quantumforge.ssh;
 
+import quantumforge.operation.OperationResult;
+
 /**
  * SSH file transfer manager for remote file operations.
  * 
@@ -44,19 +46,29 @@ public class SSHFileTransfer {
     /**
      * Download all result files from remote project directory
      */
+    public OperationResult<Integer> downloadAllFilesResult(String remoteDir, String localDir) {
+        return OperationResult.unsupported("SSH_DOWNLOAD_UNAVAILABLE",
+                "No secure SFTP transport is implemented; no files were downloaded.");
+    }
+
+    /** @deprecated use the typed result method. */
+    @Deprecated
     public boolean downloadAllFiles(String remoteDir, String localDir) {
-        // Fail closed: the previous implementation returned success without
-        // opening an SFTP connection or transferring a byte.
-        return false;
+        return this.downloadAllFilesResult(remoteDir, localDir).isSuccess();
     }
 
     /**
      * Delete all files on remote server to free space
      */
+    public OperationResult<Integer> deleteAllOnServerResult(String remoteDir) {
+        return OperationResult.unsupported("SSH_DELETE_UNAVAILABLE",
+                "Remote deletion is disabled until canonical-path validation and confirmation exist.");
+    }
+
+    /** @deprecated use the typed result method. */
+    @Deprecated
     public boolean deleteAllOnServer(String remoteDir) {
-        // Remote deletion remains deliberately disabled until canonical-path
-        // validation, a real SSH session, and an explicit confirmation exist.
-        return false;
+        return this.deleteAllOnServerResult(remoteDir).isSuccess();
     }
 
     /**

@@ -100,10 +100,10 @@ Future policy:
 ## Security issues found in the audit
 
 - SSH submission/transfer is incomplete and should remain disabled until strict host-key verification, safe auth, and quoting are implemented.
-- Proxy/API credentials can be stored in a plaintext properties file; move secrets to OS keyrings and default to memory-only.
-- Legacy Materials Project v1 endpoints are obsolete and API-key handling needs redesign.
+- SSH passwords are now transient/non-serialized; proxy password persistence is disabled; Materials API keys migrate from legacy plaintext to session memory. An OS keyring is still required before secure persistence can be offered.
+- Legacy Materials Project v1 endpoints remain obsolete even though API-key persistence was hardened.
 - The embedded JavaFX WebView broadens attack surface; restrict untrusted navigation/downloads or make it opt-in.
-- Some file/network parsers lack size/time limits and structured errors.
+- UPF XML now blocks DTD/external entities and files over 128 MiB; other file/network parsers still need systematic size/time limits and structured errors.
 - Historical media/icon provenance is incomplete.
 - No code-signing identities are currently represented in source control (correctly); release signing must be configured externally.
 

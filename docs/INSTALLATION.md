@@ -116,6 +116,7 @@ Then:
 ```bash
 quantumforge --version
 quantumforge --doctor
+quantumforge --capabilities
 quantumforge
 ```
 
@@ -199,6 +200,7 @@ The installer adds only `%LOCALAPPDATA%\QuantumForge\bin` to the current user's 
 ```cmd
 quantumforge --version
 quantumforge --doctor
+quantumforge --capabilities
 quantumforge
 ```
 
@@ -315,7 +317,9 @@ For long-distance links, X11 can be slow, especially JavaFX WebView and 3D scene
 5. If using MPI, select the directory containing `mpirun`/`mpiexec` and check the MPI template.
 6. Configure pseudopotentials and test a tiny reference SCF before production.
 
-Settings/projects/logs live under `~/.quantumforge`. Version upgrades now merge defaults into the settings file rather than replacing user paths.
+Settings/projects/logs live under `~/.quantumforge`. Version upgrades now merge defaults into the settings file rather than replacing user paths. SSH and proxy passwords are session-only and are not serialized by this release. A plaintext Materials Project API key left by an older release is moved to session memory and removed from the properties file on first access; enter it again after restarting until OS-keyring support is implemented.
+
+Before running a job, QuantumForge performs deterministic structural, cutoff, smearing, spin/SOC, pseudopotential, and k-point preflight. It blocks known-invalid input, but it cannot prove numerical convergence or physical suitability. Use `quantumforge --capabilities` to distinguish supported paths from prototypes.
 
 ## 11. Troubleshooting
 

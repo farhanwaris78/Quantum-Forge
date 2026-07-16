@@ -28,6 +28,21 @@ class LauncherSmokeTest {
     }
 
     @Test
+    void capabilityCommandDoesNotStartTheGui() {
+        PrintStream previous = System.out;
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        try {
+            System.setOut(new PrintStream(bytes, true, StandardCharsets.UTF_8));
+            QuantumForgeLauncher.main(new String[] {"--capabilities"});
+        } finally {
+            System.setOut(previous);
+        }
+        String report = bytes.toString(StandardCharsets.UTF_8);
+        assertTrue(report.contains("SSH and HPC schedulers"));
+        assertTrue(report.contains("[Unavailable]"));
+    }
+
+    @Test
     void criticalPackagedResourcesArePresent() {
         assertNotNull(QEFXMain.class.getResource("QEFXMain.fxml"));
         assertNotNull(QEFXMain.class.getResource("QEFXApplication.css"));

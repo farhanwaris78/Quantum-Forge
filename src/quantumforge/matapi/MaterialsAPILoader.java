@@ -25,16 +25,25 @@ public class MaterialsAPILoader {
 
     private static final String PROP_API_KEY = "material_api_key";
 
+    private static volatile String sessionApiKey;
+
     private static final String PROP_PRIMITIVE_CELL = "material_api_primitive_cell";
 
     private static final String PROP_LAST_DIRECTORY = "material_api_directory";
 
     public static String getApiKey() {
-        return Environments.getProperty(PROP_API_KEY);
+        if (sessionApiKey == null) {
+            // Migrate away from plaintext persistence. The old value is usable
+            // only for this process and is removed from the properties file.
+            sessionApiKey = Environments.getProperty(PROP_API_KEY);
+            Environments.removeProperty(PROP_API_KEY);
+        }
+        return sessionApiKey;
     }
 
     public static void setApiKey(String apiKey) {
-        Environments.setProperty(PROP_API_KEY, apiKey);
+        sessionApiKey = apiKey == null || apiKey.trim().isEmpty() ? null : apiKey.trim();
+        Environments.removeProperty(PROP_API_KEY);
     }
 
     public static boolean isPrimitiveCell() {

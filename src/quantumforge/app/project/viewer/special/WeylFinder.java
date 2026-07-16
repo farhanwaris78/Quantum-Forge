@@ -1,17 +1,17 @@
 /*
- * Copyright (C) 2025 QuantumForge Team
- * Proprietary and Confidential
+ * Copyright (C) 2025-2026 QuantumForge Development Team.
  */
-
 package quantumforge.app.project.viewer.special;
 
-/**
- * Weyl Semi-metal node finder.
- */
-public class WeylFinder {
+import quantumforge.capability.CapabilityRegistry;
+import quantumforge.capability.ScientificFeatureUnavailableException;
+
+/** Weyl-node searches require an interpolated Hamiltonian and chirality-flux validation. */
+public final class WeylFinder {
+    private WeylFinder() { }
 
     public static void searchNodes(double[][] kGrid, double[] bandGaps) {
-        // Find indices where bandGaps[i] < threshold (e.g. 1e-4)
-        // Check for linear dispersion around these points
+        throw new ScientificFeatureUnavailableException(CapabilityRegistry.ADVANCED_SCIENCE,
+                "Weyl-node search");
     }
 }

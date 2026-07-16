@@ -11,15 +11,16 @@ QuantumForge is a JavaFX desktop application for preparing, running, and inspect
 | QE `pw.x` SCF, optimization and MD input model/editor | Core implementation; verify generated input against the QE 7.5 input reference |
 | QE band/DOS post-processing command chains and plots | Core implementation; regression coverage is being expanded |
 | CIF, XYZ, XSF, CUBE and POSCAR reading; CIF/XYZ/POSCAR/QE export | Implemented; round-trip coverage is currently limited |
-| Local QE execution | Implemented using `ProcessBuilder`; QE is installed separately |
-| SSH/HPC execution | **Incomplete**: transfer/submission methods still contain TODOs |
+| Local QE execution | Implemented using `ProcessBuilder` with deterministic structural/cutoff/spin/k-point preflight; real-QE golden tests are still required |
+| SSH/HPC execution | **Unavailable/fail-closed**: typed results report that secure transfer/submission is not implemented |
 | VASP | POSCAR reader/export and a disconnected INCAR-form prototype only; **not a complete VASP GUI** |
 | CASTEP | Executable detection/menu placeholder only; **not implemented** |
 | `thermo_pw` | Executable registration plus a narrow elastic-matrix parser; no complete workflow |
 | phonopy / BoltzTraP2 / XCrySDen | External-tool detection or documentation only; no end-to-end integration |
 | LAMMPS / GNN potentials / Jupyter | Disconnected prototypes, not production integrations |
-| Advanced physics, battery, catalysis, topology, superconductivity tools | Mostly unwired sketches or simplified formulas; not validated research tools |
-| Symmetry | Bravais-metric helper only; space-group and magnetic-space-group determination require future spglib integration |
+| Advanced physics, battery, catalysis, topology, superconductivity tools | Unavailable prototypes; known fabricated/random/zero-result paths now throw explicit unsupported errors |
+| Symmetry | Bravais-metric helper only; space/magnetic groups remain explicitly undetermined until future spglib integration |
+| Band gap / DOS helpers | Occupation-aware k-resolved gaps, threshold-qualified DOS estimates, and nonuniform-grid trapezoidal DOS integration; convergence remains the user's responsibility |
 
 QuantumForge does **not** distribute Quantum ESPRESSO, pseudopotentials, VASP, CASTEP, `thermo_pw`, phonopy, BoltzTraP2, or XCrySDen. Their licenses and installation requirements apply separately.
 
@@ -36,6 +37,7 @@ Useful non-GUI commands:
 ```text
 quantumforge --version
 quantumforge --doctor
+quantumforge --capabilities
 quantumforge --update
 quantumforge --uninstall
 ```
@@ -46,6 +48,7 @@ See the complete, checksum-first tutorial:
 - **[External scientific software setup](docs/SCIENTIFIC_SOFTWARE_GUIDE.md)**
 - **[Release integrity and security model](docs/RELEASE_AND_SECURITY.md)**
 - **[Deep code/scientific audit](docs/CODE_AUDIT.md)**
+- **[Implemented changes, impacts, and further improvements](docs/IMPLEMENTATION_REPORT.md)**
 - **[Prioritized future implementation roadmap](docs/FUTURE_ROADMAP.md)**
 
 ## Build from source

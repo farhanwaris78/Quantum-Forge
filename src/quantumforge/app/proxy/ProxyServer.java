@@ -23,11 +23,17 @@ public final class ProxyServer {
     protected static final String PROP_KEY_PASSWORD = "proxy_password";
     protected static final String PROP_KEY_SAVEPASSWORD = "proxy_save_password";
 
+    private static volatile String sessionPassword;
+
     private ProxyServer() {
         // NOP
     }
 
     public static void initProxyServer() {
+        // Remove credentials written by older releases. A future OS-keyring
+        // integration may restore opt-in persistence without plaintext files.
+        Environments.removeProperty(PROP_KEY_PASSWORD);
+        Environments.setProperty(PROP_KEY_SAVEPASSWORD, false);
         initProxyServer(null);
     }
 
@@ -38,11 +44,9 @@ public final class ProxyServer {
         String userStr = Environments.getProperty(PROP_KEY_USER);
         String passStr = null;
 
-        if (password == null || password.trim().isEmpty()) {
-            passStr = Environments.getProperty(PROP_KEY_PASSWORD);
-        } else {
-            passStr = password;
-        }
+        sessionPassword = password == null || password.trim().isEmpty()
+                ? null : password.trim();
+        passStr = sessionPassword;
 
         if (hostStr != null) {
             hostStr = hostStr.trim();
@@ -101,6 +105,10 @@ public final class ProxyServer {
         } catch (Exception e) {
             e.printStackTrace();
         }
+    }
+
+    protected static String getSessionPassword() {
+        return sessionPassword;
     }
 
     private static class MyAuthenticator extends Authenticator {

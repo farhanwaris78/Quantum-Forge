@@ -1,38 +1,34 @@
 /*
- * Copyright (C) 2025 QuantumForge Team
+ * Copyright (C) 2025-2026 QuantumForge Development Team.
  */
-
 package quantumforge.app.project.viewer.result.special;
 
-/**
- * Local Work Function (WF) Mapping tool.
- * WF(x,y) = V_vacuum - E_fermi - V_planar_avg(x,y)
- */
-public class WorkFunctionMapper {
+import quantumforge.capability.CapabilityRegistry;
+import quantumforge.capability.ScientificFeatureUnavailableException;
 
-    private double feremiEnergy;
-    private double vacuumLevel;
+/** Scalar work-function helper. Energies must use the same zero and unit (normally eV). */
+public final class WorkFunctionMapper {
+    private final double fermiEnergy;
+    private final double vacuumLevel;
 
     public WorkFunctionMapper(double fermi, double vacuum) {
-        this.feremiEnergy = fermi;
+        if (!Double.isFinite(fermi) || !Double.isFinite(vacuum)) {
+            throw new IllegalArgumentException("Fermi and vacuum energies must be finite");
+        }
+        this.fermiEnergy = fermi;
         this.vacuumLevel = vacuum;
     }
 
     public double getWorkFunction() {
-        return vacuumLevel - feremiEnergy;
+        return this.vacuumLevel - this.fermiEnergy;
     }
 
     /**
-     * Map work function over a 2D surface (e.g. for heterogeneous surfaces)
+     * Local maps require a parsed three-dimensional electrostatic potential;
+     * random spatial variations are scientifically invalid.
      */
     public double[][] generateMap(int nx, int ny) {
-        double[][] map = new double[nx][ny];
-        double baseWF = getWorkFunction();
-        for(int i=0; i<nx; i++) {
-            for(int j=0; j<ny; j++) {
-                map[i][j] = baseWF + (Math.random() - 0.5) * 0.1; // Placeholder for local variations
-            }
-        }
-        return map;
+        throw new ScientificFeatureUnavailableException(CapabilityRegistry.ADVANCED_SCIENCE,
+                "Local work-function mapping");
     }
 }

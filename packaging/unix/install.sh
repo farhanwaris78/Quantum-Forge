@@ -110,4 +110,4 @@ case ":$PATH:" in
     *":$BIN_DIR:"*) ;;
     *) printf '\nAdd this line to your shell profile, then open a new terminal:\n  export PATH="%s:$PATH"\n' "$BIN_DIR" ;;
 esac
-printf '\nRun: quantumforge --doctor\n'
+printf '\nRun: quantumforge --doctor\nThen review: quantumforge --capabilities\n'

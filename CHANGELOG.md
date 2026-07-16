@@ -12,6 +12,16 @@
 
 ### Correctness and safety
 
+- Added one authoritative capability registry exposed by the GUI and `quantumforge --capabilities`; executable detection no longer implies integration support.
+- Added deterministic QE preflight for atom/species counts, pseudopotential selection, lattice volume, cutoffs, smearing, SOC/noncollinear consistency, and k-point completeness; invalid jobs are blocked before execution.
+- Replaced ambiguous no-op booleans with typed operation results for disabled SSH/SFTP and local scheduler paths while retaining deprecated compatibility wrappers.
+- Rebuilt band-gap analysis with rectangular/finite validation, explicit state degeneracy, occupation-aware metallic detection, direct/indirect k-point evidence, and DOS threshold-crossing diagnostics.
+- Corrected PDOS integration to use trapezoids on nonuniform energy grids and defensive copies.
+- Replaced endpoint diffusivity with least-squares fitting, R², fit window, and standard error; strengthened formation-energy, exciton, CHE, piezoelectric-ratio, and McMillan helper contracts.
+- Removed fabricated random/zero/mock outputs from work-function maps, hyperfine, SOC, orbital magnetization, Weyl, STH, volumetric differences, and phonon thermodynamics; those paths now fail explicitly.
+- Fixed three `QEInputBinder` bounds checks that used OR instead of AND, a secondary-input type guard, a public `SocksProxyConfig` filename/class mismatch that prevented Java compilation, malformed Modeler FXML nesting, and a Γ-centering path that expected a nonexistent six-element grid.
+- Hardened UPF XML parsing against DTD/external-entity access, imposed a 128 MiB limit, and fixed UTF-8 handling.
+- Stopped serializing SSH passwords, disabled plaintext proxy-password persistence, and migrates a legacy Materials Project API key to session-only memory.
 - Fixed startup failure caused by parsing semantic version `2.0.0` as a Java double.
 - Fixed upgrades replacing all user QE paths/settings; migration now preserves user values.
 - Stopped automatically persisting nonexistent legacy bundled-QE paths.

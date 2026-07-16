@@ -13,15 +13,15 @@ package quantumforge.com.proxy;
  * 
  * This is essential for users behind corporate firewalls.
  */
-public class SocksProxy {
+public class SocksProxyConfig {
 
     private boolean socksEnabled;
     private String proxyHost;
     private int proxyPort;
     private String proxyUser;
-    private String proxyPassword;
+    private transient String proxyPassword;
 
-    public SocksProxy() {
+    public SocksProxyConfig() {
         this.socksEnabled = false;
         this.proxyHost = "";
         this.proxyPort = 1080;

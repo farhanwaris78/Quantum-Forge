@@ -34,19 +34,14 @@ public class GTrickCorrecter extends QEInputCorrecter {
 
         if (this.cardKPoints != null && this.cardKPoints.isAutomatic()) {
             int[] grid = this.cardKPoints.getKGrid();
-            if (grid != null && grid.length == 6) {
-                // QE's final three K_POINTS automatic integers are 0/1 grid
-                // offsets. Zero is the unshifted, Gamma-centred choice; setting
-                // all offsets to 1, as the previous implementation did, applies
-                // a half-grid shift and can remove Gamma from an odd mesh.
-                int[] newGrid = new int[6];
-                System.arraycopy(grid, 0, newGrid, 0, 6);
-                newGrid[3] = 0;
-                newGrid[4] = 0;
-                newGrid[5] = 0;
-
-                this.cardKPoints.setKGrid(newGrid);
+            if (grid == null || grid.length != 3) {
+                throw new IllegalStateException("Automatic k-point grid must contain three dimensions.");
             }
+            // QE stores the three mesh dimensions and three offsets separately.
+            // Zero offsets select the unshifted, Gamma-centred mesh. The previous
+            // implementation expected a nonexistent six-element getKGrid()
+            // return value, so the option never changed anything.
+            this.cardKPoints.setKOffset(new int[] {0, 0, 0});
         }
     }
 }

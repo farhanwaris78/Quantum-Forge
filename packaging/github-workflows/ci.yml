@@ -24,16 +24,11 @@ jobs:
           distribution: temurin
           java-version: ${{ matrix.java }}
           cache: maven
-      - name: Validate scripts and repository text
+      - name: Validate scripts and repository consistency
         run: |
           bash -n packaging/unix/*.sh packaging/build-portable.sh packaging/build-native.sh packaging/arch/build-package.sh
           git -c core.whitespace=cr-at-eol diff --check
-          python3 - <<'PY'
-          from pathlib import Path
-          for path in Path('src').rglob('*'):
-              if path.suffix in {'.java', '.fxml', '.css', '.prop'}:
-                  path.read_text(encoding='utf-8')
-          PY
+          scripts/static_checks.py
       - name: Build, test, and generate SBOM
         run: mvn -B -ntp clean verify
       - name: Upload test reports

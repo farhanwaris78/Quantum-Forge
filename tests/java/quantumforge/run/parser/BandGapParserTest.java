@@ -32,10 +32,27 @@ class BandGapParserTest {
     }
 
     @Test
-    void rejectsMissingOrUnrecognizedOutput() throws Exception {
-        assertFalse(new BandGapParser(temporaryDirectory.resolve("missing.out").toString()).parse());
+    void derivesGapFromQeOccupiedUnoccupiedSummaryWithoutInventingDirectness() throws Exception {
+        Path output = temporaryDirectory.resolve("insulator.out");
+        Files.writeString(output,
+                "highest occupied, lowest unoccupied level (ev): 5.1000 6.3500\n");
+        BandGapParser parser = new BandGapParser(output.toString());
+        assertTrue(parser.parse());
+        assertEquals(1.25, parser.getBandGap(), 1.0e-12);
+        assertTrue(parser.isInsulator());
+        assertFalse(parser.isDirectKnown());
+        assertFalse(parser.isDirect());
+    }
+
+    @Test
+    void rejectsMissingOrUnrecognizedOutputWithDiagnostics() throws Exception {
+        BandGapParser missing = new BandGapParser(temporaryDirectory.resolve("missing.out").toString());
+        assertFalse(missing.parse());
+        assertFalse(missing.getDiagnostics().isEmpty());
         Path output = temporaryDirectory.resolve("metal.out");
         Files.writeString(output, "convergence has been achieved\n");
-        assertFalse(new BandGapParser(output.toString()).parse());
+        BandGapParser unrecognized = new BandGapParser(output.toString());
+        assertFalse(unrecognized.parse());
+        assertFalse(unrecognized.getDiagnostics().isEmpty());
     }
 }

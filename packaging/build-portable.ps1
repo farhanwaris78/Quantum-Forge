@@ -32,7 +32,9 @@ Copy-Item "packaging\windows\Update-QuantumForge.ps1" "$Bundle\management\Update
 Copy-Item "packaging\windows\Uninstall-QuantumForge.ps1" "$Bundle\management\Uninstall-QuantumForge.ps1"
 Copy-Item "packaging\windows\Install-QuantumForge.ps1" "$Bundle\Install-QuantumForge.ps1"
 Copy-Item "LICENSE", "README.md" "$Bundle\"
-Copy-Item "docs\INSTALLATION.md", "docs\RELEASE_AND_SECURITY.md", "docs\SCIENTIFIC_SOFTWARE_GUIDE.md" "$Bundle\docs\"
+@("docs\INSTALLATION.md", "docs\RELEASE_AND_SECURITY.md", "docs\SCIENTIFIC_SOFTWARE_GUIDE.md",
+  "docs\CODE_AUDIT.md", "docs\FUTURE_ROADMAP.md", "docs\IMPLEMENTATION_REPORT.md") |
+    ForEach-Object { Copy-Item $_ "$Bundle\docs\" }
 Copy-Item "src\quantumforge\app\resource\image\icon_256.png" "$Bundle\resources\quantumforge.png"
 Set-Content -LiteralPath "$Bundle\VERSION" -Value $Version -Encoding ASCII
 Copy-Item "target\quantumforge-sbom.json" "$Bundle\quantumforge-sbom.cdx.json"

@@ -1,24 +1,27 @@
 /*
- * Copyright (C) 2025 QuantumForge Team
+ * Copyright (C) 2025-2026 QuantumForge Development Team.
  */
-
 package quantumforge.app.project.viewer.result.special;
 
-/**
- * Piezoelectric Tensor Calculator.
- * e_ij = dP_i / de_j (Polarization change w.r.t strain)
- */
-public class PiezoelectricTool {
+import quantumforge.capability.CapabilityRegistry;
+import quantumforge.capability.ScientificFeatureUnavailableException;
+
+/** Low-level finite-difference helper; callers are responsible for units and branch tracking. */
+public final class PiezoelectricTool {
+    private PiezoelectricTool() { }
 
     public static double calculateCoefficient(double deltaPolarization, double strain) {
-        if (Math.abs(strain) < 1e-9) return 0.0;
+        if (!Double.isFinite(deltaPolarization) || !Double.isFinite(strain)) {
+            throw new IllegalArgumentException("Polarization change and strain must be finite");
+        }
+        if (Math.abs(strain) < 1.0e-12) {
+            throw new IllegalArgumentException("Strain is too small for a stable finite difference");
+        }
         return deltaPolarization / strain;
     }
 
-    /**
-     * Get the piezoelectric tensor e_ij (C/m^2)
-     */
     public static double[][] getTensorStub() {
-        return new double[3][6]; // Standard Voigt notation
+        throw new ScientificFeatureUnavailableException(CapabilityRegistry.ADVANCED_SCIENCE,
+                "Piezoelectric tensor calculation");
     }
 }

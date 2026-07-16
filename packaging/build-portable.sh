@@ -47,7 +47,8 @@ cp packaging/windows/Update-QuantumForge.ps1 "$BUNDLE/management/Update-QuantumF
 cp packaging/windows/Uninstall-QuantumForge.ps1 "$BUNDLE/management/Uninstall-QuantumForge.ps1"
 cp packaging/unix/install.sh "$BUNDLE/install.sh"
 cp LICENSE README.md "$BUNDLE/"
-cp docs/INSTALLATION.md docs/RELEASE_AND_SECURITY.md docs/SCIENTIFIC_SOFTWARE_GUIDE.md "$BUNDLE/docs/"
+cp docs/INSTALLATION.md docs/RELEASE_AND_SECURITY.md docs/SCIENTIFIC_SOFTWARE_GUIDE.md \
+   docs/CODE_AUDIT.md docs/FUTURE_ROADMAP.md docs/IMPLEMENTATION_REPORT.md "$BUNDLE/docs/"
 cp src/quantumforge/app/resource/image/icon_256.png "$BUNDLE/resources/quantumforge.png"
 printf '%s\n' "$VERSION" > "$BUNDLE/VERSION"
 cp target/quantumforge-sbom.json "$BUNDLE/quantumforge-sbom.cdx.json"

@@ -2,6 +2,10 @@
 
 This roadmap is ordered by scientific value and dependency. “Effective” means reducing wrong calculations, researcher time, or irreproducibility—not increasing the number of menu entries. Every feature must ship with engine-version documentation, unit/reference tests, and at least one independently validated material.
 
+## Implementation progress
+
+The first stabilization batch now implements or partially implements items **2, 3, 9, 16, 17, 18, 24, 25, 36, 37, 45, 47, 49, 156**, plus fail-closed portions of 54, 56, 61, 64–67, 91–99, and 161–170. “Partially” is intentional: for example, deterministic QE preflight exists, but a complete version-generated schema and real-engine golden corpus do not. The capability registry reports this distinction at runtime with `quantumforge --capabilities`.
+
 ## Phase 0 — trust, safety, and scope (do these first)
 
 | # | Addition/change | Implementation approach | Expected effectiveness / acceptance criterion |

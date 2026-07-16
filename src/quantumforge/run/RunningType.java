@@ -320,14 +320,11 @@ public enum RunningType {
             break;
 
         case Project.INPUT_MODE_CONVERGENCE:
-            // convergence test (series of pw.x jobs)
-            for (int i = 0; i < 5; i++) { // Mocking 5 iterations
-                command = this.createCommand(RunningCommandType.PWSCF, fileName2 + "_" + i, numProc2, unixServer);
-                if (command != null && command.length > 0) {
-                    commandList.add(command);
-                }
-            }
-            break;
+            // A fixed five-command loop is not a convergence study: no parameter
+            // values, generated inputs, observable, or stopping criterion were
+            // associated with those filenames. Refuse until a typed sweep exists.
+            throw new UnsupportedOperationException(
+                    "Convergence execution requires a configured parameter sweep and is not implemented.");
 
         default:
             // NOP

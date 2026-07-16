@@ -10,6 +10,7 @@ import java.util.Arrays;
 import java.util.List;
 
 import quantumforge.app.QEFXMain;
+import quantumforge.capability.CapabilityRegistry;
 import quantumforge.ver.Version;
 
 /**
@@ -44,6 +45,10 @@ public final class QuantumForgeLauncher {
             }
             return;
         }
+        if (hasOnlyOption(args, "--capabilities")) {
+            System.out.print(CapabilityRegistry.createReport());
+            return;
+        }
         if (hasOnlyOption(args, "--update") || hasOnlyOption(args, "--uninstall")) {
             System.err.println("This native installation is managed by your operating-system installer/package manager.");
             System.err.println("Use apt/pacman, Windows Installed apps, or the macOS app/package procedure.");
@@ -71,8 +76,9 @@ public final class QuantumForgeLauncher {
         System.out.println();
         System.out.println("Launch the QuantumForge desktop application or open input files.");
         System.out.println();
-        System.out.println("  --doctor     check Java, display, and external calculation tools");
-        System.out.println("  --version    print application and runtime versions");
+        System.out.println("  --doctor       check Java, display, and external calculation tools");
+        System.out.println("  --capabilities show honest integration maturity and required next work");
+        System.out.println("  --version      print application and runtime versions");
         System.out.println("  --update     safely update a portable user installation");
         System.out.println("  --uninstall  remove a portable user installation (keeps research data)");
         System.out.println("  --help       show this help");
@@ -120,12 +126,12 @@ public final class QuantumForgeLauncher {
             System.out.println("       Configure the QE directory inside QuantumForge before calculations.");
         }
 
-        reportOptional("thermo_pw", "thermo_pw.x");
-        reportOptional("phonopy", "phonopy");
-        reportOptional("BoltzTraP2", isWindows() ? "btp2.exe" : "btp2");
-        reportOptional("XCrySDen", isWindows() ? "xcrysden.exe" : "xcrysden");
-        reportOptional("VASP", isWindows() ? "vasp_std.exe" : "vasp_std");
-        reportOptional("CASTEP", isWindows() ? "castep.exe" : "castep");
+        reportOptional("thermo_pw", "thermo_pw.x", CapabilityRegistry.THERMO_PW);
+        reportOptional("phonopy", "phonopy", CapabilityRegistry.PHONOPY);
+        reportOptional("BoltzTraP2", isWindows() ? "btp2.exe" : "btp2", CapabilityRegistry.BOLTZTRAP2);
+        reportOptional("XCrySDen", isWindows() ? "xcrysden.exe" : "xcrysden", CapabilityRegistry.XCRYSDEN);
+        reportOptional("VASP", isWindows() ? "vasp_std.exe" : "vasp_std", CapabilityRegistry.VASP);
+        reportOptional("CASTEP", isWindows() ? "castep.exe" : "castep", CapabilityRegistry.CASTEP);
 
         if (failures == 0) {
             System.out.println("Result: launcher prerequisites passed (warnings may require configuration). ");
@@ -135,12 +141,15 @@ public final class QuantumForgeLauncher {
         return failures == 0 ? 0 : 2;
     }
 
-    private static void reportOptional(String name, String executable) {
+    private static void reportOptional(String name, String executable, String capabilityId) {
         File path = findOnPath(executable);
+        String integration = CapabilityRegistry.get(capabilityId).getStatus().getLabel();
         if (path == null) {
-            System.out.println("[INFO] Optional " + name + " executable not found (" + executable + ").");
+            System.out.println("[INFO] Optional " + name + " executable not found (" + executable
+                    + "); integration status: " + integration + ".");
         } else {
-            System.out.println("[OK] Optional " + name + ": " + path.getAbsolutePath());
+            System.out.println("[INFO] Optional " + name + " executable found at " + path.getAbsolutePath()
+                    + "; integration status: " + integration + " (executable presence is not workflow validation).");
         }
     }
 
