@@ -82,11 +82,28 @@ That command is installed on PATH by the portable installer (Linux/macOS/Windows
 - `scripts/fixture_harness.py` — pass (7 log fixtures)
 - Full `mvn verify` still blocked in this sandbox (cannot download JDK/Maven binaries over TLS to release-assets)
 
+## Batch 5 — runner DAG wiring, dry-run, XCrySDen, workflow GUI
+
+| Change | Roadmap # | What was implemented | Expected impact | Next improvement |
+|---|---:|---|---|---|
+| Runner ↔ DAG | 27 | Stage IDs, artifact skip, remaining set logging | Resume-friendly multi-stage runs | Exclusive stage list (drop parallel command arrays) |
+| Artifact scanner | 27/33 | Detect `.save`, JOB DONE logs, dos/bands files | Skip completed predecessors safely | Hash inputs to invalidate stale artifacts |
+| Dry-run preflight | 45 | Binaries, disk, MPI, input, DAG, restart notes | Fail in seconds before expensive jobs | GUI dry-run button separate from Run |
+| Workflow export GUI | 104 | Menu action + auto `.quantumforge.workflow.sh` | Jobs usable without GUI | Site modules/account templates |
+| XCrySDen | 110 | XSF export + PATH launch | One-click external structure view | Grid/density XSF; remote display tests |
+| SCF log feedback | 32 | Analyzer summary after stages | Immediate convergence diagnostics | Live chart binding |
+
+## Validation performed
+
+- `scripts/static_checks.py`
+- `scripts/compile_check.py` (includes RunningNode wiring + menu actions)
+- `scripts/fixture_harness.py`
+- Full `mvn verify` still blocked in this sandbox (JDK download TLS)
+
 ## Recommended next batch
 
-1. Run `mvn clean verify` on a JDK 17 machine and fix any compiler findings.
-2. Drive `RunningNode` stage loop from `QECommandDag.remaining(...)`.
-3. Native OS keyring backends behind `SecretStore`.
-4. Strict-host-key SSH/SFTP + one SLURM adapter (91–99).
-5. spglib/seekpath isolated service (71–73).
-6. Real QE-generated golden outputs for Si/Fe/molecule.
+1. Run `mvn clean verify` on a JDK 17 host and fix any findings.
+2. Native OS keyring backends for `SecretStore` (#9).
+3. Strict-host-key SSH/SFTP + one SLURM adapter (#91–99).
+4. spglib/seekpath isolated service (#71–73).
+5. Real engine-generated multi-version golden outputs.

@@ -99,6 +99,9 @@ def main() -> int:
         "src/quantumforge/run/QECommandStage.java",
         "src/quantumforge/run/RestartManager.java",
         "src/quantumforge/run/WorkflowExporter.java",
+        "src/quantumforge/run/ArtifactScanner.java",
+        "src/quantumforge/run/DryRunPreflight.java",
+        "src/quantumforge/tools/XCrySDenLauncher.java",
         "src/quantumforge/app/project/viewer/recovery/RecoveryAction.java",
     ]:
         if not (ROOT / rel).is_file():

@@ -29,7 +29,12 @@ import quantumforge.app.project.viewer.recovery.RecoveryAction;
 import quantumforge.app.project.viewer.save.SaveAction;
 import quantumforge.app.project.viewer.screenshot.QEFXScreenshotDialog;
 import quantumforge.export.AtomicExporter;
+import quantumforge.operation.OperationResult;
 import quantumforge.project.Project;
+import quantumforge.run.QECommandDag;
+import quantumforge.run.RunningType;
+import quantumforge.run.WorkflowExporter;
+import quantumforge.tools.XCrySDenLauncher;
 import javafx.scene.Node;
 import javafx.scene.control.Alert;
 import javafx.scene.control.Alert.AlertType;
@@ -149,6 +154,12 @@ public class ViewerActions extends ProjectActions<Node> {
 
             } else if (item == this.itemSet.getExportItem()) {
                 this.actions.put(item, controller2 -> this.actionExport(controller2));
+
+            } else if (item == this.itemSet.getExportWorkflowItem()) {
+                this.actions.put(item, controller2 -> this.actionExportWorkflow(controller2));
+
+            } else if (item == this.itemSet.getXcrysdenItem()) {
+                this.actions.put(item, controller2 -> this.actionXcrysden(controller2));
             }
         }
     }
@@ -362,5 +373,56 @@ public class ViewerActions extends ProjectActions<Node> {
             alert.setHeaderText("Export failed");
             alert.showAndWait();
         }
+    }
+
+    private void actionExportWorkflow(QEFXProjectController controller) {
+        if (controller == null) {
+            return;
+        }
+        RunningType type = RunningType.getRunningType(this.project);
+        if (type == null) {
+            type = RunningType.SCF;
+        }
+        try {
+            QECommandDag dag = type.getCommandDag(this.project, 1);
+            FileChooser chooser = new FileChooser();
+            chooser.setTitle("Export workflow script");
+            chooser.getExtensionFilters().addAll(
+                    new FileChooser.ExtensionFilter("Bash script (*.sh)", "*.sh"),
+                    new FileChooser.ExtensionFilter("SLURM script (*.slurm)", "*.slurm"));
+            File file = chooser.showSaveDialog(controller.getStage());
+            if (file == null) {
+                return;
+            }
+            WorkflowExporter.Format format = file.getName().toLowerCase().endsWith(".slurm")
+                    ? WorkflowExporter.Format.SLURM : WorkflowExporter.Format.BASH;
+            OperationResult<java.nio.file.Path> result = WorkflowExporter.export(
+                    file.toPath(), dag, format,
+                    this.project.getDirectoryName() == null ? "quantumforge" : this.project.getDirectoryName(),
+                    1, 1, null);
+            Alert alert = new Alert(result.isSuccess() ? AlertType.INFORMATION : AlertType.ERROR);
+            alert.setTitle("Workflow export");
+            alert.setHeaderText(result.isSuccess() ? "Workflow exported" : "Export failed");
+            alert.setContentText(result.getMessage());
+            alert.showAndWait();
+        } catch (RuntimeException ex) {
+            Alert alert = new Alert(AlertType.ERROR);
+            alert.setTitle("Workflow export");
+            alert.setHeaderText("Could not build workflow DAG");
+            alert.setContentText(ex.getMessage());
+            alert.showAndWait();
+        }
+    }
+
+    private void actionXcrysden(QEFXProjectController controller) {
+        if (controller == null) {
+            return;
+        }
+        OperationResult<Process> result = XCrySDenLauncher.launch(this.project.getCell());
+        Alert alert = new Alert(result.isSuccess() ? AlertType.INFORMATION : AlertType.WARNING);
+        alert.setTitle("XCrySDen");
+        alert.setHeaderText(result.isSuccess() ? "XCrySDen launched" : "Could not open XCrySDen");
+        alert.setContentText(result.getMessage());
+        alert.showAndWait();
     }
 }

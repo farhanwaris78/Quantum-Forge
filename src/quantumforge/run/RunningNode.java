@@ -27,10 +27,10 @@ import quantumforge.com.file.FileTools;
 import quantumforge.com.log.AppLog;
 import quantumforge.com.path.QEPath;
 import quantumforge.input.QEInput;
-import quantumforge.input.validation.QEInputValidator;
 import quantumforge.input.validation.ValidationIssue;
 import quantumforge.project.Project;
 import quantumforge.run.parser.LogParser;
+import quantumforge.run.parser.ScfConvergenceAnalyzer;
 
 public class RunningNode implements Runnable {
 
@@ -194,18 +194,21 @@ public class RunningNode implements Runnable {
             numThreads2 = 1;
         }
 
-        QEExecutableProfile profile = QEExecutableProfile.probeConfigured();
-        if (!profile.hasCorePw()) {
-            AppLog.warn("run", "pw.x is missing from the configured QE profile; launch will likely fail.");
+        // Full dry-run: input semantics + binaries + disk + DAG integrity.
+        DryRunPreflight.Report preflight = DryRunPreflight.run(this.project, type2, numProcesses2);
+        QEExecutableProfile profile = preflight.getProfile();
+        if (preflight.hasErrors()) {
+            this.showValidationDialog(preflight.getIssues());
+            return;
+        }
+        for (ValidationIssue issue : preflight.getIssues()) {
+            if (issue != null && issue.getSeverity() == quantumforge.input.validation.ValidationSeverity.WARNING) {
+                AppLog.warn("preflight", issue.toString());
+            }
         }
 
         QEInput input = new FXQEInputFactory(type2).getQEInput(this.project);
         if (input == null) {
-            return;
-        }
-        List<ValidationIssue> validationIssues = new QEInputValidator().validate(input);
-        if (QEInputValidator.hasErrors(validationIssues)) {
-            this.showValidationDialog(validationIssues);
             return;
         }
 
@@ -251,11 +254,39 @@ public class RunningNode implements Runnable {
             return;
         }
 
+        QECommandDag dag = preflight.getDag();
+        if (dag == null) {
+            try {
+                dag = type2.getCommandDag(inpName, numProcesses2);
+            } catch (RuntimeException ex) {
+                AppLog.error("run", "Cannot build command DAG: " + ex.getMessage());
+                return;
+            }
+        }
+        java.util.Set<String> available = ArtifactScanner.scan(
+                directory.toPath(), this.project.getPrefixName());
+        java.util.Set<String> remainingIds = new java.util.LinkedHashSet<>();
+        for (QECommandStage stage : dag.remaining(available)) {
+            remainingIds.add(stage.getId());
+        }
+        AppLog.info("run", "DAG " + type2.name() + " stages=" + dag.size()
+                + " availableArtifacts=" + available
+                + " remaining=" + remainingIds);
+        // Export a GUI-independent script for this run (best effort).
+        try {
+            Path script = directory.toPath().resolve(".quantumforge.workflow.sh");
+            WorkflowExporter.export(script, dag, WorkflowExporter.Format.BASH,
+                    this.project.getDirectoryName(), 1, numProcesses2, null);
+        } catch (RuntimeException ex) {
+            AppLog.warn("run", "Workflow export skipped: " + ex.getMessage());
+        }
+
         this.deleteExitFile(directory);
 
         ProcessBuilder builder = null;
         boolean errOccurred = false;
         boolean wasCancelled = false;
+        List<QECommandStage> stages = dag.getStages();
 
         for (int i = 0; i < commandList.size(); i++) {
             synchronized (this) {
@@ -263,6 +294,17 @@ public class RunningNode implements Runnable {
                     wasCancelled = true;
                     break;
                 }
+            }
+
+            QECommandStage stage = i < stages.size() ? stages.get(i) : null;
+            String stageId = stage == null ? ("stage-" + i) : stage.getId();
+
+            // Skip completed DAG stages when artifacts already exist, unless the
+            // stage is required and still listed in remainingIds.
+            if (stage != null && !remainingIds.contains(stage.getId())) {
+                AppLog.info("run", "Skipping completed DAG stage " + stageId
+                        + " (artifacts already present)");
+                continue;
             }
 
             String[] command = commandList.get(i);
@@ -308,6 +350,11 @@ public class RunningNode implements Runnable {
             }
 
             if (!condition.toRun(this.project, input2)) {
+                AppLog.info("run", "Condition skipped stage " + stageId);
+                // Keep legacy condition skips in sync with artifact set when possible.
+                if (stage != null) {
+                    available.addAll(stage.getProduces());
+                }
                 continue;
             }
 
@@ -328,10 +375,15 @@ public class RunningNode implements Runnable {
             builder.environment().put("OMP_NUM_THREADS", Integer.toString(numThreads2));
             this.setPathToBuilder(builder);
 
-            RunManifest manifest = new RunManifest(this.jobId, type2.name() + "-stage-" + i,
+            RunManifest manifest = new RunManifest(this.jobId,
+                    type2.name() + "-" + stageId,
                     Arrays.asList(command), directory.toPath());
             manifest.setQeVersion(profile.getVersion());
             manifest.putEnvironment("OMP_NUM_THREADS", Integer.toString(numThreads2));
+            if (stage != null) {
+                manifest.putEnvironment("QF_STAGE_KIND", stage.getKind().name());
+                manifest.putEnvironment("QF_STAGE_ID", stage.getId());
+            }
             if (command.length > 0) {
                 Path executable = Path.of(command[0]);
                 if (!executable.isAbsolute() && profile.getBinDirectory() != null) {
@@ -365,6 +417,9 @@ public class RunningNode implements Runnable {
                         break;
                     }
                     manifest.finish(exit, "COMPLETED");
+                    if (stage != null) {
+                        available.addAll(stage.getProduces());
+                    }
                 }
 
             } catch (InterruptedException e) {
@@ -373,7 +428,7 @@ public class RunningNode implements Runnable {
                 manifest.finish(-1, "CANCELLED");
                 break;
             } catch (Exception e) {
-                AppLog.error("run", "Stage failed for job " + this.jobId, e);
+                AppLog.error("run", "Stage failed for job " + this.jobId + " / " + stageId, e);
                 errOccurred = true;
                 manifest.finish(-1, "FAILED");
                 break;
@@ -385,6 +440,19 @@ public class RunningNode implements Runnable {
 
                 parser.endParsing();
                 try {
+                    // Post-stage SCF summary when the log looks electronic.
+                    if (logFile.isFile()) {
+                        try {
+                            String logText = java.nio.file.Files.readString(logFile.toPath());
+                            ScfConvergenceAnalyzer.Report scf =
+                                    ScfConvergenceAnalyzer.analyze(logText);
+                            if (!scf.getIterations().isEmpty()) {
+                                AppLog.info("scf", ScfConvergenceAnalyzer.formatSummary(scf));
+                            }
+                        } catch (Exception parseEx) {
+                            AppLog.debug("scf", "No SCF summary: " + parseEx.getMessage());
+                        }
+                    }
                     manifest.appendToProject(directory.toPath());
                 } catch (IOException ex) {
                     AppLog.warn("run", "Could not write run manifest: " + ex.getMessage());

@@ -25,6 +25,8 @@ public class ViewerItemSet {
     private ViewerItem resultItem;
     private ViewerItem exportItem;
     private ViewerItem recoverItem;
+    private ViewerItem xcrysdenItem;
+    private ViewerItem exportWorkflowItem;
 
     public ViewerItemSet() {
         this.atomsViewerItem = new ViewerItem(SVGData.ATOMS, "Show atoms");
@@ -37,7 +39,9 @@ public class ViewerItemSet {
         this.screenShotItem = new ViewerItem(SVGData.CAMERA, "Screen-shot");
         this.runItem = new ViewerItem(SVGData.RUN, "Run");
         this.resultItem = new ViewerItem(SVGData.RESULT, "Result");
-        this.exportItem = new ViewerItem(SVGData.EXPORT, "Export");
+        this.exportItem = new ViewerItem(SVGData.EXPORT, "Export structure");
+        this.exportWorkflowItem = new ViewerItem(SVGData.FILE, "Export workflow script");
+        this.xcrysdenItem = new ViewerItem(SVGData.CRYSTAL, "Open in XCrySDen");
     }
 
     public ViewerItem[] getItems() {
@@ -52,7 +56,9 @@ public class ViewerItemSet {
                 this.screenShotItem,
                 this.runItem,
                 this.resultItem,
-                this.exportItem
+                this.exportItem,
+                this.exportWorkflowItem,
+                this.xcrysdenItem
         };
     }
 
@@ -98,5 +104,13 @@ public ViewerItem getSaveAsFileItem() {
 
     public ViewerItem getExportItem() {
         return this.exportItem;
+    }
+
+    public ViewerItem getExportWorkflowItem() {
+        return this.exportWorkflowItem;
+    }
+
+    public ViewerItem getXcrysdenItem() {
+        return this.xcrysdenItem;
     }
 }

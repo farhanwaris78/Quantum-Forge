@@ -10,19 +10,20 @@ The second stabilization batch added or hardened items **4, 5, 6, 7, 8, 21, 28, 
 
 The **third** stabilization batch implemented or strengthened items **8, 9, 26, 30–32, 39–41** (units, live tailing, error KB, SCF/geometry analyzers, secret store, fixtures).
 
-The **fourth** batch (this continuation) adds:
+The **fourth** batch added recovery GUI, command DAG model, restart manager, workflow export, fixtures, and offline harnesses.
 
-| # | Status after batch 4 | What landed |
+The **fifth** batch (this continuation) wires and extends those foundations:
+
+| # | Status after batch 5 | What landed |
 |---:|---|---|
-| 8 | **GUI wired** | Viewer menu **Recover autosave ...** → `RecoveryAction` choice dialog + confirm + restore |
-| 27 | **Partial** | `QECommandDag` / `QECommandStage` typed SCF→NSCF/bands→post graph with requires/produces + resume filtering |
-| 33 | **Partial** | `RestartManager` validates `.save` completeness and recommends `restart` vs `from_scratch` |
-| 41 | **Expanded fixtures** | Fe spin SCF, bands high-symmetry path, DOS header fixtures + corpus tests |
-| 104 | **Partial** | `WorkflowExporter` writes bash/SLURM scripts from the DAG (GUI-independent) |
-| Correctness | **Parser fix** | `ScfParser` / `FermiParser` accept Fortran `D` exponents via shared parser |
-| QA | **Harnesses** | `scripts/compile_check.py`, `scripts/fixture_harness.py` hooked into CI template |
+| 27 | **Wired into runner** | `RunningNode` uses `QECommandDag` stage IDs, skips completed stages via `ArtifactScanner`, logs remaining work |
+| 33 | **Used in preflight** | Restart assessment surfaced in dry-run report |
+| 45 | **Stronger** | `DryRunPreflight` checks binaries, disk, MPI, input semantics, DAG integrity before launch |
+| 104 | **GUI + auto** | Viewer **Export workflow script**; auto-write `.quantumforge.workflow.sh` on run |
+| 110 | **Partial** | `XCrySDenLauncher` temp XSF + argument-array launch; viewer menu **Open in XCrySDen** |
+| 32 | **Runner feedback** | SCF convergence summary logged after each stage when present |
 
-“Partially” remains intentional where full engine runs, native keyrings, or complete card rewrite are still required. The capability registry reports distinctions via `quantumforge --capabilities`.
+“Partially” remains intentional where full engine golden runs, native keyrings, or remote XCrySDen lifecycle tests are still required.
 
 ## Phase 0 — trust, safety, and scope (do these first)
 

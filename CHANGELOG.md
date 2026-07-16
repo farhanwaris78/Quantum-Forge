@@ -42,6 +42,13 @@
 - Expanded golden fixtures (Fe spin SCF, bands path, DOS) plus offline fixture/compile harnesses in CI template.
 - Fixed SCF/Fermi log parsers to accept Fortran `D` exponents.
 
+### Runner wiring and external tools (roadmap batch 5)
+
+- `RunningNode` dry-run preflight, DAG stage IDs, on-disk artifact stage skipping, auto workflow script export.
+- Viewer menus: **Export workflow script**, **Open in XCrySDen** (safe temp XSF + argument-array launch).
+- `ArtifactScanner` and `DryRunPreflight` for resume/preflight decisions.
+- SCF convergence summary written to structured logs after stages.
+
 ### Correctness and safety
 
 - Added one authoritative capability registry exposed by the GUI and `quantumforge --capabilities`; executable detection no longer implies integration support.

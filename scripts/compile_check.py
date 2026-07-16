@@ -120,11 +120,21 @@ def main() -> int:
         "quantumforge/run/QECommandDag.java",
         "quantumforge/run/RestartManager.java",
         "quantumforge/run/WorkflowExporter.java",
+        "quantumforge/run/ArtifactScanner.java",
+        "quantumforge/run/DryRunPreflight.java",
+        "quantumforge/tools/XCrySDenLauncher.java",
         "quantumforge/app/project/viewer/recovery/RecoveryAction.java",
     ]:
         text = (SRC / rel).read_text(encoding="utf-8")
         if "class " not in text and "enum " not in text:
             error(f"{rel} does not declare a type")
+
+    actions = (SRC / "quantumforge/app/project/viewer/ViewerActions.java").read_text(encoding="utf-8")
+    if "actionXcrysden" not in actions or "actionExportWorkflow" not in actions:
+        error("ViewerActions missing XCrySDen/workflow export actions")
+    node = (SRC / "quantumforge/run/RunningNode.java").read_text(encoding="utf-8")
+    if "DryRunPreflight" not in node or "ArtifactScanner" not in node or "QECommandDag" not in node:
+        error("RunningNode is not wired to dry-run/DAG/artifact scanning")
 
     if ERRORS:
         print(f"Compile-check FAILED ({len(ERRORS)}):")

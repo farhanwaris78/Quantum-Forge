@@ -46,8 +46,8 @@ public final class CapabilityRegistry {
                 "Core pw.x SCF, relaxation, MD, bands, and DOS models/editors are present.",
                 "Complete version-aware schema and multi-version QE golden tests.");
         register(values, QE_LOCAL, "Local Quantum ESPRESSO execution", CapabilityStatus.PARTIAL,
-                "ProcessBuilder chains, preflight, run manifests, typed command DAG, restart assessment, workflow export, QE profile probing, process-tree cancellation, live log tailing, SCF/geometry convergence analysis, and deterministic error signatures are present.",
-                "Add real multi-version QE golden integration tests against installed engines and end-to-end stage resume.");
+                "ProcessBuilder is driven with dry-run preflight, typed command DAG stage skipping from on-disk artifacts, run manifests, restart assessment, workflow export, process-tree cancellation, live log tailing, and SCF/geometry analysis.",
+                "Add real multi-version QE golden integration tests against installed engines.");
         register(values, SSH_HPC, "SSH and HPC schedulers", CapabilityStatus.UNAVAILABLE,
                 "Legacy transfer/submission paths are disabled because no real secure transport exists.",
                 "Implement strict host-key SSH/SFTP and scheduler job-state adapters.");
@@ -60,9 +60,9 @@ public final class CapabilityRegistry {
         register(values, BOLTZTRAP2, "BoltzTraP2", CapabilityStatus.UNAVAILABLE,
                 "The btp2 command can be detected but no conversion, execution, or parser exists.",
                 "Implement dense-band conversion, interpolation diagnostics, tensors, and unit tests.");
-        register(values, XCRYSDEN, "XCrySDen", CapabilityStatus.UNAVAILABLE,
-                "Executable detection exists without an export-and-launch action.",
-                "Add safe XSF export, argument-array launch, and local/X11 smoke tests.");
+        register(values, XCRYSDEN, "XCrySDen", CapabilityStatus.PARTIAL,
+                "Safe temp XSF export and argument-array launch are implemented; requires a local xcrysden binary and display.",
+                "Add remote/X11 lifecycle tests and density/grid XSF export.");
         register(values, VASP, "VASP", CapabilityStatus.EXPERIMENTAL,
                 "POSCAR I/O and a disconnected INCAR form exist; no complete licensed workflow exists.",
                 "Add private licensed schema/execution/vasprun.xml tests without distributing POTCAR data.");
