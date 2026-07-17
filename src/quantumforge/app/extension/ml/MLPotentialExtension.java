@@ -70,20 +70,18 @@ public class MLPotentialExtension implements SoftwareExtension {
         Label rtitle = new Label("GNN Optimization & Uncertainty Diagnostics");
         rtitle.setFont(new Font("System Bold", 14));
         
-        GridPane rgrid = new GridPane();
-        rgrid.setHgap(10);
-        rgrid.setVgap(5);
-        rgrid.add(new Label("Predicted Energy:"), 0, 0);
-        rgrid.add(new Label("-4.821 eV/atom"), 1, 0);
-        rgrid.add(new Label("Max atomic force:"), 0, 1);
-        rgrid.add(new Label("0.012 eV/Å"), 1, 1);
-        rgrid.add(new Label("Ensemble Disagreement:"), 0, 2);
-        rgrid.add(new Label("0.003 eV/atom (Within training domain)"), 1, 2);
+        Label status = new Label("Run an ML pre-relaxation to see optimization diagnostics.\n"
+                + "Results will include predicted energy/atom, max force, and ensemble\n"
+                + "disagreement (uncertainty). Coordinates must be validated with DFT\n"
+                + "before use in production calculations.\n"
+                + "WARNING: ML energies are not interchangeable with DFT energies.");
+        status.setWrapText(true);
         
         Button plotBtn = new Button("Transfer Optimized Coordinates to QE");
         plotBtn.setMaxWidth(Double.MAX_VALUE);
+        plotBtn.setDisable(true);
         
-        vbox.getChildren().addAll(rtitle, rgrid, new Separator(), plotBtn);
+        vbox.getChildren().addAll(rtitle, new Separator(), status, new Separator(), plotBtn);
         return vbox;
     }
 

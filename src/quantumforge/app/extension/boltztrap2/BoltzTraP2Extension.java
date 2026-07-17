@@ -65,20 +65,17 @@ public class BoltzTraP2Extension implements SoftwareExtension {
         Label rtitle = new Label("Semiclassical Transport Coefficients");
         rtitle.setFont(new Font("System Bold", 14));
         
-        GridPane rgrid = new GridPane();
-        rgrid.setHgap(10);
-        rgrid.setVgap(5);
-        rgrid.add(new Label("Max Seebeck Coefficient (S):"), 0, 0);
-        rgrid.add(new Label("240.5 μV/K (at 300 K, n-type)"), 1, 0);
-        rgrid.add(new Label("Electrical Conductivity (σ/τ):"), 0, 1);
-        rgrid.add(new Label("1.2e19 /Ω*m*s"), 1, 1);
-        rgrid.add(new Label("Power Factor (S^2 σ/τ):"), 0, 2);
-        rgrid.add(new Label("6.9e11 W/K^2*m*s"), 1, 2);
+        Label status = new Label("Run a BoltzTraP2 interpolation on converged QE band data to see transport coefficients.\n"
+                + "Results will include Seebeck coefficient S(T), electrical conductivity σ/τ,\n"
+                + "and power factor S²σ/τ as functions of temperature and doping level.\n"
+                + "Requires dense k-mesh NSCF bands from Quantum ESPRESSO.");
+        status.setWrapText(true);
         
-        Button plotBtn = new Button("Plot Transport curves (S, σ, S^2σ)");
+        Button plotBtn = new Button("Plot Transport curves (S, σ, S²σ)");
         plotBtn.setMaxWidth(Double.MAX_VALUE);
+        plotBtn.setDisable(true);
         
-        vbox.getChildren().addAll(rtitle, rgrid, new Separator(), plotBtn);
+        vbox.getChildren().addAll(rtitle, new Separator(), status, new Separator(), plotBtn);
         return vbox;
     }
 

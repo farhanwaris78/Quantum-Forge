@@ -65,20 +65,16 @@ public class ThermoPwExtension implements SoftwareExtension {
         Label rtitle = new Label("Elastic Tensor & Properties");
         rtitle.setFont(new Font("System Bold", 14));
         
-        GridPane rgrid = new GridPane();
-        rgrid.setHgap(10);
-        rgrid.setVgap(5);
-        rgrid.add(new Label("Bulk Modulus (B):"), 0, 0);
-        rgrid.add(new Label("134.8 GPa"), 1, 0);
-        rgrid.add(new Label("Shear Modulus (G):"), 0, 1);
-        rgrid.add(new Label("78.3 GPa"), 1, 1);
-        rgrid.add(new Label("Young's Modulus (E):"), 0, 2);
-        rgrid.add(new Label("194.2 GPa"), 1, 2);
+        Label status = new Label("Run a thermo_pw calculation to populate elastic properties.\n"
+                + "Supported tasks: elastic constants, quasi-harmonic approximation,\n"
+                + "phonon dispersion, and volume fitting via Birch-Murnaghan EOS.");
+        status.setWrapText(true);
         
         Button plotBtn = new Button("View Elastic Tensor (Cij)");
         plotBtn.setMaxWidth(Double.MAX_VALUE);
+        plotBtn.setDisable(true);
         
-        vbox.getChildren().addAll(rtitle, rgrid, new Separator(), plotBtn);
+        vbox.getChildren().addAll(rtitle, new Separator(), status, new Separator(), plotBtn);
         return vbox;
     }
 

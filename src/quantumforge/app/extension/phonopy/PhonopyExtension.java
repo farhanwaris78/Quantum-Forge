@@ -67,20 +67,17 @@ public class PhonopyExtension implements SoftwareExtension {
         Label rtitle = new Label("Phonopy Results Analysis");
         rtitle.setFont(new Font("System Bold", 14));
         
-        GridPane rgrid = new GridPane();
-        rgrid.setHgap(10);
-        rgrid.setVgap(5);
-        rgrid.add(new Label("Free Energy (F):"), 0, 0);
-        rgrid.add(new Label("-2.54 kJ/mol (at 300 K)"), 1, 0);
-        rgrid.add(new Label("Entropy (S):"), 0, 1);
-        rgrid.add(new Label("41.2 J/K*mol"), 1, 1);
-        rgrid.add(new Label("Heat Capacity (Cv):"), 0, 2);
-        rgrid.add(new Label("22.8 J/K*mol"), 1, 2);
+        Label status = new Label("Run a phonopy finite-displacement calculation to populate thermal properties.\n"
+                + "Results will include free energy F(T), entropy S(T), heat capacity Cv(T),\n"
+                + "and phonon DOS. Requires FORCE_SETS from QE force calculations.\n"
+                + "Note: phonopy must be installed and configured separately.");
+        status.setWrapText(true);
         
         Button plotBtn = new Button("Plot Thermal Properties");
-        plotBtn.setMaxWidth(Double.MAX_VALUE);
+        plotBtn.setMaxWidth(Double.MAX_WIDTH);
+        plotBtn.setDisable(true);
         
-        vbox.getChildren().addAll(rtitle, rgrid, new Separator(), plotBtn);
+        vbox.getChildren().addAll(rtitle, new Separator(), status, new Separator(), plotBtn);
         return vbox;
     }
 

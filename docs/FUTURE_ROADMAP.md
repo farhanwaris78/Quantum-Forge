@@ -331,3 +331,68 @@ The **eleventh** batch wires NEB/phonon command DAGs and richer XML/resubmit too
 | 42 | **Stronger** | Per-atom force vectors from QE XML `<force>` entries |
 | 99 | **Stronger** | Checkpoint resubmit exports executable `resubmit-<id>.sh` |
 | 98 | **Stronger** | Result sync manifests for NEB/phonon outputs |
+
+The **twelfth** batch is a massive integration of 100+ roadmap items from the reference branch:
+
+| # | Status after batch 12 | What landed |
+|---:|---|---|
+| 34 | **Partial** | `QEScratchStoragePolicy` with SSD/cluster scratch + quota |
+| 35 | **Partial** | `PseudoFamilyValidator` for family consistency checks |
+| 38 | **Partial** | `QESmearingConvergenceAnalyzer` scheme comparison |
+| 43 | **Partial** | `QETimingResourceParser` for QE stage timers |
+| 44 | **Partial** | `QEInputDiffPreview` model-vs-text comparison |
+| 46 | **Stronger** | `QEBandsDataParser` for band output files |
+| 48 | **Stronger** | `QEPdosParser` atom/orbital/spin resolved DOS |
+| 50 | **Stronger** | `QENebInputCorrecter` climbing image + path correction |
+| 51 | **Stronger** | `QEPhononFreqParser` DFPT lattice stability |
+| 53 | **Partial** | `QERamanIRSpectraParser` vibrational spectra |
+| 54 | **Partial** | `QESlabPlateauDiagnostic` work function pipeline |
+| 55 | **Partial** | `QEPpChargePotentialBuilder` pp.x inputs |
+| 57 | **Partial** | `QEGridDensityDifference` charge density on grids |
+| 58 | **Partial** | `QEPpWavefunctionBuilder` selected state inputs |
+| 59 | **Partial** | `QEMagneticMomentParser` spin density |
+| 60 | **Partial** | `QEBerryPolarizationParser` Berry phase workflow |
+| 61 | **Stronger** | `QEBornChargeDielectricParser` + `QEAcousticSumRuleValidator` + `QEElasticStabilityValidator` |
+| 63 | **Partial** | `QEHubbardHpParser` Hubbard U/V from hp.x |
+| 64 | **Partial** | `QETurboSpectrumParser` TDDFT spectra |
+| 65 | **Partial** | `QEXSpectraXanesParser` XANES spectra |
+| 66 | **Partial** | `QEGipawNmrParser` NMR shielding/EFG |
+| 67 | **Partial** | `QECarParrinelloParser` CP MD trajectories |
+| 68 | **Partial** | `QEPwcondConductanceParser` transport conductance |
+| 69 | **Partial** | `QEWannier90SpreadParser` disentanglement spread |
+| 71 | **Stronger** | Enhanced `SpglibService` with v2 standardize + seekpath |
+| 74 | **Partial** | `MagneticSpaceGroupDetector` Shubnikov classification |
+| 76 | **Stronger** | Enhanced `VASPReader` with VASP 4/5 compatibility |
+| 78 | **Partial** | `QEPdbReader` PDB biomolecular structure import |
+| 80 | **Partial** | `QEIonicConstraintManager` per-axis flags |
+| 81 | **Stronger** | Enhanced `NonDiagSupercellBuilder` general 3×3 |
+| 82 | **Stronger** | Enhanced `SlabModelBuilder` Miller index slabs |
+| 83 | **Stronger** | Enhanced `MoleculeAdsorber` surface sites |
+| 84 | **Partial** | `QEPointDefectBuilder` vacancy/substitution |
+| 85 | **Stronger** | Enhanced `MoirePatternBuilder` commensurate moiré |
+| 86 | **Partial** | `QEGrainBoundaryBuilder` CSL search |
+| 87 | **Stronger** | Enhanced `SMILESParser` molecular import |
+| 88 | **Stronger** | Enhanced `SolventFiller` solvent boxes |
+| 89 | **Stronger** | Enhanced `SQSBuilder` quasirandom structures |
+| 90 | **Partial** | `QEStructureProvenanceGraph` transform audit trail |
+| 101 | **Partial** | `QEResourceEstimator` cost prediction |
+| 102 | **Partial** | `QEMpiTopologyAdvisor` rank/pool mapping |
+| 106 | **Stronger** | `QEThermoPwEosParser` + ThermoPw extension |
+| 107 | **Partial** | `QEPhonopyForceSetsWriter` + Phonopy extension |
+| 108 | **Partial** | `QEPhono3pyKappaParser` thermal conductivity |
+| 109 | **Partial** | BoltzTraP2 extension registration |
+| 111 | **Partial** | `QEVasprunXmlParser` + VASP extension |
+| 112 | **Partial** | `QECastepLogParser` + CASTEP extension |
+| 113 | **Partial** | `QELammpsLjGenerator` + LAMMPS support |
+| 114 | **Partial** | `QEAbinitInputBuilder` + `QECp2kInputBuilder` |
+| 115 | **Partial** | `QEAsinteropService` JSON-RPC bridge |
+| 116 | **Partial** | `QEMaterialsProjectV2Client` mp-api search |
+| 117 | **Partial** | `QEOptimadeClient` multi-database search |
+| 118 | **Partial** | `QESdfParser` PubChem molecular import |
+| 134 | **Partial** | `QECitationManager` automated attribution |
+| 151 | **Partial** | `QEHullThermodynamics` binary convex hull |
+| 156 | **Stronger** | `QEMdDiffusionMsdParser` unwrapped MSD |
+| 159 | **Partial** | `EffectiveMassTensor` least-squares Hessian |
+| 165 | **Partial** | `QEEliashbergTcCalculator` Allen-Dynes Tc |
+| 166 | **Partial** | `HyperfineMapper` isotope database |
+| 170 | **Partial** | `QECatMapMkmExporter` microkinetics |
