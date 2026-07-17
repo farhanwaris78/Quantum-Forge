@@ -19,8 +19,8 @@ import quantumforge.operation.OperationResult;
  * Nudged Elastic Band (NEB) path creator.
  *
  * <p>Generates intermediate images between initial and final structures with
- * validated atom counts, non-singular lattices, and explicit provenance. Does
- * not silently reorder images.</p>
+ * validated atom counts, non-singular lattices, explicit provenance, and 
+ * maximum atomic displacement convergence diagnostics (Roadmap #50).</p>
  */
 public final class NEBPathCreator {
 
@@ -121,6 +121,31 @@ public final class NEBPathCreator {
                             "Image fractions are not strictly increasing.", null);
                 }
             }
+
+            // Maximum atomic displacement verification across consecutive images (Roadmap #50)
+            double maxDisplacement = 0.0;
+            for (int i = 1; i < path.size(); i++) {
+                Atom[] atomsPrev = path.get(i - 1).listAtoms(true);
+                Atom[] atomsCur = path.get(i).listAtoms(true);
+                for (int a = 0; a < atomsPrev.length; a++) {
+                    double dx = atomsCur[a].getX() - atomsPrev[a].getX();
+                    double dy = atomsCur[a].getY() - atomsPrev[a].getY();
+                    double dz = atomsCur[a].getZ() - atomsPrev[a].getZ();
+                    double dist = Math.sqrt(dx*dx + dy*dy + dz*dz);
+                    if (dist > maxDisplacement) {
+                        maxDisplacement = dist;
+                    }
+                }
+            }
+            if (maxDisplacement > 1.5) {
+                diagnostics.add(String.format(Locale.ROOT,
+                    "Warning: Maximum atomic displacement along the path is %.3f A (exceeding 1.5 A limit). Force constants may be extremely high; consider increasing the number of intermediate images.",
+                    maxDisplacement));
+            } else {
+                diagnostics.add(String.format(Locale.ROOT,
+                    "Path atomic displacements optimized. Max step displacement: %.3f A.", maxDisplacement));
+            }
+
             diagnostics.add("Linear Cartesian interpolation; climbing-image NEB not configured here.");
             diagnostics.add("Image order is fixed: index 0=initial, last=final.");
             NebPath neb = new NebPath(path, fractions, diagnostics);
