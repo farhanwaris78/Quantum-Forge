@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025 QuantumForge Team
+ * Copyright (C) 2025-2026 QuantumForge Team
  *
  * Proprietary and Confidential - All Rights Reserved (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,8 +18,8 @@ import quantumforge.com.math.Matrix3D;
  * Geometric information measurement tool.
  * 
  * Measures bond lengths, bond angles, and dihedral angles
- * between selected atoms, matching NanoLabo's Geometric Information
- * feature in the atomic structure viewer.
+ * between selected atoms, supporting standard Minimum Image Convention
+ * for periodic triclinic boundary cells (Roadmap #79).
  */
 public class GeometryMeasurer {
 
@@ -27,6 +27,7 @@ public class GeometryMeasurer {
     private Atom atomB;
     private Atom atomC;
     private Atom atomD;
+    private Cell cell;
 
     private double bondLengthAB;
     private double bondLengthBC;
@@ -40,12 +41,14 @@ public class GeometryMeasurer {
         this.atomB = null;
         this.atomC = null;
         this.atomD = null;
+        this.cell = null;
     }
 
     public void setAtomA(Atom atom) { this.atomA = atom; }
     public void setAtomB(Atom atom) { this.atomB = atom; }
     public void setAtomC(Atom atom) { this.atomC = atom; }
     public void setAtomD(Atom atom) { this.atomD = atom; }
+    public void setCell(Cell cell) { this.cell = cell; }
 
     /**
      * Calculate all geometric properties between atoms A-B-C-D
@@ -56,41 +59,79 @@ public class GeometryMeasurer {
         }
 
         // Bond length A-B
-        this.bondLengthAB = distance(this.atomA, this.atomB);
+        double[] vAB = getVector(this.atomB, this.atomA); // B -> A
+        this.bondLengthAB = Math.sqrt(vAB[0] * vAB[0] + vAB[1] * vAB[1] + vAB[2] * vAB[2]);
 
         if (this.atomC != null) {
             // Bond length B-C
-            this.bondLengthBC = distance(this.atomB, this.atomC);
+            double[] vBC = getVector(this.atomC, this.atomB); // C -> B
+            this.bondLengthBC = Math.sqrt(vBC[0] * vBC[0] + vBC[1] * vBC[1] + vBC[2] * vBC[2]);
 
             // Bond angle A-B-C
-            this.bondAngleABC = angle(this.atomA, this.atomB, this.atomC);
+            double[] vBA = getVector(this.atomB, this.atomA); // B -> A
+            double[] vBC_angle = getVector(this.atomB, this.atomC); // B -> C
+            this.bondAngleABC = computeAngle(vBA, vBC_angle);
 
             if (this.atomD != null) {
                 // Bond length C-D
-                this.bondLengthCD = distance(this.atomC, this.atomD);
+                double[] vCD = getVector(this.atomD, this.atomC); // D -> C
+                this.bondLengthCD = Math.sqrt(vCD[0] * vCD[0] + vCD[1] * vCD[1] + vCD[2] * vCD[2]);
 
                 // Bond angle B-C-D
-                this.bondAngleBCD = angle(this.atomB, this.atomC, this.atomD);
+                double[] vCB = getVector(this.atomC, this.atomB); // C -> B
+                double[] vCD_angle = getVector(this.atomC, this.atomD); // C -> D
+                this.bondAngleBCD = computeAngle(vCB, vCD_angle);
 
                 // Dihedral angle between planes ABC and BCD
-                this.dihedralAngle = dihedral(this.atomA, this.atomB, this.atomC, this.atomD);
+                this.dihedralAngle = computeDihedral(this.atomA, this.atomB, this.atomC, this.atomD);
             }
         }
 
         return true;
     }
 
-    private double distance(Atom a, Atom b) {
-        double dx = a.getX() - b.getX();
-        double dy = a.getY() - b.getY();
-        double dz = a.getZ() - b.getZ();
-        return Math.sqrt(dx * dx + dy * dy + dz * dz);
+    private double[] getVector(Atom from, Atom to) {
+        if (this.cell != null) {
+            return getMinimumImageVector(to, from, this.cell);
+        }
+        return new double[]{to.getX() - from.getX(), to.getY() - from.getY(), to.getZ() - from.getZ()};
     }
 
-    private double angle(Atom a, Atom b, Atom c) {
-        double[] v1 = {a.getX() - b.getX(), a.getY() - b.getY(), a.getZ() - b.getZ()};
-        double[] v2 = {c.getX() - b.getX(), c.getY() - b.getY(), c.getZ() - b.getZ()};
+    public static double[] getMinimumImageVector(Atom to, Atom from, Cell cell) {
+        double dx = to.getX() - from.getX();
+        double dy = to.getY() - from.getY();
+        double dz = to.getZ() - from.getZ();
+        double[] diff = {dx, dy, dz};
 
+        double[][] lattice = cell.copyLattice();
+        if (lattice == null) {
+            return diff;
+        }
+
+        double[][] inv = Matrix3D.inverse(lattice);
+        if (inv == null) {
+            return diff;
+        }
+
+        // Convert Cartesian -> Fractional: s = diff * inv
+        double s0 = diff[0] * inv[0][0] + diff[1] * inv[1][0] + diff[2] * inv[2][0];
+        double s1 = diff[0] * inv[0][1] + diff[1] * inv[1][1] + diff[2] * inv[2][1];
+        double s2 = diff[0] * inv[0][2] + diff[1] * inv[1][2] + diff[2] * inv[2][2];
+
+        // Minimum image convention
+        s0 = s0 - Math.round(s0);
+        s1 = s1 - Math.round(s1);
+        s2 = s2 - Math.round(s2);
+
+        // Convert back to Cartesian
+        double rx = s0 * lattice[0][0] + s1 * lattice[1][0] + s2 * lattice[2][0];
+        double ry = s0 * lattice[0][1] + s1 * lattice[1][1] + s2 * lattice[2][1];
+        double rz = s0 * lattice[0][2] + s1 * lattice[1][2] + s2 * lattice[2][2];
+
+        return new double[]{rx, ry, rz};
+    }
+
+    private double computeAngle(double[] v1, double[] v2) {
         double dot = v1[0] * v2[0] + v1[1] * v2[1] + v1[2] * v2[2];
         double n1 = Math.sqrt(v1[0] * v1[0] + v1[1] * v1[1] + v1[2] * v1[2]);
         double n2 = Math.sqrt(v2[0] * v2[0] + v2[1] * v2[1] + v2[2] * v2[2]);
@@ -103,11 +144,11 @@ public class GeometryMeasurer {
         return Math.acos(cosAngle) * 180.0 / Math.PI;
     }
 
-    private double dihedral(Atom a, Atom b, Atom c, Atom d) {
-        double[] v1 = {a.getX() - b.getX(), a.getY() - b.getY(), a.getZ() - b.getZ()};
-        double[] v2 = {c.getX() - b.getX(), c.getY() - b.getY(), c.getZ() - b.getZ()};
-        double[] v3 = {b.getX() - c.getX(), b.getY() - c.getY(), b.getZ() - c.getZ()};
-        double[] v4 = {d.getX() - c.getX(), d.getY() - c.getY(), d.getZ() - c.getZ()};
+    private double computeDihedral(Atom a, Atom b, Atom c, Atom d) {
+        double[] v1 = getVector(b, a); // B -> A
+        double[] v2 = getVector(b, c); // B -> C
+        double[] v3 = getVector(c, b); // C -> B
+        double[] v4 = getVector(c, d); // C -> D
 
         // Normal vectors of planes ABC and BCD
         double[] n1 = cross(v1, v2);

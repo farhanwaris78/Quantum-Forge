@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025 QuantumForge Team
+ * Copyright (C) 2025-2026 QuantumForge Team
  *
  * Proprietary and Confidential - All Rights Reserved (the "License");
  * you may not use this file except in compliance with the License.
@@ -28,6 +28,7 @@ public abstract class AtomsReader {
     private static final int FILE_TYPE_XSF = 5;
     private static final int FILE_TYPE_AXSF = 6;
     private static final int FILE_TYPE_VASP = 7;
+    private static final int FILE_TYPE_PDB = 8;
 
     private static final String VASP_NAME_POSCAR = File.separator + "POSCAR";
     private static final String VASP_NAME_CONTCAR = File.separator + "CONTCAR";
@@ -57,9 +58,8 @@ public abstract class AtomsReader {
             return FILE_TYPE_CUBE;
         } else if ("xsf".equalsIgnoreCase(extName)) {
             return FILE_TYPE_XSF;
-        } else if ("axsf".equalsIgnoreCase(extName)) {
-            //return FILE_TYPE_AXSF;
-            return FILE_TYPE_NULL;
+        } else if ("pdb".equalsIgnoreCase(extName)) {
+            return FILE_TYPE_PDB;
         } else if (filePath.endsWith(VASP_NAME_POSCAR) || filePath.endsWith(VASP_NAME_CONTCAR)) {
             return FILE_TYPE_VASP;
         } else {
@@ -104,6 +104,9 @@ public abstract class AtomsReader {
             break;
         case FILE_TYPE_VASP:
             atomsReader = new VASPReader(filePath);
+            break;
+        case FILE_TYPE_PDB:
+            atomsReader = new QEPdbReader(filePath);
             break;
         default:
             throw new IOException("cannot read a file: " + filePath);

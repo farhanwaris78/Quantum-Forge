@@ -8,6 +8,9 @@ import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
+
 import quantumforge.project.property.ProjectProperty;
 
 /**
@@ -16,10 +19,12 @@ import quantumforge.project.property.ProjectProperty;
 public class ElasticParser extends LogParser {
 
     private double[][] cij; // 6x6 matrix
+    private QEElasticStabilityValidator.StabilityResult stabilityResult;
 
     public ElasticParser(ProjectProperty property) {
         super(property);
         this.cij = new double[6][6];
+        this.stabilityResult = null;
     }
 
     @Override
@@ -43,9 +48,16 @@ public class ElasticParser extends LogParser {
                 }
             }
         }
+
+        // Validate mechanical stability of the parsed tensor
+        this.stabilityResult = QEElasticStabilityValidator.validateStability(this.cij);
     }
 
     public double[][] getCij() {
         return cij;
+    }
+
+    public QEElasticStabilityValidator.StabilityResult getStabilityResult() {
+        return this.stabilityResult;
     }
 }

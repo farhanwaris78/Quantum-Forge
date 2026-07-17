@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025 QuantumForge Team
+ * Copyright (C) 2025-2026 QuantumForge Team
  *
  * Proprietary and Confidential - All Rights Reserved (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,9 +15,14 @@ import java.io.IOException;
 import javafx.scene.Node;
 import javafx.scene.input.KeyCode;
 import quantumforge.app.QEFXAppComponent;
+import quantumforge.app.project.QEFXProjectController;
 import quantumforge.com.keys.PriorKeyEvent;
+import quantumforge.project.Project;
 
 public abstract class QEFXResultViewer<V extends QEFXResultViewerController> extends QEFXAppComponent<V> {
+
+    protected QEFXProjectController projectController;
+    protected Project project;
 
     public QEFXResultViewer(Node node, V controller) {
         super(node, controller);
@@ -29,6 +34,16 @@ public abstract class QEFXResultViewer<V extends QEFXResultViewerController> ext
 
     public QEFXResultViewer(String fileFXML, V controller) throws IOException {
         super(fileFXML, controller);
+
+        if (this.node != null) {
+            this.setupKeys(this.node);
+        }
+    }
+
+    public QEFXResultViewer(String fileFXML, V controller, QEFXProjectController projectController, Project project) throws IOException {
+        super(fileFXML, controller);
+        this.projectController = projectController;
+        this.project = project;
 
         if (this.node != null) {
             this.setupKeys(this.node);
