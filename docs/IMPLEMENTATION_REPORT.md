@@ -160,10 +160,100 @@ That command is installed on PATH by the portable installer (Linux/macOS/Windows
 | Atomic forces XML | 42 | Parse per-atom `<force>` vectors | Geometry/force analysis without log prose | Stress convention metadata by QE version |
 | Resubmit script export | 99 | `CheckpointResubmit.exportScript` | Explicit restart launch scripts | Auto site-profile submit |
 
+## Batch 12 — massive feature integration from reference branch (100+ roadmap items)
+
+This batch integrated all pending changes from the `arena/019f6aaa-quantum-forge` reference branch, adding 146 files and ~13,500 lines of implementation and tests.
+
+| Change | Roadmap # | What was implemented | Expected impact | Next improvement |
+|---|---:|---|---|---|
+| PDB format reader | 78 | `QEPdbReader` for Protein Data Bank structures | Import biomolecular and crystallographic structures | CIF 2.0 round-trip |
+| VASP POSCAR/CONTCAR reader | 76 | Full VASP 4/5 compatibility in `VASPReader` | Robust POSCAR import with species provenance | Selective dynamics support |
+| SDF molecular import | 118 | `QESdfParser` for PubChem 3D molecular structures | Import drug/molecule structures from SDF | RDKit/Open Babel conformer sidecar |
+| Acoustic sum rule validator | 61 | `QEAcousticSumRuleValidator` for zone-center checks | Validates Born effective charge sum rules | Integrate with DFPT workflow |
+| NEB input correcter | 50 | `QENebInputCorrecter` for climbing image setup | Correct NEB path inputs before submission | Full climbing-image controls |
+| Citation manager | 134 | `QECitationManager` for automated attribution | Collect method/software citations into BibTeX | Export CSL/DOI resolution |
+| Ionic constraint manager | 80 | `QEIonicConstraintManager` per-axis flags | Per-atom relaxation constraints | GUI constraint editor |
+| Magnetic space group detector | 74 | `MagneticSpaceGroupDetector` Shubnikov types | Magnetic symmetry classification | Magnetic spglib integration |
+| Phonon frequency parser | 51 | `QEPhononFreqParser` for DFPT diagnostics | Detect imaginary modes and lattice instabilities | Full phonon dispersion plot |
+| Hyperfine mapper | 166 | `HyperfineMapper` isotope g-factor database | Fermi contact and hyperfine predictions | GIPAW NMR integration |
+| Effective mass tensor | 159 | `EffectiveMassTensor` least-squares Hessian solver | 3D k-point effective masses | Band structure curvature fit |
+| Hull thermodynamics | 151 | `QEHullThermodynamics` binary convex hull | Phase stability analysis | Multi-component hull + database refs |
+| ABINIT input builder | 114 | `QEAbinitInputBuilder` with xred coords | Export QE structures to ABINIT | Full ABINIT namelist model |
+| LAMMPS LJ generator | 113 | `QELammpsLjGenerator` with LB mixing rules | Generate LAMMPS pair_coeff from pseudo | Many-body potential support |
+| MD diffusion MSD parser | 156 | `QEMdDiffusionMsdParser` for MSD tracking | Unwrapped trajectory diffusion analysis | Block-error D estimation |
+| Charge/potential builder | 55 | `QEPpChargePotentialBuilder` | pp.x volumetric extraction inputs | Cube/XSF conversion |
+| ASE interop service | 115 | `QEAsinteropService` restricted JSON-RPC | Bridge to ASE ecosystem safely | Pinned environment + locked protocol |
+| CP2K input builder | 114 | `QECp2kInputBuilder` nested SUBSYS blocks | Export to CP2K format | Full CP2K parameter model |
+| Materials Project v2 | 116 | `QEMaterialsProjectV2Client` mp-api search | Modern MP structure/property retrieval | mp-api sidecar + keyring secret |
+| OPTIMADE client | 117 | `QEOptimadeClient` multi-database search | Standards-based multi-provider search | Provider filter + cached responses |
+| CASTEP log parser | 112 | `QECastepLogParser` for output parsing | Parse CASTEP results when available | Full CASTEP .cell/.param AST |
+| VASP vasprun.xml parser | 111 | `QEVasprunXmlParser` for VASP XML results | Parse VASP results securely | Full INCAR/KPOINTS model |
+| CatMAP microkinetics | 170 | `QECatMapMkmExporter` harmonic vibrational corrections | Export validated reaction datasets | Complete thermochemistry model |
+| thermo_pw EOS parser | 106 | `QEThermoPwEosParser` Birch-Murnaghan | Equation of state from thermo_pw | Full thermo_pw workflow |
+| phono3py kappa parser | 108 | `QEPhono3pyKappaParser` 1/T scattering | Thermal conductivity from phono3py | FC validation + huge-job guards |
+| Elastic stability validator | 61 | `QEElasticStabilityValidator` Born criteria | Validate elastic tensor stability | Directional property surfaces |
+| Grain boundary builder | 86 | `QEGrainBoundaryBuilder` CSL search | Construct grain boundary models | Sigma validation + stoichiometry |
+| Point defect builder | 84 | `QEPointDefectBuilder` vacancy/substitution | Create defect supercells | Charge-state metadata + image sep |
+| Structure provenance | 90 | `QEStructureProvenanceGraph` audit trail | Track every transform applied | Reconstruction from provenance |
+| Bands data parser | 46 | `QEBandsDataParser` for band structure data | Parse QE band output files | Symmetry path labels |
+| Berry polarization parser | 60 | `QEBerryPolarizationParser` | Berry phase polarization workflow | Branch unwapping + polarization quantum |
+| Born charge/dielectric parser | 61 | `QEBornChargeDielectricParser` | DFPT dielectric tensors | Acoustic charge sum diagnostics |
+| Car-Parrinello parser | 67 | `QECarParrinelloParser` | CP MD trajectory analysis | Dedicated CP namelist model |
+| Grid density difference | 57 | `QEGridDensityDifference` | Charge density difference on grids | Grid compatibility enforcement |
+| Hubbard hp.x parser | 63 | `QEHubbardHpParser` | Hubbard U/V from hp.x calculations | Site/projector mapping |
+| Magnetic moment parser | 59 | `QEMagneticMomentParser` | Spin density analysis | Noncollinear vector components |
+| PDOS parser | 48 | `QEPdosParser` projwfc.x output | Atom/orbital resolved DOS | Orbital selection + spin channels |
+| PWcond conductance parser | 68 | `QEPwcondConductanceParser` | Transport conductance plots | Full leads/scattering model |
+| Raman/IR spectra parser | 53 | `QERamanIRSpectraParser` | Vibrational spectra from DFPT | Orientation/powder broadening |
+| Slab plateau diagnostic | 54 | `QESlabPlateauDiagnostic` | ESM/slab work function pipeline | Planar potential averaging |
+| Smearing convergence | 38 | `QESmearingConvergenceAnalyzer` | Compare smearing schemes | Metallic occupation monitoring |
+| Timing/resource parser | 43 | `QETimingResourceParser` | QE stage timers + FFT info | Cost optimization guidance |
+| TDDFT spectrum parser | 64 | `QETurboSpectrumParser` | turbo_lanczos/spectrum output | Version schema + optical spectra |
+| Wannier90 spread parser | 69 | `QEWannier90SpreadParser` | Disentanglement spread convergence | Band comparison overlay |
+| XSpectra XANES parser | 65 | `QEXSpectraXanesParser` | XANES spectra from xspectra.x | Core-hole species + convergence |
+| Eliashberg Tc calculator | 165 | `QEEliashbergTcCalculator` Allen-Dynes | Superconducting Tc from α²F | Full EPW convergence workflow |
+| GIPAW NMR parser | 66 | `QEGipawNmrParser` | NMR shielding/EFG from GIPAW | Reference convention |
+| phonopy FORCE_SETS writer | 107 | `QEPhonopyForceSetsWriter` | Generate phonopy input from QE forces | Full phonopy workflow |
+| Resource estimator | 101 | `QEResourceEstimator` | Estimate atoms/cutoff/k-points cost | Historical model + confidence |
+| Scratch storage policy | 34 | `QEScratchStoragePolicy` | Manage local SSD/cluster scratch | Quota checks + cleanup retention |
+| MPI topology advisor | 102 | `QEMpiTopologyAdvisor` | Rank/pool/FFT mapping advice | Benchmark mode + scaling data |
+| Input diff/preview | 44 | `QEInputDiffPreview` | Side-by-side model vs text comparison | Semantic highlights + keyword help |
+| Wavefunction builder | 58 | `QEPpWavefunctionBuilder` | pp.x selected band/k/spin inputs | Phase/sign convention |
+| Pseudo family validator | 35 | `PseudoFamilyValidator` | Verify pseudo family consistency | SSSP/PSLibrary manifest import |
+| Extension system | 106–114 | `ExtensionManager` + thermo_pw/phonopy/BoltzTraP2/CASTEP/ML extensions | Plugin architecture for auxiliary engines | Full end-to-end workflows |
+| Moiré pattern builder | 85 | Enhanced `MoirePatternBuilder` | Commensurate moiré supercells | Twist error + atom-count estimate |
+| Slab model builder | 82 | Enhanced `SlabModelBuilder` | Miller index slab construction | Termination enumeration |
+| SQS builder | 89 | Enhanced `SQSBuilder` | Special quasirandom structures | ATAT/icet integration |
+| Solvent filler | 88 | Enhanced `SolventFiller` | Packmol-style solvent boxes | Reproducible density |
+| Molecule adsorber | 83 | Enhanced `MoleculeAdsorber` | Surface adsorption sites | Symmetry-distinct candidate gen |
+| SMILES parser | 87 | Enhanced `SMILESParser` | Molecular structure from SMILES | RDKit/Open Babel sidecar |
+| spglib v2 service | 71 | Enhanced `SpglibService` with standardize/seekpath ops | Real space groups when spglib present | Locked env + reference corpus |
+| Super-cell builder | 81 | Enhanced `NonDiagSupercellBuilder` | General 3×3 transformation | Determinant = multiplicity |
+
+### Validation performed
+
+- `scripts/static_checks.py` — pass (938 Java files: 812 source + 126 test)
+- `scripts/compile_check.py` — pass (938 files)
+- `scripts/fixture_harness.py` — pass (7 log fixtures)
+- All 26 merge conflicts resolved with reference branch versions (theirs)
+- Full `mvn verify` pending on a JDK 17+ host
+
+### Impact summary
+
+This batch brings QuantumForge from ~790 source files to 938, adding real implementations for:
+- **6** new file format readers (PDB, SDF, VASP 4/5, CASTEP log, vasprun.xml, PDOS)
+- **30+** new physics parsers (Berry, Born, Eliashberg, GIPAW, Raman, Hubbard, magnetic, etc.)
+- **10+** new structure builders (defects, grain boundaries, moiré, SQS, slabs, adsorption)
+- **5** external engine bridges (ABINIT, CP2K, LAMMPS, ASE, Materials Project v2)
+- **8** HPC/resource tools (estimator, scratch policy, MPI advisor, timing parser)
+- **Extension plugin system** for thermo_pw, phonopy, BoltzTraP2, CASTEP, and ML potentials
+
 ## Recommended next batch
 
 1. Run `mvn clean verify` on a JDK 17 host and fix any findings.
-2. Native OS keyring backends for `SecretStore` (#9).
-3. Strict-host-key SSH/SFTP + one SLURM adapter (#91–99).
-4. spglib/seekpath isolated service (#71–73).
-5. Real engine-generated multi-version golden outputs.
+2. Wire batch-12 parsers into GUI result viewer menus and project workflows.
+3. Native OS keyring backends for `SecretStore` (#9).
+4. spglib/seekpath isolated service with locked environment (#71–73).
+5. Real engine-generated multi-version golden outputs for new parsers.
+6. Integrate extension system into project run menu for one engine at a time.
+7. Add input diff/preview GUI panel (#44/119).

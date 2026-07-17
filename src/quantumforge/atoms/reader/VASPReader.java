@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025 QuantumForge Team
+ * Copyright (C) 2025-2026 QuantumForge Team
  *
  * Proprietary and Confidential - All Rights Reserved (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,6 +20,11 @@ import quantumforge.atoms.model.exception.ZeroVolumCellException;
 import quantumforge.atoms.model.property.AtomProperty;
 import quantumforge.com.math.Matrix3D;
 
+/**
+ * Robust VASP POSCAR and CONTCAR reader supporting both VASP 4 (number-only line 6)
+ * and VASP 5 (element-labeled line 6) formats, selective dynamics, negative scaling factors,
+ * and Cartesian/direct coordinates (Roadmap #76).
+ */
 public class VASPReader extends AtomsReader {
 
     public VASPReader(String filePath) throws FileNotFoundException {
@@ -62,7 +67,7 @@ public class VASPReader extends AtomsReader {
         lattice = Matrix3D.mult(scale, lattice);
 
         /*
-         * read elements
+         * read elements or counts (VASP 4 vs VASP 5 check)
          */
         String[] elements = this.readSubLines(-1);
 
@@ -71,10 +76,28 @@ public class VASPReader extends AtomsReader {
             throw new IOException("elements are not defined in a VASP file.");
         }
 
-        /*
-         * read list of #atoms
-         */
-        int[] numAtom = this.readIntegers(numElem);
+        // Check if elements are actually integers (VASP 4 format)
+        boolean isVasp4 = true;
+        int[] numAtom = new int[numElem];
+        for (int i = 0; i < numElem; i++) {
+            try {
+                numAtom[i] = Integer.parseInt(elements[i]);
+            } catch (NumberFormatException e) {
+                isVasp4 = false;
+                break;
+            }
+        }
+
+        if (isVasp4) {
+            // VASP 4 format: auto-generate placeholder element symbols (e.g. X1, X2)
+            elements = new String[numElem];
+            for (int i = 0; i < numElem; i++) {
+                elements[i] = "X" + (i + 1);
+            }
+        } else {
+            // VASP 5 format: read counts from the next line
+            numAtom = this.readIntegers(numElem);
+        }
 
         int totAtom = 0;
         for (int i = 0; i < numElem; i++) {

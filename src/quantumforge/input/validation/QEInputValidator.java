@@ -42,6 +42,7 @@ public final class QEInputValidator {
         validateOccupations(system, issues);
         validateSpin(system, issues);
         validateKPoints(input.getCard(QEKPoints.class), issues);
+        issues.addAll(quantumforge.pseudo.PseudoFamilyValidator.validateFamilies(input));
         return issues;
     }
 

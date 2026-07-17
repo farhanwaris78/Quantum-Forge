@@ -269,6 +269,176 @@ public final class SpglibService {
                 "spglib dataset " + number + " (" + symbol + ")", dataset);
     }
 
+    static OperationResult<StandardizedCell> parseStandardized(String response, double tolerance, String kind) {
+        if (response == null || response.isBlank()) {
+            return OperationResult.failed("SPGLIB_EMPTY", "Empty spglib standardize response.", null);
+        }
+        if (response.contains("\"error\"")) {
+            String err = extractString(response, "error");
+            return OperationResult.failed("SPGLIB_ERROR", err == null ? "spglib reported an error" : err, null);
+        }
+
+        try {
+            // 1. Extract lattice
+            java.util.regex.Matcher ml = java.util.regex.Pattern.compile(
+                "\"lattice\"\\s*:\\s*\\[\\s*\\[\\s*([-\\d.eE+]+)\\s*,\\s*([-\\d.eE+]+)\\s*,\\s*([-\\d.eE+]+)\\s*\\]\\s*,\\s*\\[\\s*([-\\d.eE+]+)\\s*,\\s*([-\\d.eE+]+)\\s*,\\s*([-\\d.eE+]+)\\s*\\]\\s*,\\s*\\[\\s*([-\\d.eE+]+)\\s*,\\s*([-\\d.eE+]+)\\s*,\\s*([-\\d.eE+]+)\\s*\\]\\s*\\]"
+            ).matcher(response);
+            
+            if (!ml.find()) {
+                return OperationResult.failed("SPGLIB_PARSE_LATTICE", "Could not parse lattice from spglib response.", null);
+            }
+            double[][] lattice = new double[3][3];
+            lattice[0][0] = Double.parseDouble(ml.group(1));
+            lattice[0][1] = Double.parseDouble(ml.group(2));
+            lattice[0][2] = Double.parseDouble(ml.group(3));
+            lattice[1][0] = Double.parseDouble(ml.group(4));
+            lattice[1][1] = Double.parseDouble(ml.group(5));
+            lattice[1][2] = Double.parseDouble(ml.group(6));
+            lattice[2][0] = Double.parseDouble(ml.group(7));
+            lattice[2][1] = Double.parseDouble(ml.group(8));
+            lattice[2][2] = Double.parseDouble(ml.group(9));
+
+            // 2. Extract numbers
+            java.util.regex.Matcher mn = java.util.regex.Pattern.compile(
+                "\"numbers\"\\s*:\\s*\\[\\s*([^\\]]*)\\s*\\]"
+            ).matcher(response);
+            if (!mn.find()) {
+                return OperationResult.failed("SPGLIB_PARSE_NUMBERS", "Could not parse atomic numbers from spglib response.", null);
+            }
+            String[] numTokens = mn.group(1).split(",");
+            List<Integer> numbers = new ArrayList<>();
+            for (String tok : numTokens) {
+                String t = tok.trim();
+                if (!t.isEmpty()) {
+                    numbers.add(Integer.parseInt(t));
+                }
+            }
+
+            // 3. Extract positions
+            java.util.regex.Matcher mp = java.util.regex.Pattern.compile(
+                "\"positions\"\\s*:\\s*\\[\\s*(.*?)\\s*\\]\\s*,\\s*\""
+            ).matcher(response);
+            String positionsStr = "";
+            if (mp.find()) {
+                positionsStr = mp.group(1);
+            } else {
+                int posIndex = response.indexOf("\"positions\"");
+                if (posIndex >= 0) {
+                    int startBrace = response.indexOf("[", posIndex);
+                    int depth = 1;
+                    int cur = startBrace + 1;
+                    while (cur < response.length() && depth > 0) {
+                        char c = response.charAt(cur);
+                        if (c == '[') depth++;
+                        else if (c == ']') depth--;
+                        cur++;
+                    }
+                    if (depth == 0) {
+                        positionsStr = response.substring(startBrace + 1, cur - 1);
+                    }
+                }
+            }
+
+            if (positionsStr.isEmpty()) {
+                return OperationResult.failed("SPGLIB_PARSE_POSITIONS", "Could not locate positions block in spglib response.", null);
+            }
+
+            java.util.regex.Matcher mSite = java.util.regex.Pattern.compile(
+                "\\[\\s*([-\\d.eE+]+)\\s*,\\s*([-\\d.eE+]+)\\s*,\\s*([-\\d.eE+]+)\\s*\\]"
+            ).matcher(positionsStr);
+            List<StandardizedCell.AtomSite> sites = new ArrayList<>();
+            int idx = 0;
+            while (mSite.find()) {
+                if (idx >= numbers.size()) {
+                    break;
+                }
+                int num = numbers.get(idx++);
+                double x = Double.parseDouble(mSite.group(1));
+                double y = Double.parseDouble(mSite.group(2));
+                double z = Double.parseDouble(mSite.group(3));
+                sites.add(new StandardizedCell.AtomSite(num, x, y, z, true));
+            }
+
+            Integer sgNumber = extractInt(response, "number");
+            String sgSymbol = extractString(response, "international");
+            if (sgSymbol == null) sgSymbol = "";
+            String version = extractString(response, "spglib_version");
+            if (version == null) version = "unknown";
+
+            StandardizedCell stdCell = new StandardizedCell(
+                lattice, sites, kind, sgNumber == null ? 0 : sgNumber,
+                sgSymbol, tolerance, version
+            );
+
+            return OperationResult.success("SPGLIB_STANDARDIZE_OK", 
+                "Standardized cell (" + kind + ") generated: sg " + (sgNumber == null ? 0 : sgNumber), 
+                stdCell);
+
+        } catch (Exception ex) {
+            return OperationResult.failed("SPGLIB_PARSE_ERROR", "Error parsing standardized cell: " + ex.getMessage(), ex);
+        }
+    }
+
+    static OperationResult<SeekPathResult> parseSeekPath(String response, double tolerance) {
+        if (response == null || response.isBlank()) {
+            return OperationResult.failed("SEEKPATH_EMPTY", "Empty seekpath response.", null);
+        }
+        if (response.contains("\"error\"")) {
+            String err = extractString(response, "error");
+            return OperationResult.failed("SEEKPATH_ERROR", err == null ? "seekpath reported an error" : err, null);
+        }
+
+        try {
+            int pathIdx = response.indexOf("\"path\"");
+            if (pathIdx < 0) {
+                return OperationResult.failed("SEEKPATH_NO_PATH", "Could not locate path in seekpath response.", null);
+            }
+            int startBracket = response.indexOf("[", pathIdx);
+            int depth = 1;
+            int cur = startBracket + 1;
+            while (cur < response.length() && depth > 0) {
+                char c = response.charAt(cur);
+                if (c == '[') depth++;
+                else if (c == ']') depth--;
+                cur++;
+            }
+            if (depth != 0) {
+                return OperationResult.failed("SEEKPATH_BRACKET_MISMATCH", "Malformed JSON structure for seekpath path.", null);
+            }
+            String pathStr = response.substring(startBracket, cur);
+
+            java.util.regex.Matcher mPoint = java.util.regex.Pattern.compile(
+                "\\[\\s*\"([^\"]+)\"\\s*,\\s*\\[\\s*([-\\d.eE+]+)\\s*,\\s*([-\\d.eE+]+)\\s*,\\s*([-\\d.eE+]+)\\s*\\]\\s*\\]"
+            ).matcher(pathStr);
+
+            List<SeekPathResult.Point> points = new ArrayList<>();
+            while (mPoint.find()) {
+                String label = mPoint.group(1);
+                double kx = Double.parseDouble(mPoint.group(2));
+                double ky = Double.parseDouble(mPoint.group(3));
+                double kz = Double.parseDouble(mPoint.group(4));
+                points.add(new SeekPathResult.Point(label, kx, ky, kz));
+            }
+
+            Integer sgNumber = extractInt(response, "number");
+            String sgSymbol = extractString(response, "international");
+            if (sgSymbol == null) sgSymbol = "";
+            String version = extractString(response, "seekpath_version");
+            if (version == null) version = "unknown";
+
+            SeekPathResult result = new SeekPathResult(
+                points, sgSymbol, sgNumber == null ? 0 : sgNumber, version, tolerance
+            );
+
+            return OperationResult.success("SEEKPATH_OK",
+                "seekpath path parsed with " + points.size() + " points.",
+                result);
+
+        } catch (Exception ex) {
+            return OperationResult.failed("SEEKPATH_PARSE_ERROR", "Error parsing seekpath result: " + ex.getMessage(), ex);
+        }
+    }
+
     private static Integer extractInt(String json, String key) {
         java.util.regex.Matcher m = java.util.regex.Pattern
                 .compile("\"" + java.util.regex.Pattern.quote(key) + "\"\\s*:\\s*(-?\\d+)")

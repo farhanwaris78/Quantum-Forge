@@ -29,6 +29,7 @@ import quantumforge.app.project.viewer.ViewerActions;
 import quantumforge.atoms.viewer.AtomsViewerInterface;
 import quantumforge.com.graphic.svg.SVGLibrary;
 import quantumforge.com.graphic.svg.SVGLibrary.SVGData;
+import quantumforge.project.Project;
 import javafx.event.ActionEvent;
 import javafx.event.EventHandler;
 import javafx.fxml.FXML;
@@ -106,6 +107,16 @@ public class QEFXProjectController extends QEFXAppController {
     private Map<Integer, ModeRestored> restoredActionMap;
 
     private Map<Integer, ModeBacked> backedActionMap;
+
+    private Project project;
+
+    public Project getProject() {
+        return this.project;
+    }
+
+    public void setProject(Project project) {
+        this.project = project;
+    }
 
     public QEFXProjectController(QEFXMainController mainController) {
         super(mainController);
