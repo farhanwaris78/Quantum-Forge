@@ -53,6 +53,7 @@ import quantumforge.hpc.SiteProfile;
 import quantumforge.hpc.SiteProfileValidator;
 import quantumforge.input.QEExxPlanner;
 import quantumforge.neural.MlModelManifest;
+import quantumforge.input.CpInputPlanner;
 import quantumforge.input.QEEsmAuditor;
 import quantumforge.input.QEHubbardPlanner;
 import quantumforge.input.QEInput;
@@ -236,7 +237,8 @@ public final class ResultAnalysisService {
         ESM_SLAB_CHECK("ESM/slab readiness audit (assume_isolated/esm_bc + vacuum)"),
         MOIRE_TWIST_PREVIEW("Commensurate twist preview (exact hexagonal (m,n) math)"),
         PDB_REVIEW("PDB structure review (fail-closed, no element guessing)"),
-        LAMMPS_DATA_REVIEW("LAMMPS data-file review (explicit atom_style, no guessing)");
+        LAMMPS_DATA_REVIEW("LAMMPS data-file review (explicit atom_style, no guessing)"),
+        CP_INPUT_DRAFT("cp.x Car-Parrinello input draft (required-edit guarded)");
 
         private final String label;
 
@@ -282,7 +284,7 @@ public final class ResultAnalysisService {
                     || this == SUPERCELL_PREVIEW || this == HUBBARD_HP_DRAFT
                     || this == WORKSPACE_SEARCH || this == TEMPLATE_LIBRARY
                     || this == SPIN_CUBE_MAGNETIZATION || this == ESM_SLAB_CHECK
-                    || this == MOIRE_TWIST_PREVIEW;
+                    || this == MOIRE_TWIST_PREVIEW || this == CP_INPUT_DRAFT;
         }
 
         /** True for project-bound kinds that additionally parse a user data file. */
@@ -1162,6 +1164,8 @@ public final class ResultAnalysisService {
                 return analyzeEsmSlabCheck(project);
             case MOIRE_TWIST_PREVIEW:
                 return analyzeMoireTwistPreview(project, params);
+            case CP_INPUT_DRAFT:
+                return analyzeCpInputDraft(project);
             default:
                 return failure(kind.getLabel(), "This analysis kind is not implemented.");
         }
@@ -5691,6 +5695,73 @@ public final class ResultAnalysisService {
             csv.add("# truncated at 20000 atom rows (cap)");
         }
         return new AnalysisReport(label, true, text.toString(), csv, null);
+    }
+
+    /**
+     * Roadmap #67: cp.x draft from the live input context. The draft is
+     * deliberately non-runnable (every CP-physics choice is REQUIRED-EDIT)
+     * and it substitutes for the invalid pw.x calculation='cp' pattern.
+     */
+    private static AnalysisReport analyzeCpInputDraft(Project project) {
+        String label = AnalysisKind.CP_INPUT_DRAFT.getLabel();
+        QEInput input;
+        try {
+            project.resolveQEInputs();
+            input = project.getQEInputCurrent();
+        } catch (RuntimeException ex) {
+            return failure(label, "Resolving the current QE input failed: "
+                    + ex.getMessage());
+        }
+        OperationResult<CpInputPlanner.CpContext> extracted =
+                CpInputPlanner.extractContext(input);
+        if (!extracted.isSuccess() || extracted.getValue().isEmpty()) {
+            return failure(label, "cp.x draft refused: [" + extracted.getCode() + "] "
+                    + extracted.getMessage());
+        }
+        CpInputPlanner.CpContext context = extracted.getValue().get();
+        String draft = CpInputPlanner.draft(context);
+        int requiredEdits = 0;
+        for (int idx = draft.indexOf("REQUIRED-EDIT"); idx >= 0;
+                idx = draft.indexOf("REQUIRED-EDIT", idx + 1)) {
+            requiredEdits += 1;
+        }
+        StringBuilder text = new StringBuilder();
+        text.append("Context detected in the live input:\n");
+        text.append(String.format(Locale.ROOT, "  prefix = '%s'; outdir = '%s'%n",
+                context.getPrefix(), context.getOutdir()));
+        text.append(String.format(Locale.ROOT, "  calculation = %s%n",
+                context.getCalculation() == null ? "(unset)"
+                        : "'" + context.getCalculation() + "'"));
+        if (context.usesInvalidPwCalculation()) {
+            text.append("\nWARNING: calculation='cp' is NOT a valid pw.x calculation - "
+                    + "pw.x rejects it (Roadmap #67 exists to replace this pattern). "
+                    + "The dedicated cp.x executable with a dedicated input is the "
+                    + "tool; the draft below is its starting skeleton.\n");
+        }
+        text.append(String.format(Locale.ROOT,
+                "%nThe draft is DELIBERATELY NOT RUNNABLE: %d REQUIRED-EDIT placeholders "
+                        + "stand exactly where Car-Parrinello physics decisions belong "
+                        + "(fictitious mass emass / emass_cutoff, timestep dt, ionic "
+                        + "temperature control), and structural cards are NOT copied.%n",
+                requiredEdits));
+        text.append("\nPrerequisites named by #67 before any production CP run: a "
+                + "converged pw.x scf/relax at production cutoff, a dt/emass ADIABATICITY "
+                + "check per system (electron/ion energy drift on a short test), and the "
+                + "version-matched INPUT_CP documentation. The draft carries the "
+                + "REQUIRED-EDIT guard header; it is written ONLY via the explicit save "
+                + "action. Post-run energy/drift review is the existing CP_TRAJECTORY "
+                + "kind (its parser handles the cp.x log shape).");
+        List<String> csv = new ArrayList<>();
+        csv.add("item,value,note");
+        csv.add(String.format(Locale.ROOT, "prefix,%s,verbatim", csvCell(context.getPrefix())));
+        csv.add(String.format(Locale.ROOT, "outdir,%s,verbatim", csvCell(context.getOutdir())));
+        csv.add(String.format(Locale.ROOT, "calculation,%s,verbatim",
+                context.getCalculation() == null ? "unset" : context.getCalculation()));
+        csv.add(String.format(Locale.ROOT, "invalid_pw_cp,%s,audit",
+                context.usesInvalidPwCalculation()));
+        csv.add(String.format(Locale.ROOT, "required_edit_placeholders,%d,draft-guard",
+                requiredEdits));
+        return new AnalysisReport(label, true, text.toString(), csv, draft);
     }
 
     /**

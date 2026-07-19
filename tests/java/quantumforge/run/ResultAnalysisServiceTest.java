@@ -3166,4 +3166,52 @@ class ResultAnalysisServiceTest {
                 "styles outside the covered set fail closed, listed");
         assertTrue(unknownStyle.getText().contains("MOLECULAR"), unknownStyle.getText());
     }
+
+    @Test
+    void testCpInputDraftKindInvalidPatternAndGuardedDraft() {
+        Cell cell = new Cell(quantumforge.com.math.Matrix3D.unit(10.0));
+        cell.addAtom("Ni", 0.0, 0.0, 0.0);
+        QESCFInput input = new QESCFInput();
+        input.getNamelist(QEInput.NAMELIST_CONTROL).setValue(
+                QEValueBase.getInstance("prefix", "'nio'"));
+        input.getNamelist(QEInput.NAMELIST_CONTROL).setValue(
+                QEValueBase.getInstance("calculation", "'cp'"));
+
+        AnalysisReport report = ResultAnalysisService.analyze(AnalysisKind.CP_INPUT_DRAFT,
+                stubProjectWithInput(this.tempDir, input, cell), new AnalysisParameters());
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains("prefix = 'nio'"), report.getText());
+        assertTrue(report.getText().contains("calculation = 'cp'"), report.getText());
+        assertTrue(report.getText().contains("WARNING: calculation='cp' is NOT a valid "
+                + "pw.x calculation"), report.getText());
+        assertTrue(report.getText().contains("DELIBERATELY NOT RUNNABLE"),
+                report.getText());
+        String draft = report.getGeneratedInput();
+        assertTrue(draft != null, "the draft travels the explicit-save channel only");
+        assertTrue(draft.contains("required-edit") || draft.contains("REQUIRED-EDIT"),
+                draft);
+        assertTrue(draft.contains("prefix         = 'nio',"), draft);
+        assertTrue(draft.startsWith("! cp.x Car-Parrinello input DRAFT"), draft);
+        assertTrue(report.getCsvLines().contains("invalid_pw_cp,true,audit"),
+                report.getCsvLines().toString());
+        assertTrue(report.getCsvLines().contains(
+                "required_edit_placeholders,8,draft-guard"),
+                report.getCsvLines().toString());
+
+        QESCFInput scf = new QESCFInput();
+        scf.getNamelist(QEInput.NAMELIST_CONTROL).setValue(
+                QEValueBase.getInstance("calculation", "'scf'"));
+        AnalysisReport plain = ResultAnalysisService.analyze(AnalysisKind.CP_INPUT_DRAFT,
+                stubProjectWithInput(this.tempDir, scf, cell), new AnalysisParameters());
+        assertTrue(plain.isSuccess(), plain.getText());
+        assertTrue(!plain.getText().contains("WARNING: calculation='cp'"),
+                "a scf input carries no invalid-pattern warning");
+        assertTrue(plain.getCsvLines().contains("invalid_pw_cp,false,audit"),
+                plain.getCsvLines().toString());
+
+        AnalysisReport missing = ResultAnalysisService.analyze(AnalysisKind.CP_INPUT_DRAFT,
+                stubProject(this.tempDir), new AnalysisParameters());
+        assertFalse(missing.isSuccess(), "No current input must fail closed");
+        assertTrue(missing.getText().contains("[CP_INPUT]"), missing.getText());
+    }
 }
