@@ -500,3 +500,11 @@ The **twenty-fifth** batch hardens volumetric density-difference backend safety:
 |---:|---|---|
 | 57 | **Stronger Partial** | Grid construction now validates 3×3 finite non-singular lattices, positive dimensions, exact 3D shape, and finite density values. Difference computation validates tolerance, caches component grids instead of cloning them per voxel, avoids grid-count overflow in integration, and no longer labels an integral as electrons unless the density-unit convention supports it. |
 | 57/16 | **Verified** | Added malformed-grid/tolerance regression checks; static/structural checks and fixtures pass. GUI volumetric import/rendering remains unavailable until a streaming CUBE/XSF reader and unit/provenance model are connected. |
+
+The **twenty-sixth** batch adds bounded CUBE volumetric import infrastructure:
+
+| # | Status after batch 26 | What landed |
+|---:|---|---|
+| 55/56/57 | **Stronger Partial** | `CubeGridReader` parses standard CUBE headers/axes/data with explicit bohr→Å handling, validates/truncation-checks voxel payloads, and refuses grids above a configurable 16 Mi-voxel default bound before allocation. Parsed data enters the validated `Grid3D` backend. |
+| 56 | **Backend foundation** | CUBE unit/shape/memory limits and malformed-input tests now exist. GUI volumetric rendering/difference selection remains unavailable until streaming display and provenance UI are connected. |
+| 16 | **Verified** | CUBE success/truncation/size-limit tests plus static/structural checks and fixtures pass. Full Maven/JUnit remains pending a Java/Maven-enabled runner. |
