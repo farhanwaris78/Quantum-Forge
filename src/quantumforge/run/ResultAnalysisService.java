@@ -23,6 +23,7 @@ import java.util.regex.Pattern;
 import quantumforge.app.project.editor.result.geometry.GeometryMeasurer;
 import quantumforge.atoms.model.Atom;
 import quantumforge.atoms.model.Cell;
+import quantumforge.builder.QEBatteryVoltage;
 import quantumforge.builder.QECitationManager;
 import quantumforge.builder.QEHullThermodynamics;
 import quantumforge.builder.QEPointDefectBuilder;
@@ -149,7 +150,8 @@ public final class ResultAnalysisService {
         DEFECT_PREVIEW("Point-defect preview (vacancy/substitution)"),
         CONVERGENCE_REVIEW("Convergence series review (ecut/k-mesh energies)"),
         SERIES_PLAN("Convergence series plan (preview)"),
-        PHONON_MODES("Phonon eigenvector audit (dynmat.x)");
+        PHONON_MODES("Phonon eigenvector audit (dynmat.x)"),
+        VOLTAGE_PROFILE("Battery voltage profile from hull CSV");
 
         private final String label;
 
@@ -221,6 +223,7 @@ public final class ResultAnalysisService {
         private double seriesStep = 10.0;
         private int seriesCount = 6;
         private double energyToleranceRyPerAtom = 1.0e-3;
+        private double ionCharge = 1.0;
 
         public double getFermiEv() { return this.fermiEv; }
         public int getKpointIndex() { return this.kpointIndex; }
@@ -247,6 +250,7 @@ public final class ResultAnalysisService {
         public double getSeriesStep() { return this.seriesStep; }
         public int getSeriesCount() { return this.seriesCount; }
         public double getEnergyToleranceRyPerAtom() { return this.energyToleranceRyPerAtom; }
+        public double getIonCharge() { return this.ionCharge; }
 
         public AnalysisParameters withFermiEv(double value) { this.fermiEv = value; return this; }
         public AnalysisParameters withKpointIndex(int value) { this.kpointIndex = value; return this; }
@@ -316,6 +320,10 @@ public final class ResultAnalysisService {
         }
         public AnalysisParameters withEnergyToleranceRyPerAtom(double value) {
             this.energyToleranceRyPerAtom = value;
+            return this;
+        }
+        public AnalysisParameters withIonCharge(double value) {
+            this.ionCharge = value;
             return this;
         }
     }
@@ -410,6 +418,7 @@ public final class ResultAnalysisService {
         case MD_MSD:
             return name.endsWith(".xyz");
         case HULL_STABILITY:
+        case VOLTAGE_PROFILE:
             return name.endsWith(".csv");
         case WORK_FUNCTION:
             return name.contains("tavg") || name.contains("planar")
@@ -534,6 +543,8 @@ public final class ResultAnalysisService {
                 return analyzeConvergenceReview(source, params);
             case PHONON_MODES:
                 return analyzePhononModes(property, source);
+            case VOLTAGE_PROFILE:
+                return analyzeVoltageProfile(source, params);
             default:
                 return failure(kind.getLabel(), "This analysis kind is not implemented.");
             }
@@ -3042,5 +3053,82 @@ public final class ResultAnalysisService {
                 + "(roadmap #52) consume exactly these validated rows. Negative frequencies are "
                 + "imaginary modes as printed by dynmat.x.");
         return new AnalysisReport(label, consistent, text.toString(), csv, null);
+    }
+
+    /** Ion-insertion voltage profile from a hull CSV; plateaus from hull vertices only. */
+    private static AnalysisReport analyzeVoltageProfile(File source, AnalysisParameters params)
+            throws IOException {
+        String label = AnalysisKind.VOLTAGE_PROFILE.getLabel();
+        double charge = params.getIonCharge();
+        List<QEHullThermodynamics.CompetingPhase> phases = new ArrayList<>();
+        int rejected = 0;
+        for (String raw : Files.readAllLines(source.toPath(), StandardCharsets.UTF_8)) {
+            String line = raw.trim();
+            if (line.isEmpty() || line.startsWith("#")) {
+                continue;
+            }
+            String[] columns = line.split(",");
+            if (columns.length < 3) {
+                rejected++;
+                continue;
+            }
+            String formula = columns[0].trim();
+            double fraction;
+            double formation;
+            try {
+                fraction = Double.parseDouble(normalizeExponent(columns[1].trim()));
+                formation = Double.parseDouble(normalizeExponent(columns[2].trim()));
+            } catch (NumberFormatException ex) {
+                rejected++; // Tolerated header row such as "formula,fraction_B,...".
+                continue;
+            }
+            if (formula.isEmpty()) {
+                rejected++;
+                continue;
+            }
+            phases.add(new QEHullThermodynamics.CompetingPhase(formula, fraction, formation));
+        }
+        OperationResult<QEBatteryVoltage.VoltageProfile> built =
+                QEBatteryVoltage.build(phases, charge);
+        if (!built.isSuccess() || built.getValue().isEmpty()) {
+            return failure(label, "Voltage-profile construction failed closed for "
+                    + source.getName() + ": " + built.getMessage()
+                    + (rejected > 0 ? " (" + rejected + " rows were rejected)" : ""));
+        }
+        QEBatteryVoltage.VoltageProfile profile = built.getValue().orElseThrow();
+        StringBuilder text = new StringBuilder();
+        text.append("Source: ").append(source.getName()).append("; phases parsed: ")
+                .append(phases.size());
+        if (rejected > 0) {
+            text.append("; rejected rows: ").append(rejected);
+        }
+        text.append('\n');
+        text.append(String.format(Locale.ROOT, "Insertion charge z = %.6g%n%n", profile.getIonCharge()));
+        text.append("Lower-hull vertices (metastable phases excluded):\n");
+        for (QEBatteryVoltage.HullVertex vertex : profile.getVertices()) {
+            text.append(String.format(Locale.ROOT, "  %-14s x=%.4f  E_form=%+.6f eV/atom%n",
+                    vertex.getFormula(), vertex.getFractionB(), vertex.getFormationEnergyEv()));
+        }
+        text.append("\nTwo-phase voltage plateaus:\n");
+        List<String> csv = new ArrayList<>();
+        csv.add("x_left,x_right,voltage_V,left_phase,right_phase");
+        for (QEBatteryVoltage.Plateau plateau : profile.getPlateaus()) {
+            text.append(String.format(Locale.ROOT, "  x %.4f -> %.4f : %+8.4f V  (%s -> %s)%n",
+                    plateau.getLeft().getFractionB(), plateau.getRight().getFractionB(),
+                    plateau.getVoltageV(), plateau.getLeft().getFormula(),
+                    plateau.getRight().getFormula()));
+            csv.add(String.format(Locale.ROOT, "%.6f,%.6f,%.6f,%s,%s",
+                    plateau.getLeft().getFractionB(), plateau.getRight().getFractionB(),
+                    plateau.getVoltageV(), plateau.getLeft().getFormula(),
+                    plateau.getRight().getFormula()));
+        }
+        text.append('\n');
+        for (String note : profile.getNotes()) {
+            text.append(" - ").append(note).append('\n');
+        }
+        text.append("\nFormation energies must be per atom and referenced consistently; the "
+                + "fraction-1 phase anchors mu_B as printed. The CSV uses "
+                + "formula,fraction_B,formation_energy_eV_per_atom with an optional header.");
+        return new AnalysisReport(label, true, text.toString(), csv, null);
     }
 }

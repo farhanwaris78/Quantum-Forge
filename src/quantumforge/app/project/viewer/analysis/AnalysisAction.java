@@ -214,6 +214,13 @@ public final class AnalysisAction {
             }
             break;
         }
+        case VOLTAGE_PROFILE: {
+            Double charge = askDouble("Insertion-ion charge z (1 = Li/Na/K, ~2 = Mg/Zn)", "1.0");
+            if (charge != null) {
+                parameters.withIonCharge(charge);
+            }
+            break;
+        }
         case SMEARING_ANALYSIS: {
             int defaultAtoms = 1;
             if (this.project.getCell() != null && this.project.getCell().numAtoms() > 0) {

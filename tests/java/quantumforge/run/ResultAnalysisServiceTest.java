@@ -1219,4 +1219,37 @@ class ResultAnalysisServiceTest {
                 new AnalysisParameters());
         assertFalse(none.isSuccess(), "A file without dynmat modes must fail closed");
     }
+
+    @Test
+    void testVoltageProfileFromHullCsv() throws IOException {
+        File csv = write("battery.csv",
+                "formula,fraction_B,formation_energy_eV_per_atom\n"
+                + "A,0.0,0.0\n"
+                + "AB,0.5,-1.0\n"
+                + "AB2_meta,0.6667,-0.1\n"
+                + "B,1.0,0.0\n");
+        AnalysisReport report = ResultAnalysisService.analyze(AnalysisKind.VOLTAGE_PROFILE,
+                new ProjectProperty(), this.tempDir.toFile(), "ab", "ab.log", csv,
+                new AnalysisParameters().withIonCharge(1.0));
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains("phases parsed: 4"), report.getText());
+        assertTrue(report.getText().contains("x 0.0000 -> 0.5000 :   +2.0000 V")
+                || report.getText().contains("x 0.0000 -> 0.5000 :  +2.0000 V"), report.getText());
+        assertTrue(report.getText().contains("metastable phases excluded"), report.getText());
+        assertEquals("x_left,x_right,voltage_V,left_phase,right_phase", report.getCsvLines().get(0));
+        assertEquals(3, report.getCsvLines().size(),
+                "header plus 2 plateaus; the metastable phase never produces one");
+
+        File missingReference = write("battery-noref.csv",
+                "A,0.0,0.0\nAB,0.5,-1.0\nAB2,0.8,-0.4\n");
+        AnalysisReport fail = ResultAnalysisService.analyze(AnalysisKind.VOLTAGE_PROFILE,
+                new ProjectProperty(), this.tempDir.toFile(), "ab", "ab.log", missingReference,
+                new AnalysisParameters().withIonCharge(1.0));
+        assertFalse(fail.isSuccess(), "A series without the pure-metal reference must fail closed");
+
+        AnalysisReport badCharge = ResultAnalysisService.analyze(AnalysisKind.VOLTAGE_PROFILE,
+                new ProjectProperty(), this.tempDir.toFile(), "ab", "ab.log", csv,
+                new AnalysisParameters().withIonCharge(-1.0));
+        assertFalse(badCharge.isSuccess(), "A non-positive ion charge must be rejected");
+    }
 }
