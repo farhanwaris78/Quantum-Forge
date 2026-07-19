@@ -2938,4 +2938,68 @@ class ResultAnalysisServiceTest {
                 solo.resolve("spin_up.cube").toFile(), new AnalysisParameters());
         assertFalse(lonely.isSuccess(), "No minority cube must fail closed");
     }
+
+    @Test
+    void testEsmSlabCheckKindVerdictsAndGeometryGate() {
+        double[][] lattice = {{10.0, 0.0, 0.0}, {0.0, 10.0, 0.0}, {0.0, 0.0, 30.0}};
+        Cell cell = new Cell(lattice);
+        cell.addAtom("Cu", 0.5, 0.5, 0.4);
+        cell.addAtom("Cu", 0.5, 0.5, 0.6);
+        QESCFInput input = new QESCFInput();
+        input.getNamelist(QEInput.NAMELIST_SYSTEM).setValue(
+                QEValueBase.getInstance("assume_isolated", "'esm'"));
+        input.getNamelist(QEInput.NAMELIST_SYSTEM).setValue(
+                QEValueBase.getInstance("esm_bc", "'bc1'"));
+        input.getNamelist(QEInput.NAMELIST_SYSTEM).setValue(
+                QEValueBase.getInstance("esm_w", "-0.2"));
+
+        AnalysisReport ready = ResultAnalysisService.analyze(AnalysisKind.ESM_SLAB_CHECK,
+                stubProjectWithInput(this.tempDir, input, cell), new AnalysisParameters());
+        assertTrue(ready.isSuccess(), ready.getText());
+        assertTrue(ready.getText().contains("assume_isolated = 'esm'"), ready.getText());
+        assertTrue(ready.getText().contains("esm_bc          = 'bc1'"), ready.getText());
+        assertTrue(ready.getText().contains("-2.00000e-01"),
+                "esm_w verbatim: " + ready.getText());
+        assertTrue(ready.getText().contains("Keyword verdict: READY"), ready.getText());
+        assertTrue(ready.getText().contains("Geometry gate: PASS"), ready.getText());
+        assertTrue(ready.getText().contains("vacuum gap = 24.000000"), ready.getText());
+        assertTrue(ready.getText().contains("Overall ESM readiness: YES"), ready.getText());
+        assertTrue(ready.getText().contains("STATIC audit"), ready.getText());
+        assertTrue(ready.getCsvLines().contains("vacuum_gap_ang,24.00000000,geometry"),
+                ready.getCsvLines().toString());
+        assertTrue(ready.getCsvLines().contains("verdict,READY,keyword-audit"),
+                ready.getCsvLines().toString());
+
+        QESCFInput periodic = new QESCFInput();
+        periodic.getNamelist(QEInput.NAMELIST_SYSTEM).setValue(
+                QEValueBase.getInstance("assume_isolated", "'esm'"));
+        AnalysisReport pbc = ResultAnalysisService.analyze(AnalysisKind.ESM_SLAB_CHECK,
+                stubProjectWithInput(this.tempDir, periodic, cell), new AnalysisParameters());
+        assertTrue(pbc.isSuccess(), pbc.getText());
+        assertTrue(pbc.getText().contains("ESM ACTIVE BUT PERIODIC"), pbc.getText());
+        assertTrue(pbc.getText().contains("(unset - QE default 'pbc')"), pbc.getText());
+        assertTrue(pbc.getText().contains("Overall ESM readiness: NO"), pbc.getText());
+
+        QESCFInput plain = new QESCFInput();
+        AnalysisReport notEsm = ResultAnalysisService.analyze(AnalysisKind.ESM_SLAB_CHECK,
+                stubProjectWithInput(this.tempDir, plain, cell), new AnalysisParameters());
+        assertTrue(notEsm.isSuccess(), notEsm.getText());
+        assertTrue(notEsm.getText().contains("Keyword verdict: NOT ESM"), notEsm.getText());
+
+        double[][] skewed = {{10.0, 0.0, 0.5}, {0.0, 10.0, 0.0}, {0.0, 0.0, 30.0}};
+        Cell skewCell = new Cell(skewed);
+        skewCell.addAtom("Cu", 0.5, 0.5, 0.5);
+        AnalysisReport skewReport = ResultAnalysisService.analyze(
+                AnalysisKind.ESM_SLAB_CHECK, stubProjectWithInput(this.tempDir, input,
+                        skewCell), new AnalysisParameters());
+        assertTrue(skewReport.isSuccess(), skewReport.getText());
+        assertTrue(skewReport.getText().contains("Geometry gate: FAIL"),
+                skewReport.getText());
+        assertTrue(skewReport.getText().contains("Overall ESM readiness: NO"),
+                skewReport.getText());
+
+        AnalysisReport missing = ResultAnalysisService.analyze(AnalysisKind.ESM_SLAB_CHECK,
+                stubProject(this.tempDir), new AnalysisParameters());
+        assertFalse(missing.isSuccess(), "No current input must fail closed");
+    }
 }

@@ -49,6 +49,7 @@ import quantumforge.hpc.SiteProfile;
 import quantumforge.hpc.SiteProfileValidator;
 import quantumforge.input.QEExxPlanner;
 import quantumforge.neural.MlModelManifest;
+import quantumforge.input.QEEsmAuditor;
 import quantumforge.input.QEHubbardPlanner;
 import quantumforge.input.QEInput;
 import quantumforge.input.QEKeywordHelp;
@@ -227,7 +228,8 @@ public final class ResultAnalysisService {
         TEMPLATE_LIBRARY("Curated workflow templates (with prerequisites/pitfalls)"),
         POSCAR_REVIEW("POSCAR structure review (VASP 4/5, fail-closed parser)"),
         ELASTIC_ELATE_DRAFT("ELATE elastic tensor draft (Voigt, stability-gated)"),
-        SPIN_CUBE_MAGNETIZATION("Spin magnetization from paired up/down CUBE files");
+        SPIN_CUBE_MAGNETIZATION("Spin magnetization from paired up/down CUBE files"),
+        ESM_SLAB_CHECK("ESM/slab readiness audit (assume_isolated/esm_bc + vacuum)");
 
         private final String label;
 
@@ -272,7 +274,7 @@ public final class ResultAnalysisService {
                     || this == CELL_EXTXYZ_EXPORT || this == DENSITY_DIFFERENCE
                     || this == SUPERCELL_PREVIEW || this == HUBBARD_HP_DRAFT
                     || this == WORKSPACE_SEARCH || this == TEMPLATE_LIBRARY
-                    || this == SPIN_CUBE_MAGNETIZATION;
+                    || this == SPIN_CUBE_MAGNETIZATION || this == ESM_SLAB_CHECK;
         }
 
         /** True for project-bound kinds that additionally parse a user data file. */
@@ -1123,6 +1125,8 @@ public final class ResultAnalysisService {
                 return analyzeTemplateLibrary(params);
             case SPIN_CUBE_MAGNETIZATION:
                 return analyzeSpinCubeMagnetization(project, file);
+            case ESM_SLAB_CHECK:
+                return analyzeEsmSlabCheck(project);
             default:
                 return failure(kind.getLabel(), "This analysis kind is not implemented.");
         }
@@ -5455,6 +5459,105 @@ public final class ResultAnalysisService {
                 + "universal defaults. ecutwfc/ecutrho/k-mesh/smearing choices must come "
                 + "from your convergence workflows (#36/#37/#38) for the specific "
                 + "material; a template cannot certify a result.");
+        return new AnalysisReport(label, true, text.toString(), csv, null);
+    }
+
+    /**
+     * Roadmap #54: static ESM/slab readiness audit over the live input and
+     * cell. Verbatim keyword reporting; the geometry gate enforces the QE z
+     * orientation (a1_z = a2_z = 0) and reports an honest vacuum gap.
+     */
+    private static AnalysisReport analyzeEsmSlabCheck(Project project) {
+        String label = AnalysisKind.ESM_SLAB_CHECK.getLabel();
+        QEContext context = requireInputAndCell(project, label);
+        if (context.failure != null) {
+            return context.failure;
+        }
+        OperationResult<QEEsmAuditor.EsmAudit> audited =
+                QEEsmAuditor.audit(context.input, context.cell);
+        if (!audited.isSuccess() || audited.getValue().isEmpty()) {
+            return failure(label, "ESM audit failed closed: [" + audited.getCode() + "] "
+                    + audited.getMessage());
+        }
+        QEEsmAuditor.EsmAudit audit = audited.getValue().get();
+        StringBuilder text = new StringBuilder();
+        text.append("Keyword audit (&SYSTEM, values verbatim, quotes stripped):\n");
+        text.append(String.format(Locale.ROOT,
+                "  assume_isolated = %s%n", audit.getAssumeIsolated() == null
+                        ? "(unset - QE default 'none')" : "'" + audit.getAssumeIsolated() + "'"));
+        text.append(String.format(Locale.ROOT,
+                "  esm_bc          = %s%n", audit.getEsmBc() == null
+                        ? "(unset - QE default 'pbc')" : "'" + audit.getEsmBc() + "'"));
+        text.append(String.format(Locale.ROOT,
+                "  esm_w           = %s%n", audit.getEsmW() == null
+                        ? "(unset - QE default -0.2 a.u.)" : audit.getEsmW()));
+        text.append(String.format(Locale.ROOT,
+                "  esm_efield      = %s%n%n", audit.getEsmEfield() == null
+                        ? "(unset - no field)" : audit.getEsmEfield()));
+        switch (audit.getVerdict()) {
+        case READY:
+            text.append("Keyword verdict: READY - assume_isolated='esm' with esm_bc='")
+                    .append(audit.getEsmBc()).append("' (open circuit; bc1=bare/BC1, "
+                            + "bc2=BC2, bc3=BC3 boundary variants - see the ESM paper "
+                            + "Otani-Sugino PRB 73 115407).\n");
+            break;
+        case ACTIVE_BUT_PERIODIC:
+            text.append("Keyword verdict: ESM ACTIVE BUT PERIODIC - esm_bc is 'pbc' "
+                    + "(or unset, which is the QE default): no potential offset, so NO "
+                    + "work function can be extracted. Use bc1/bc2/bc3 for an open "
+                    + "circuit.\n");
+            break;
+        default:
+            text.append("Keyword verdict: NOT ESM - assume_isolated is ")
+                    .append(audit.getAssumeIsolated() == null ? "unset (default 'none')"
+                            : "'" + audit.getAssumeIsolated() + "'")
+                    .append("; this is not an Effective Screening Medium calculation.\n");
+            break;
+        }
+        text.append(String.format(Locale.ROOT,
+                "%nGeometry gate: %s (QE ESM REQUIRES the surface normal along z: "
+                        + "a1_z = 0 and a2_z = 0)%n",
+                audit.isZPerpendicular() ? "PASS" : "FAIL"));
+        text.append(String.format(Locale.ROOT,
+                "  |c| = %.6f Ang; slab z extent = %.6f Ang; vacuum gap = %.6f Ang%s%n",
+                audit.getCLengthAng(), audit.getSlabExtentAng(), audit.getVacuumGapAng(),
+                audit.getVacuumGapAng() < QEEsmAuditor.RECOMMENDED_VACUUM_ANG
+                        ? " (below the " + (int) QEEsmAuditor.RECOMMENDED_VACUUM_ANG
+                                + " Ang advisory floor - screening is questionable)"
+                        : ""));
+        boolean overall = audit.getVerdict() == QEEsmAuditor.Verdict.READY
+                && audit.isZPerpendicular();
+        text.append(String.format(Locale.ROOT, "%nOverall ESM readiness: %s%n",
+                overall ? "YES (keywords READY + geometry PASS)"
+                        : "NO - fix the flagged gate(s) above"));
+        text.append("\nHonesty boundary: this is a STATIC audit of the live input and "
+                + "cell only - nothing was executed, parsed from outputs, or modified. "
+                + "It does NOT verify a finished ESM run, the pp.x tavg planar-average "
+                + "convergence, or the macroscopic plateau; work-function extraction "
+                + "from a completed run is the WORK_FUNCTION kind (#54 output side). "
+                + "fcp/dipfield couplings and other assume_isolated schemes are named "
+                + "but not audited here.");
+        List<String> csv = new ArrayList<>();
+        csv.add("item,value,note");
+        csv.add(String.format(Locale.ROOT, "assume_isolated,%s,verbatim",
+                audit.getAssumeIsolated() == null ? "unset" : audit.getAssumeIsolated()));
+        csv.add(String.format(Locale.ROOT, "esm_bc,%s,verbatim",
+                audit.getEsmBc() == null ? "unset(default-pbc)" : audit.getEsmBc()));
+        csv.add(String.format(Locale.ROOT, "esm_w,%s,verbatim",
+                audit.getEsmW() == null ? "unset" : audit.getEsmW()));
+        csv.add(String.format(Locale.ROOT, "esm_efield,%s,verbatim",
+                audit.getEsmEfield() == null ? "unset" : audit.getEsmEfield()));
+        csv.add(String.format(Locale.ROOT, "z_perpendicular,%s,geometry-gate",
+                audit.isZPerpendicular()));
+        csv.add(String.format(Locale.ROOT, "c_length_ang,%.8f,geometry",
+                audit.getCLengthAng()));
+        csv.add(String.format(Locale.ROOT, "slab_extent_ang,%.8f,geometry",
+                audit.getSlabExtentAng()));
+        csv.add(String.format(Locale.ROOT, "vacuum_gap_ang,%.8f,geometry",
+                audit.getVacuumGapAng()));
+        csv.add(String.format(Locale.ROOT, "verdict,%s,keyword-audit",
+                audit.getVerdict()));
+        csv.add(String.format(Locale.ROOT, "overall_ready,%s,keywords+geometry", overall));
         return new AnalysisReport(label, true, text.toString(), csv, null);
     }
 

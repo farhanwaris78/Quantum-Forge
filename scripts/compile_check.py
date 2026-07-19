@@ -354,7 +354,8 @@ def main() -> int:
                   "QEWorkflowTemplateLibrary", "TEMPLATE_LIBRARY",
                   "PoscarStructureReader", "POSCAR_REVIEW",
                   "ELateTensorDraft", "ELASTIC_ELATE_DRAFT",
-                  "SPIN_CUBE_MAGNETIZATION"]:
+                  "SPIN_CUBE_MAGNETIZATION",
+                  "QEEsmAuditor", "ESM_SLAB_CHECK"]:
         if token not in service:
             error(f"ResultAnalysisService is not bound to {token}")
     for rel in ["quantumforge/com/math/SymmetricEigen3.java",
@@ -374,7 +375,8 @@ def main() -> int:
                 "quantumforge/project/WorkspaceLightIndex.java",
                 "quantumforge/input/QEWorkflowTemplateLibrary.java",
                 "quantumforge/builder/PoscarStructureReader.java",
-                "quantumforge/export/ELateTensorDraft.java"]:
+                "quantumforge/export/ELateTensorDraft.java",
+                "quantumforge/input/QEEsmAuditor.java"]:
         text = (SRC / rel).read_text(encoding="utf-8")
         if "class " not in text:
             error(f"{rel} does not declare a type")
