@@ -41,6 +41,8 @@ import quantumforge.input.QEInput;
 import quantumforge.input.validation.QEInputValidator;
 import quantumforge.input.validation.ValidationIssue;
 import quantumforge.project.Project;
+import quantumforge.run.parser.BandGapParser;
+import quantumforge.run.parser.FinalGeometryUpdater;
 import quantumforge.run.parser.QEErrorKnowledgeBase;
 import quantumforge.run.parser.QETimingResourceParser;
 import quantumforge.run.parser.ScfConvergenceAnalyzer;
@@ -176,6 +178,12 @@ public class ViewerActions extends ProjectActions<Node> {
 
             } else if (item == this.itemSet.getDiagnoseLogItem()) {
                 this.actions.put(item, controller2 -> this.actionDiagnoseLog(controller2));
+
+            } else if (item == this.itemSet.getBandGapItem()) {
+                this.actions.put(item, controller2 -> this.actionAnalyzeBandGap(controller2));
+
+            } else if (item == this.itemSet.getFinalGeometryItem()) {
+                this.actions.put(item, controller2 -> this.actionPreviewFinalGeometry(controller2));
 
             } else if (item == this.itemSet.getXcrysdenItem()) {
                 this.actions.put(item, controller2 -> this.actionXcrysden(controller2));
@@ -421,6 +429,71 @@ public class ViewerActions extends ProjectActions<Node> {
                 : "Input preflight completed");
         alert.setContentText(message.toString());
         alert.getDialogPane().setPrefWidth(900.0);
+        alert.setResizable(true);
+        alert.showAndWait();
+    }
+
+    /** Parses an explicit QE gap summary; it never infers directness from a total DOS. */
+    private void actionAnalyzeBandGap(QEFXProjectController controller) {
+        if (controller == null || this.project.getDirectory() == null) {
+            showBandGap("No project directory is available for band-gap analysis.", AlertType.WARNING);
+            return;
+        }
+        Path log = this.project.getDirectory().toPath().resolve(this.project.getLogFileName());
+        BandGapParser parser = new BandGapParser(log.toString());
+        if (!parser.parse()) {
+            String details = parser.getDiagnostics().isEmpty() ? "No supported gap summary was found."
+                    : String.join("\n", parser.getDiagnostics());
+            showBandGap(details, AlertType.WARNING);
+            return;
+        }
+        StringBuilder message = new StringBuilder();
+        message.append(String.format(java.util.Locale.ROOT, "Gap: %.6f eV%n", parser.getBandGap()));
+        if (parser.isDirectKnown()) {
+            message.append(parser.isDirect() ? "Directness: explicitly reported direct." :
+                    "Directness: explicitly reported indirect.");
+        } else {
+            message.append("Directness: unknown; this QE log summary is not k-resolved evidence.");
+        }
+        message.append("\nClassification: ").append(parser.isInsulator()
+                ? "gapped above the 0.01 eV analysis tolerance." : "metallic/small-gap within tolerance.");
+        showBandGap(message.toString(), AlertType.INFORMATION);
+    }
+
+    private void showBandGap(String message, AlertType type) {
+        Alert alert = new Alert(type);
+        alert.setTitle("Quantum ESPRESSO band-gap analysis");
+        alert.setHeaderText(type == AlertType.WARNING ? "Band gap undetermined" : "Band-gap summary");
+        alert.setContentText(message);
+        alert.showAndWait();
+    }
+
+    /** Previews a converged final geometry and deliberately does not mutate input cards. */
+    private void actionPreviewFinalGeometry(QEFXProjectController controller) {
+        if (controller == null) {
+            return;
+        }
+        OperationResult<FinalGeometryUpdater.GeometryPreview> result = FinalGeometryUpdater.preview(this.project);
+        Alert alert = new Alert(result.isSuccess() ? AlertType.INFORMATION : AlertType.WARNING);
+        alert.setTitle("Final geometry preview");
+        alert.setHeaderText(result.isSuccess() ? "Validated read-only geometry preview" : "Geometry cannot be applied safely");
+        if (result.isSuccess()) {
+            FinalGeometryUpdater.GeometryPreview preview = result.getValue().orElseThrow();
+            StringBuilder message = new StringBuilder();
+            message.append("Ionic step: ").append(preview.getStepIndex() + 1).append('\n');
+            message.append(String.format(java.util.Locale.ROOT, "Energy: %.10f Ry%n", preview.getEnergyRy()));
+            message.append(String.format(java.util.Locale.ROOT, "Total force: %.6g Ry/bohr%n", preview.getTotalForce()));
+            message.append("Converged: ").append(preview.isConverged()).append('\n');
+            message.append("Atoms: ").append(preview.getAtomCount()).append('\n');
+            message.append("\nNo QE input cards were changed.\n");
+            for (String note : preview.getNotes()) {
+                message.append(note).append('\n');
+            }
+            alert.setContentText(message.toString());
+        } else {
+            alert.setContentText(result.getMessage());
+        }
+        alert.getDialogPane().setPrefWidth(800.0);
         alert.setResizable(true);
         alert.showAndWait();
     }

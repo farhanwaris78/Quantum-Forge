@@ -86,13 +86,15 @@ public final class FinalGeometryUpdater {
             notes.add(diagnostic);
         }
 
-        int atomCount = 0;
-        try {
-            // ProjectGeometry stores atoms in a private list; count via toString size is unsafe.
-            // Use energy/force presence as the structural signal for now.
-            atomCount = -1;
-        } catch (RuntimeException ignored) {
-            atomCount = -1;
+        int atomCount = geometry.numAtoms();
+        if (atomCount <= 0) {
+            return OperationResult.failed("GEOMETRY_ATOMS_MISSING",
+                    "Last converged geometry contains no atomic coordinates.", null);
+        }
+        if (project.getCell() != null && project.getCell().numAtoms() != atomCount) {
+            return OperationResult.failed("GEOMETRY_ATOM_COUNT_MISMATCH",
+                    "Last geometry has " + atomCount + " atoms but the current project has "
+                            + project.getCell().numAtoms() + "; refusing unsafe preview.", null);
         }
 
         GeometryPreview preview = new GeometryPreview(last, geometry.getEnergy(),

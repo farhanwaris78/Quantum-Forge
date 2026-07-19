@@ -453,3 +453,11 @@ The **nineteenth** batch wires bounded, deterministic result diagnosis into the 
 | 31/32/43 | **GUI wired** | Each project viewer now exposes **Diagnose QE log**. It reads only a bounded 2 MiB log tail, summarizes SCF convergence, parses resource/timing data, and renders deterministic QE error-KB matches with their documentation URLs. It never executes a command, modifies input, or presents suggestions as automatic fixes. |
 | 30 | **Stronger Partial** | Large-log diagnosis is bounded and begins on a complete line after truncation, preventing GUI heap exhaustion and partial-line analysis. Existing incremental live-tailing remains the runner-side mechanism. |
 | 16 | **Verified** | Viewer action wiring is covered by the structural gate; static/structural checks and parser fixtures pass. Full Maven/JUnit remains pending a Java/Maven-enabled runner. |
+
+The **twentieth** batch exposes conservative electronic/geometry result review in the project GUI:
+
+| # | Status after batch 20 | What landed |
+|---:|---|---|
+| 47 | **GUI wired Partial** | **Analyze band gap from QE log** parses only explicit QE occupied/unoccupied or stated gap summaries. It reports the 0.01 eV tolerance, preserves unknown directness unless explicitly stated, and refuses to invent k-resolved/direct-indirect evidence from a text summary. |
+| 39/40 | **GUI wired Partial** | **Preview final geometry** now displays only a validated, converged, coordinate-bearing final optimization step. The preview checks atom-count compatibility with the active project and explicitly performs no input mutation. Transactional coordinate/cell write-back remains fail-closed until a lossless card-rewrite path and rollback test exist. |
+| 16 | **Verified** | Viewer wiring, coordinate-bearing geometry preview, static/structural checks, fixture harness, and whitespace checks pass. Full Maven/JUnit remains pending a Java/Maven-enabled runner. |

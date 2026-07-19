@@ -153,8 +153,9 @@ def main() -> int:
 
     actions = (SRC / "quantumforge/app/project/viewer/ViewerActions.java").read_text(encoding="utf-8")
     if ("actionXcrysden" not in actions or "actionExportWorkflow" not in actions
-            or "actionValidateInput" not in actions or "actionDiagnoseLog" not in actions):
-        error("ViewerActions missing XCrySDen/workflow export/input validation/log diagnosis actions")
+            or "actionValidateInput" not in actions or "actionDiagnoseLog" not in actions
+            or "actionAnalyzeBandGap" not in actions or "actionPreviewFinalGeometry" not in actions):
+        error("ViewerActions missing required export, validation, diagnosis, band-gap, or geometry-preview actions")
     node = (SRC / "quantumforge/run/RunningNode.java").read_text(encoding="utf-8")
     if "DryRunPreflight" not in node or "ArtifactScanner" not in node or "QECommandDag" not in node:
         error("RunningNode is not wired to dry-run/DAG/artifact scanning")
