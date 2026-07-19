@@ -3107,4 +3107,63 @@ class ResultAnalysisServiceTest {
         assertFalse(shortRefused.isSuccess());
         assertTrue(shortRefused.getText().contains("[PDB_SYNTAX]"), shortRefused.getText());
     }
+
+    @Test
+    void testLammpsDataReviewKindStyleGateAndRefusals() throws IOException {
+        File charge = write("charge.data",
+                "silica charge example\n"
+                + "4 atoms\n"
+                + "1 atom types\n"
+                + "0.0 10.0 xlo xhi\n"
+                + "0.0 10.0 ylo yhi\n"
+                + "0.0 10.0 zlo zhi\n"
+                + "Masses\n"
+                + "1 28.0855\n"
+                + "Atoms # charge\n"
+                + "1 1 0.5 1.0 1.0 1.0\n"
+                + "2 1 -0.5 2.0 2.0 2.0\n"
+                + "3 1 0.5 3.0 3.0 3.0\n"
+                + "4 1 -0.5 4.0 4.0 4.0\n"
+                + "Velocities\n"
+                + "1 0.0 0.0 0.0\n"
+                + "2 0.0 0.0 0.0\n"
+                + "3 0.0 0.0 0.0\n"
+                + "4 0.0 0.0 0.0\n");
+        AnalysisReport report = ResultAnalysisService.analyze(
+                AnalysisKind.LAMMPS_DATA_REVIEW, new ProjectProperty(),
+                this.tempDir.toFile(), "si", "si.log", charge,
+                new AnalysisParameters().withSeriesKeyword("CHARGE"));
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains("(title: 'silica charge example')"),
+                report.getText());
+        assertTrue(report.getText().contains("atom_style used: CHARGE"), report.getText());
+        assertTrue(report.getText().contains("Atoms: 4 (matches the declared header"),
+                report.getText());
+        assertTrue(report.getText().contains("Masses (VERBATIM, per type; NO element "
+                + "inference): 1=28.0855"), report.getText());
+        assertTrue(report.getText().contains("Total charge (summed from the rows): 0"),
+                report.getText());
+        assertTrue(report.getText().contains("Atoms outside the box: 0"), report.getText());
+        assertTrue(report.getText().contains("skipped by name (counted, not "
+                + "interpreted): [Velocities]"), report.getText());
+        assertTrue(report.getText().contains("REVIEW only"), report.getText());
+        assertEquals(5, report.getCsvLines().size(), "header + 4 rows");
+        assertEquals("2,-1,1,-0.5,2.000000,2.000000,2.000000", report.getCsvLines().get(2));
+
+        AnalysisReport wrongStyle = ResultAnalysisService.analyze(
+                AnalysisKind.LAMMPS_DATA_REVIEW, new ProjectProperty(),
+                this.tempDir.toFile(), "si", "si.log", charge,
+                new AnalysisParameters().withSeriesKeyword("atomic"));
+        assertFalse(wrongStyle.isSuccess(),
+                "6-column rows under ATOMIC must fail - the style is user's truth");
+        assertTrue(wrongStyle.getText().contains("[LAMMPS_STYLE]"), wrongStyle.getText());
+
+        AnalysisReport unknownStyle = ResultAnalysisService.analyze(
+                AnalysisKind.LAMMPS_DATA_REVIEW, new ProjectProperty(),
+                this.tempDir.toFile(), "si", "si.log", charge,
+                new AnalysisParameters().withSeriesKeyword("hybrid"));
+        assertFalse(unknownStyle.isSuccess(),
+                "styles outside the covered set fail closed, listed");
+        assertTrue(unknownStyle.getText().contains("MOLECULAR"), unknownStyle.getText());
+    }
 }

@@ -43,6 +43,7 @@ import quantumforge.builder.QEDiffusionBarrierLink;
 import quantumforge.builder.SupercellMatrixValidator;
 import quantumforge.builder.QEThermochemistryMath;
 import quantumforge.builder.ExtXyzCellExporter;
+import quantumforge.builder.LammpsDataReader;
 import quantumforge.builder.PdbStructureReader;
 import quantumforge.builder.PoscarStructureReader;
 import quantumforge.builder.QEConstraintSpec;
@@ -234,7 +235,8 @@ public final class ResultAnalysisService {
         SPIN_CUBE_MAGNETIZATION("Spin magnetization from paired up/down CUBE files"),
         ESM_SLAB_CHECK("ESM/slab readiness audit (assume_isolated/esm_bc + vacuum)"),
         MOIRE_TWIST_PREVIEW("Commensurate twist preview (exact hexagonal (m,n) math)"),
-        PDB_REVIEW("PDB structure review (fail-closed, no element guessing)");
+        PDB_REVIEW("PDB structure review (fail-closed, no element guessing)"),
+        LAMMPS_DATA_REVIEW("LAMMPS data-file review (explicit atom_style, no guessing)");
 
         private final String label;
 
@@ -866,6 +868,8 @@ public final class ResultAnalysisService {
             return name.contains("elastic") || name.contains("elate");
         case PDB_REVIEW:
             return name.endsWith(".pdb") || name.endsWith(".ent");
+        case LAMMPS_DATA_REVIEW:
+            return name.endsWith(".data") || name.contains("lammps.data");
         default:
             return false;
         }
@@ -1009,6 +1013,8 @@ public final class ResultAnalysisService {
                 return analyzeElasticElateDraft(source);
             case PDB_REVIEW:
                 return analyzePdbReview(source);
+            case LAMMPS_DATA_REVIEW:
+                return analyzeLammpsDataReview(source, params);
             default:
                 return failure(kind.getLabel(), "This analysis kind is not implemented.");
             }
@@ -5488,6 +5494,110 @@ public final class ResultAnalysisService {
                 + "universal defaults. ecutwfc/ecutrho/k-mesh/smearing choices must come "
                 + "from your convergence workflows (#36/#37/#38) for the specific "
                 + "material; a template cannot certify a result.");
+        return new AnalysisReport(label, true, text.toString(), csv, null);
+    }
+
+    /**
+     * Roadmap #113: fail-closed LAMMPS data review. The atom_style is an
+     * explicit USER parameter - the file never records it - and the review
+     * invents no elements, bonds, or coefficients.
+     */
+    private static AnalysisReport analyzeLammpsDataReview(File source,
+            AnalysisParameters params) {
+        String label = AnalysisKind.LAMMPS_DATA_REVIEW.getLabel();
+        String styleName = (params.getSeriesKeyword() == null
+                ? "" : params.getSeriesKeyword()).trim().toLowerCase(Locale.ROOT);
+        if (styleName.isEmpty()) {
+            styleName = "atomic";
+        }
+        LammpsDataReader.AtomStyle style;
+        try {
+            style = LammpsDataReader.AtomStyle.valueOf(styleName.toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException ex) {
+            return failure(label, "Unsupported atom_style '" + styleName
+                    + "'. The review covers exactly ATOMIC (5 cols), CHARGE (6), "
+                    + "MOLECULAR (6) and FULL (7), each with optional 3 image flags. "
+                    + "Other styles are not parsed rather than misread - the data file "
+                    + "never records its style, so guessing is not an option.");
+        }
+        OperationResult<LammpsDataReader.LammpsData> parsed =
+                LammpsDataReader.parse(source.toPath(), style);
+        if (!parsed.isSuccess() || parsed.getValue().isEmpty()) {
+            return failure(label, "LAMMPS data review refused the file " + source.getName()
+                    + ":\n[" + parsed.getCode() + "] " + parsed.getMessage());
+        }
+        LammpsDataReader.LammpsData data = parsed.getValue().get();
+        StringBuilder text = new StringBuilder();
+        text.append("File: ").append(source.getName());
+        if (!data.getTitle().isEmpty()) {
+            text.append("  (title: '").append(data.getTitle()).append("')");
+        }
+        text.append('\n');
+        text.append(String.format(Locale.ROOT,
+                "atom_style used: %s (YOUR explicit choice - a LAMMPS data file never "
+                        + "records its style)%n", data.getStyle()));
+        text.append(String.format(Locale.ROOT,
+                "Atoms: %d (matches the declared header count - a mismatch would fail "
+                        + "the parse); atom types: %d%n", data.getAtomCount(),
+                data.getTypeCount()));
+        double[] lengths = data.getBoxLengths();
+        text.append(String.format(Locale.ROOT,
+                "Box: lx=%.6f ly=%.6f lz=%.6f%s%n", lengths[0], lengths[1], lengths[2],
+                data.isTilted() ? " (TILTED triclinic via xy/xz/yz)" : ""));
+        Double[] masses = data.getMasses();
+        if (masses == null) {
+            text.append("Masses: ABSENT (set in the input script - verbatim review of "
+                    + "what is here only)\n");
+        } else {
+            StringBuilder massLine = new StringBuilder();
+            for (int i = 0; i < masses.length; i++) {
+                if (i > 0) {
+                    massLine.append(", ");
+                }
+                massLine.append(i + 1).append('=').append(String.format(Locale.ROOT,
+                        "%.8g", masses[i].doubleValue()));
+            }
+            text.append(String.format(Locale.ROOT,
+                    "Masses (VERBATIM, per type; NO element inference): %s%n", massLine));
+        }
+        if (data.getStyle() == LammpsDataReader.AtomStyle.CHARGE
+                || data.getStyle() == LammpsDataReader.AtomStyle.FULL) {
+            double charge = 0.0;
+            for (LammpsDataReader.LammpsAtom atom : data.getAtoms()) {
+                charge += atom.getCharge();
+            }
+            text.append(String.format(Locale.ROOT,
+                    "Total charge (summed from the rows): %.8g e%n", charge));
+        }
+        text.append(String.format(Locale.ROOT,
+                "Atoms outside the box: %d (reported, NEVER wrapped)%n",
+                data.getOutsideBoxCount()));
+        text.append(String.format(Locale.ROOT,
+                "Sections skipped by name (counted, not interpreted): %s%n",
+                data.getSkippedSections().isEmpty() ? "none"
+                        : data.getSkippedSections().toString()));
+        text.append("\nHonesty boundary: REVIEW only - nothing is applied to the live "
+                + "project, no QE input is derived, and no simulation is prepared. Type "
+                + "numbers stay numbers (element mapping is YOUR input-script truth, not "
+                + "guessable); pair/bond/angle coefficients and velocities are skipped "
+                + "verbatim by section name; image flags, when present, are carried but "
+                + "not unwrapped. The full LAMMPS plugin (unit-aware model, potential "
+                + "hashes, runner, thermo) is the remaining #113 work - thermo log "
+                + "review is the separate LAMMPS_THERMO kind.");
+        List<String> csv = new ArrayList<>();
+        csv.add("id,molecule,type,q,x,y,z");
+        int limit = Math.min(data.getAtoms().size(), 20000);
+        for (int i = 0; i < limit; i++) {
+            LammpsDataReader.LammpsAtom atom = data.getAtoms().get(i);
+            csv.add(String.format(Locale.ROOT, "%d,%d,%d,%s,%.6f,%.6f,%.6f",
+                    atom.getId(), atom.getMolecule(), atom.getType(),
+                    Double.isNaN(atom.getCharge()) ? ""
+                            : String.format(Locale.ROOT, "%.6g", atom.getCharge()),
+                    atom.getX(), atom.getY(), atom.getZ()));
+        }
+        if (limit < data.getAtoms().size()) {
+            csv.add("# truncated at 20000 atom rows (cap)");
+        }
         return new AnalysisReport(label, true, text.toString(), csv, null);
     }
 

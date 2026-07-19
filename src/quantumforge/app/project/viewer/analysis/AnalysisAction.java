@@ -572,6 +572,15 @@ public final class AnalysisAction {
             parameters.withDefectCharge(charge);
             break;
         }
+        case LAMMPS_DATA_REVIEW: {
+            String style = askText("LAMMPS atom_style (atomic, charge, molecular, full) - "
+                    + "the data file does NOT record it", "atomic");
+            if (style == null) {
+                return null;
+            }
+            parameters.withSeriesKeyword(style);
+            break;
+        }
         case MOIRE_TWIST_PREVIEW: {
             Integer m = askInteger("Commensurate index m (1-128; swapped with n if n > m)",
                     2);
