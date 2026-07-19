@@ -90,4 +90,35 @@ class QETensorAnalyzerTest {
         assertFalse(QETensorAnalyzer.analyzeElastic(new double[3][3]).isSuccess());
         assertFalse(QETensorAnalyzer.analyzeElastic(null).isSuccess());
     }
+
+    @Test
+    void directionalModulusCollapsesExactlyForIsotropic() {
+        OperationResult<double[][]> compliance =
+                QETensorAnalyzer.complianceMatrix(isotropicCubic());
+        assertTrue(compliance.isSuccess(), compliance.getMessage());
+        double[][] s = compliance.getValue().orElseThrow();
+        // isotropicCubic is E=500, nu=0.25 (Hill anchors), so E(l) = 500 everywhere.
+        for (double[] direction : new double[][] {{1, 0, 0}, {0, 1, 0}, {0, 0, 1},
+                {1, 1, 1}, {0.2, 0.5, 0.8}, {-1.0, 0.3, 0.7}}) {
+            OperationResult<Double> modulus = QETensorAnalyzer.youngsModulusInDirection(
+                    s, direction[0], direction[1], direction[2]);
+            assertTrue(modulus.isSuccess(), modulus.getMessage());
+            assertEquals(500.0, modulus.getValue().orElseThrow(), 1.0e-9,
+                    "Isotropic medium: E is direction-independent");
+        }
+    }
+
+    @Test
+    void directionalModulusRejectsDegenerateInput() {
+        OperationResult<double[][]> compliance =
+                QETensorAnalyzer.complianceMatrix(isotropicCubic());
+        double[][] s = compliance.getValue().orElseThrow();
+        assertFalse(QETensorAnalyzer.youngsModulusInDirection(s, 0.0, 0.0, 0.0).isSuccess(),
+                "A zero direction vector must fail closed");
+        assertFalse(QETensorAnalyzer.complianceMatrix(new double[6][6]).isSuccess(),
+                "An all-zero stiffness cannot produce compliance");
+        double[][] nan = isotropicCubic();
+        nan[0][1] = nan[1][0] = Double.NaN;
+        assertFalse(QETensorAnalyzer.complianceMatrix(nan).isSuccess());
+    }
 }

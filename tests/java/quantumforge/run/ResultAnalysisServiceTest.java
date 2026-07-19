@@ -1566,4 +1566,32 @@ class ResultAnalysisServiceTest {
                 wrongName, new AnalysisParameters());
         assertFalse(nameless.isSuccess(), "Files without the projectwfc naming are refused");
     }
+
+    @Test
+    void testElasticDirectionalIsotropicCollapse() throws IOException {
+        File elastic = write("elastic-directional.out",
+                "  Elastic Constant Matrix (kbar)\n"
+                + "  6000 2000 2000    0    0    0\n"
+                + "  2000 6000 2000    0    0    0\n"
+                + "  2000 2000 6000    0    0    0\n"
+                + "     0    0    0 2000    0    0\n"
+                + "     0    0    0    0 2000    0\n"
+                + "     0    0    0    0    0 2000\n");
+        AnalysisReport report = ResultAnalysisService.analyze(AnalysisKind.ELASTIC_DIRECTIONAL,
+                new ProjectProperty(), this.tempDir.toFile(), "si", "si.log", elastic,
+                new AnalysisParameters());
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains("Sampled directions: 175"), report.getText());
+        // The 10x-isotropic fixture has E = 5000 kbar in every direction.
+        assertTrue(report.getText().contains("E_min = 5000.000000"), report.getText());
+        assertTrue(report.getText().contains("E_max = 5000.000000"), report.getText());
+        assertTrue(report.getText().contains("E_max/E_min = 1.000000"), report.getText());
+        assertEquals(176, report.getCsvLines().size(), "header plus 175 sampled directions");
+        assertTrue(report.getText().contains("15-degree grid density"), report.getText());
+
+        AnalysisReport missing = ResultAnalysisService.analyze(AnalysisKind.ELASTIC_DIRECTIONAL,
+                new ProjectProperty(), this.tempDir.toFile(), "si", "si.log",
+                write("nope-elastic.out", "nothing here\n"), new AnalysisParameters());
+        assertFalse(missing.isSuccess(), "Missing matrix blocks fail closed");
+    }
 }

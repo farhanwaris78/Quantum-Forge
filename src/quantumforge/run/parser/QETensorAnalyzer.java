@@ -189,4 +189,71 @@ public final class QETensorAnalyzer {
         }
         return inverse;
     }
+
+    /**
+     * Returns the 6x6 Voigt engineering compliance tensor S = C^-1 (Roadmap #119
+     * data layer). The stiffness is fully validated (shape, finite, symmetric,
+     * SPD) exactly as in {@link #analyzeElastic} before inversion.
+     */
+    public static OperationResult<double[][]> complianceMatrix(double[][] cij) {
+        OperationResult<ElasticModuli> check = analyzeElastic(cij);
+        if (!check.isSuccess()) {
+            return OperationResult.failed(check.getCode(), check.getMessage(), null);
+        }
+        return OperationResult.success("TENSOR_OK",
+                "Compliance tensor inverted from the SPD stiffness.", invert6(cij));
+    }
+
+    /**
+     * Directional Young's modulus E(l) = 1 / S'11 for a direction l = (l1,l2,l3)
+     * in the tensor's own printed frame, using the engineering-Voigt compliance:
+     * <pre>
+     * S'11 = s11 l1^4 + s22 l2^4 + s33 l3^4
+     *      + (2 s12 + s66) l1^2 l2^2 + (2 s13 + s55) l1^2 l3^2
+     *      + (2 s23 + s44) l2^2 l3^2.
+     * </pre>
+     * The isotropic collapse (E independent of direction) is machine-exact. A
+     * zero direction or a non-positive S'11 (impossible for SPD input but
+     * guarded anyway) fails closed.
+     */
+    public static OperationResult<Double> youngsModulusInDirection(double[][] compliance,
+            double l1, double l2, double l3) {
+        if (compliance == null || compliance.length < 6) {
+            return OperationResult.failed("TENSOR_SHAPE",
+                    "A 6x6 compliance tensor is required.", null);
+        }
+        for (double[] row : compliance) {
+            if (row == null || row.length < 6) {
+                return OperationResult.failed("TENSOR_SHAPE",
+                        "A 6x6 compliance tensor is required.", null);
+            }
+            for (double value : row) {
+                if (!Double.isFinite(value)) {
+                    return OperationResult.failed("TENSOR_NAN",
+                            "Compliance components must be finite numbers.", null);
+                }
+            }
+        }
+        double norm = Math.sqrt(l1 * l1 + l2 * l2 + l3 * l3);
+        if (!(norm > 0.0) || !Double.isFinite(norm)) {
+            return OperationResult.failed("DIRECTION_ZERO",
+                    "The direction vector must be finite and non-zero.", null);
+        }
+        double u1 = l1 / norm;
+        double u2 = l2 / norm;
+        double u3 = l3 / norm;
+        double s = compliance[0][0] * u1 * u1 * u1 * u1
+                + compliance[1][1] * u2 * u2 * u2 * u2
+                + compliance[2][2] * u3 * u3 * u3 * u3
+                + (2.0 * compliance[0][1] + compliance[5][5]) * u1 * u1 * u2 * u2
+                + (2.0 * compliance[0][2] + compliance[4][4]) * u1 * u1 * u3 * u3
+                + (2.0 * compliance[1][2] + compliance[3][3]) * u2 * u2 * u3 * u3;
+        if (!(s > 0.0) || !Double.isFinite(s)) {
+            return OperationResult.failed("DIRECTION_NONPOSITIVE",
+                    "S'11 is non-positive in this direction; the compliance tensor is not "
+                            + "physically invertible here (check the stiffness input).", null);
+        }
+        return OperationResult.success("DIRECTION_OK", "Directional modulus computed.",
+                1.0 / s);
+    }
 }

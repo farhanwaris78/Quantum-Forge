@@ -168,7 +168,8 @@ public final class ResultAnalysisService {
         EXX_GUIDANCE("Exact-exchange (hybrid) k/q grid guidance"),
         BZ_GEOMETRY("Brillouin-zone polyhedron (lattice geometry)"),
         BAND_GAP("Band-gap summary from pw.x log"),
-        DOS_INTEGRATION("Projected DOS integration (projwfc.x)");
+        DOS_INTEGRATION("Projected DOS integration (projwfc.x)"),
+        ELASTIC_DIRECTIONAL("Directional Young\u0027s modulus (elastic tensor)");
 
         private final String label;
 
@@ -562,6 +563,7 @@ public final class ResultAnalysisService {
             return name.contains("pdos") && name.contains("atm#");
         case ELASTIC_STABILITY:
         case ELASTIC_MODULI:
+        case ELASTIC_DIRECTIONAL:
             return name.contains("elastic");
         case LAMMPS_THERMO:
             return name.contains("lammps");
@@ -680,6 +682,8 @@ public final class ResultAnalysisService {
                 return analyzeElastic(property, source);
             case ELASTIC_MODULI:
                 return analyzeElasticModuli(property, source);
+            case ELASTIC_DIRECTIONAL:
+                return analyzeElasticDirectional(property, source);
             case LAMMPS_THERMO:
                 return analyzeLammpsThermo(property, source);
             case XML_SUMMARY:
@@ -3038,6 +3042,92 @@ public final class ResultAnalysisService {
                 + "random aggregate; the Hill mean is an estimator, not a measurement. The "
                 + "tensor is SPD-verified before inversion. Anisotropy A^U is 0 only for an "
                 + "isotropic medium.");
+        return new AnalysisReport(label, true, text.toString(), csv, null);
+    }
+
+    /**
+     * Directional Young's modulus map (Roadmap #119): samples the compliance
+     * tensor on a (theta, phi) grid in the tensor's printed frame and reports
+     * minimum/maximum/mean with their directions, all in the printed units.
+     */
+    private static AnalysisReport analyzeElasticDirectional(ProjectProperty property,
+            File source) throws IOException {
+        String label = AnalysisKind.ELASTIC_DIRECTIONAL.getLabel();
+        long size = Files.size(source.toPath());
+        if (size > 64L * 1024L * 1024L) {
+            return failure(label, source.getName() + " exceeds the 64 MiB parse bound; pass "
+                    + "the thermo_pw file with the 'Elastic Constant Matrix' block.");
+        }
+        String content = Files.readString(source.toPath(), StandardCharsets.UTF_8);
+        if (!content.contains("Elastic Constant Matrix")) {
+            return failure(label, "No 'Elastic Constant Matrix' block exists in "
+                    + source.getName() + ".");
+        }
+        ElasticParser parser = new ElasticParser(property);
+        parser.parse(source);
+        OperationResult<double[][]> complianceResult =
+                QETensorAnalyzer.complianceMatrix(parser.getCij());
+        if (!complianceResult.isSuccess() || complianceResult.getValue().isEmpty()) {
+            return failure(label, "Compliance inversion failed closed: "
+                    + complianceResult.getMessage());
+        }
+        double[][] compliance = complianceResult.getValue().orElseThrow();
+        StringBuilder text = new StringBuilder();
+        text.append("Source: ").append(source.getName()).append('\n');
+        text.append("All values use the tensor's printed units (thermo_pw default kbar; "
+                + "divide by 10 for GPa). Angles are in the tensor's printed frame: "
+                + "theta from the z axis, phi in the xy plane.\n\n");
+        List<String> csv = new ArrayList<>();
+        csv.add("theta_deg,phi_deg,youngs_modulus");
+        double min = Double.POSITIVE_INFINITY;
+        double max = Double.NEGATIVE_INFINITY;
+        double sum = 0.0;
+        int count = 0;
+        double tpMin = 0.0;
+        double ppMin = 0.0;
+        double tpMax = 0.0;
+        double ppMax = 0.0;
+        for (int tp = 0; tp <= 90; tp += 15) {
+            double theta = Math.toRadians(tp);
+            for (int pp = 0; pp <= 360; pp += 15) {
+                double phi = Math.toRadians(pp);
+                double l1 = Math.sin(theta) * Math.cos(phi);
+                double l2 = Math.sin(theta) * Math.sin(phi);
+                double l3 = Math.cos(theta);
+                OperationResult<Double> modulus =
+                        QETensorAnalyzer.youngsModulusInDirection(compliance, l1, l2, l3);
+                if (!modulus.isSuccess() || modulus.getValue().isEmpty()) {
+                    return failure(label, "Directional evaluation failed closed: "
+                            + modulus.getMessage());
+                }
+                double value = modulus.getValue().orElseThrow();
+                csv.add(String.format(Locale.ROOT, "%d,%d,%.8f", tp, pp, value));
+                sum += value;
+                count++;
+                if (value < min) {
+                    min = value;
+                    tpMin = tp;
+                    ppMin = pp;
+                }
+                if (value > max) {
+                    max = value;
+                    tpMax = tp;
+                    ppMax = pp;
+                }
+            }
+        }
+        text.append(String.format(Locale.ROOT,
+                "Sampled directions: %d%n", count));
+        text.append(String.format(Locale.ROOT,
+                "E_min = %.6f at (theta=%d, phi=%d)%n", min, (int) tpMin, (int) ppMin));
+        text.append(String.format(Locale.ROOT,
+                "E_max = %.6f at (theta=%d, phi=%d)%n", max, (int) tpMax, (int) ppMax));
+        text.append(String.format(Locale.ROOT,
+                "Sampled mean = %.6f; anisotropy measure E_max/E_min = %.6f%n",
+                sum / count, max / min));
+        text.append("\nThe sampled extrema bound the true directional extrema only up to the "
+                + "15-degree grid density; refine by exporting the CSV and evaluating finer "
+                + "grids. The full map is in the CSV export.");
         return new AnalysisReport(label, true, text.toString(), csv, null);
     }
 
