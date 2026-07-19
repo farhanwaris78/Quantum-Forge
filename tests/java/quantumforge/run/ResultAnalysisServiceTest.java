@@ -2165,4 +2165,43 @@ class ResultAnalysisServiceTest {
                 new AnalysisParameters().withModeIndex(1).withFrameAmplitudeAng(0.0));
         assertFalse(badAmplitude.isSuccess(), "Zero amplitude must be refused");
     }
+
+    @Test
+    void testHyperfineLookupKindCoverageAndFailClosed() {
+        AnalysisReport lookup = ResultAnalysisService.analyze(AnalysisKind.HYPERFINE_LOOKUP,
+                stubProject(this.tempDir),
+                new AnalysisParameters().withIsotopeLabel("13C"));
+        assertTrue(lookup.isSuccess(), lookup.getText());
+        assertTrue(lookup.getText().contains("gN = 1.404824"), lookup.getText());
+        assertTrue(lookup.getText().contains("A_iso not computed"), lookup.getText());
+        assertTrue(lookup.getText().contains("FERMI CONTACT"), lookup.getText());
+        assertEquals(7, lookup.getCsvLines().size(), "header plus 6 covered isotopes");
+
+        AnalysisReport coupled = ResultAnalysisService.analyze(AnalysisKind.HYPERFINE_LOOKUP,
+                stubProject(this.tempDir),
+                new AnalysisParameters().withIsotopeLabel("13C").withNuclearSpinDensity(2.5));
+        assertTrue(coupled.isSuccess(), coupled.getText());
+        // 44.757237 * 1.404824 * 2.5 = 157.19010... MHz
+        assertTrue(coupled.getText().contains("A_iso = 157.190102 MHz"), coupled.getText());
+        assertEquals(8, coupled.getCsvLines().size(), "coverage rows plus the A_iso row");
+        assertTrue(coupled.getCsvLines().get(7).startsWith("13C_A_ISO_MHZ,157.19010"),
+                coupled.getCsvLines().get(7));
+
+        // A negative spin density on a negative-gN isotope yields a positive coupling.
+        AnalysisReport signed = ResultAnalysisService.analyze(AnalysisKind.HYPERFINE_LOOKUP,
+                stubProject(this.tempDir),
+                new AnalysisParameters().withIsotopeLabel("29Si").withNuclearSpinDensity(-1.2));
+        assertTrue(signed.isSuccess(), signed.getText());
+        // 44.757237 * (-1.11058) * (-1.2) = +59.6477907... MHz
+        assertTrue(signed.getText().contains("A_iso = 59.647791 MHz"), signed.getText());
+
+        AnalysisReport unknown = ResultAnalysisService.analyze(AnalysisKind.HYPERFINE_LOOKUP,
+                stubProject(this.tempDir), new AnalysisParameters().withIsotopeLabel("99Xx"));
+        assertFalse(unknown.isSuccess(), "Uncovered isotopes must fail closed");
+        assertTrue(unknown.getText().contains("13C"), "Covered set must be listed");
+
+        AnalysisReport blank = ResultAnalysisService.analyze(AnalysisKind.HYPERFINE_LOOKUP,
+                stubProject(this.tempDir), new AnalysisParameters().withIsotopeLabel("  "));
+        assertFalse(blank.isSuccess(), "A blank isotope label must fail closed");
+    }
 }

@@ -432,6 +432,18 @@ public final class AnalysisAction {
             parameters.withConstraintSpec(spec).withConstraintMode(mode);
             break;
         }
+        case HYPERFINE_LOOKUP: {
+            String isotope = askText("Isotope label (covered: 1H 13C 14N 15N 29Si 31P)",
+                    "13C");
+            if (isotope == null) {
+                return null;
+            }
+            Double rho = askDouble("GIPAW nuclear spin density rho(0) in a.u.^-3 "
+                    + "(leave empty to only look up gN)", "");
+            parameters.withIsotopeLabel(isotope)
+                    .withNuclearSpinDensity(rho == null ? Double.NaN : rho.doubleValue());
+            break;
+        }
         case PHONON_MODE_FRAMES: {
             Integer mode = askInteger("Mode index as printed in the dynmat file (1-based)",
                     1);

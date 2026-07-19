@@ -24,6 +24,7 @@ import java.util.regex.Pattern;
 
 import quantumforge.app.project.editor.result.geometry.GeometryMeasurer;
 import quantumforge.app.project.viewer.result.special.EffectiveMassTensor;
+import quantumforge.app.project.viewer.result.special.HyperfineMapper;
 import quantumforge.com.math.SymmetricEigen3;
 import quantumforge.atoms.model.Atom;
 import quantumforge.atoms.model.Cell;
@@ -196,7 +197,8 @@ public final class ResultAnalysisService {
         MLP_DATASET_CHECK("ML dataset validation (extXYZ schema/labels/leaks)"),
         ENERGY_SERIES_COMPARE("Energy-series comparison (same grid, eV deltas)"),
         TENSOR_EIGEN("Symmetric 3x3 tensor eigenanalysis"),
-        PHONON_MODE_FRAMES("Phonon mode animation frames (multi-frame XYZ)");
+        PHONON_MODE_FRAMES("Phonon mode animation frames (multi-frame XYZ)"),
+        HYPERFINE_LOOKUP("Hyperfine isotope g-factor + Fermi contact A_iso");
 
         private final String label;
 
@@ -236,7 +238,7 @@ public final class ResultAnalysisService {
                     || this == EXX_GUIDANCE || this == BZ_GEOMETRY || this == METHODS_TEXT
                     || this == RO_CRATE || this == DEFECT_FORMATION || this == ADSORPTION_ENERGY
                     || this == BARRIER_DIFFUSION || this == CONSTRAINTS_PREVIEW
-                    || this == PHONON_MODE_FRAMES;
+                    || this == PHONON_MODE_FRAMES || this == HYPERFINE_LOOKUP;
         }
 
         /** True for project-bound kinds that additionally parse a user data file. */
@@ -990,6 +992,8 @@ public final class ResultAnalysisService {
                 return analyzeForceSetsReview(project, file);
             case PHONON_MODE_FRAMES:
                 return analyzePhononModeFrames(project, file, params);
+            case HYPERFINE_LOOKUP:
+                return analyzeHyperfineLookup(params);
             default:
                 return failure(kind.getLabel(), "This analysis kind is not implemented.");
         }
@@ -3674,6 +3678,69 @@ public final class ResultAnalysisService {
                 + "this dialog only through the explicit save action; animate the saved "
                 + "multi-frame XYZ in an external viewer (XCrySDen, VMD, Ovito).");
         return new AnalysisReport(label, true, text.toString(), csv, frames.getValue().get());
+    }
+
+    /**
+     * Roadmap #166 lookup + calculator: reports the covered nuclear g-factor table
+     * and, only when the user supplies a GIPAW spin density, the Fermi contact
+     * A_iso. Fail-closed for uncovered isotopes - no g-factor is ever invented.
+     */
+    private static AnalysisReport analyzeHyperfineLookup(AnalysisParameters params) {
+        String label = AnalysisKind.HYPERFINE_LOOKUP.getLabel();
+        String isotope = params.getIsotopeLabel() == null
+                ? "" : params.getIsotopeLabel().trim();
+        List<String> covered = HyperfineMapper.coveredIsotopes();
+        List<String> csv = new ArrayList<>();
+        csv.add("isotope,nuclear_g_factor");
+        for (String known : covered) {
+            csv.add(String.format(Locale.ROOT, "%s,%.6f",
+                    csvCell(known), HyperfineMapper.getNuclearGFactor(known)));
+        }
+        if (isotope.isEmpty()) {
+            return failure(label, "Supply an isotope label (e.g. 13C). Covered isotopes: "
+                    + covered + " - anything else is refused rather than silently "
+                    + "assigned a default g-factor.");
+        }
+        double gn = HyperfineMapper.getNuclearGFactor(isotope);
+        if (!Double.isFinite(gn)) {
+            return failure(label, "Isotope \"" + isotope + "\" is not in the covered set "
+                    + covered + ". A g-factor is not invented; extend the CODATA-sourced "
+                    + "table with a reviewed value before using this isotope.");
+        }
+        StringBuilder text = new StringBuilder();
+        text.append(String.format(Locale.ROOT,
+                "Isotope %s: nuclear g-factor gN = %.6f%n", isotope, gn));
+        text.append(String.format(Locale.ROOT,
+                "Covered table (%d isotopes, CODATA-sourced values): %s%n%n",
+                covered.size(), covered));
+        text.append(String.format(Locale.ROOT,
+                "Fermi contact model: A_iso = %.6f * gN * rho(0) MHz, with rho(0) the "
+                        + "nuclear spin density in a.u.^-3 (a0^-3). The compiled constant "
+                        + "embeds (mu0/4pi)*(8pi/3)*ge*muB*muN; treat its last digits as "
+                        + "subject to CODATA revision.%n%n", HyperfineMapper.HYPERFINE_FACTOR_MHZ));
+        if (Double.isFinite(params.getNuclearSpinDensity())) {
+            double aiso;
+            try {
+                aiso = HyperfineMapper.calculateAiso(params.getNuclearSpinDensity(), gn);
+            } catch (IllegalArgumentException ex) {
+                return failure(label, ex.getMessage());
+            }
+            text.append(String.format(Locale.ROOT,
+                    "rho(0) = %.10e a.u.^-3 -> A_iso = %.6f MHz%n", params.getNuclearSpinDensity(),
+                    aiso));
+            csv.add(String.format(Locale.ROOT, "%s_A_ISO_MHZ,%.6f", csvCell(isotope), aiso));
+            text.append("The sign is the product's sign: a negative spin density or negative "
+                    + "gN is reported as-is.\n");
+        } else {
+            text.append("A_iso not computed: no nuclear spin density was supplied -\n"
+                    + "supply the value from your GIPAW run to evaluate the coupling.\n");
+        }
+        text.append("\nHonesty boundary: this is the FERMI CONTACT (isotropic) term only; "
+                + "the anisotropic dipolar tensor is not covered. The spin density must come "
+                + "from your own converged GIPAW calculation - this analysis does not parse "
+                + "GIPAW output and cannot verify the number's provenance. Compare against "
+                + "experiment only with your reference/shift convention stated.");
+        return new AnalysisReport(label, true, text.toString(), csv, null);
     }
 
     /** Ion-insertion voltage profile from a hull CSV; plateaus from hull vertices only. */

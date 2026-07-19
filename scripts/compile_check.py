@@ -339,7 +339,8 @@ def main() -> int:
                   "PhonopyForceSetsReader", "QEPhonopyForceSetsWriter",
                   "TrajectoryIndexReader", "ExtXyzDatasetValidator",
                   "EnergySeriesComparer", "TENSOR_EIGEN",
-                  "PhononFrameSynthesis", "PHONON_MODE_FRAMES"]:
+                  "PhononFrameSynthesis", "PHONON_MODE_FRAMES",
+                  "HyperfineMapper", "HYPERFINE_LOOKUP"]:
         if token not in service:
             error(f"ResultAnalysisService is not bound to {token}")
     for rel in ["quantumforge/com/math/SymmetricEigen3.java",

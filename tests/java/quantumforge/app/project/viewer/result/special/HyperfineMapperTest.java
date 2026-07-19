@@ -17,13 +17,14 @@ class HyperfineMapperTest {
         double psi0sq = 2.5;
 
         // A_iso = 44.757237 * gN * |psi(0)|^2
-        // A_iso = 44.757237 * 1.404824 * 2.5 = 157.20914 MHz
+        // A_iso = 44.757237 * 1.404824 * 2.5 = 157.19010... MHz
         double aiso = HyperfineMapper.calculateAiso(psi0sq, "13C");
-        assertEquals(157.20914, aiso, 1e-3, "Fermi contact isotropic hyperfine coupling must calculate with absolute physical precision");
+        assertEquals(44.757237 * 1.404824 * 2.5, aiso, 1e-9,
+                "Fermi contact isotropic hyperfine coupling must calculate with absolute physical precision");
 
         // Isotope: Silicon-29 (29Si), gN = -1.11058
         double aisoSi = HyperfineMapper.calculateAiso(1.2, "29Si");
-        // A_iso = 44.757237 * (-1.11058) * 1.2 = -59.6469 MHz
-        assertEquals(-59.6469, aisoSi, 1e-3);
+        // A_iso = 44.757237 * (-1.11058) * 1.2 = -59.6477907... MHz
+        assertEquals(44.757237 * (-1.11058) * 1.2, aisoSi, 1e-9);
     }
 }
