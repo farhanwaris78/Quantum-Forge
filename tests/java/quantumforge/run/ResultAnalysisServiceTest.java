@@ -1933,4 +1933,50 @@ class ResultAnalysisServiceTest {
         assertTrue(refused.getText().contains("TRAJ_INCONSISTENT")
                 || refused.getText().contains("fixed-topology"), refused.getText());
     }
+
+    @Test
+    void testMlpDatasetCheckKindSchemaAndLeakReview() throws IOException {
+        String frameA = "2\nLattice=\"10 0 0 0 10 0 0 0 10\" "
+                + "Properties=species:S:1:pos:R:3 energy=-15.5 pbc=\"T T T\"\n"
+                + "Si 0 0 0\nSi 1.35 1.35 1.35\n";
+        File valid = write("dataset.extxyz", frameA);
+        AnalysisReport report = ResultAnalysisService.analyze(AnalysisKind.MLP_DATASET_CHECK,
+                new ProjectProperty(), this.tempDir.toFile(), "si", "si.log", valid,
+                new AnalysisParameters());
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains("Frames: 1; atoms per frame: 2..2"),
+                report.getText());
+        assertTrue(report.getText().contains("Frames with energy/free_energy label: 1 of 1"),
+                report.getText());
+        assertTrue(report.getText().contains("-15.5000000000"), report.getText());
+        assertTrue(report.getText().contains("Properties schema: \"species:S:1:pos:R:3\""),
+                report.getText());
+        assertTrue(report.getText().contains("schema-level validation only"),
+                report.getText());
+
+        File duplicated = write("dataset-dup.extxyz", frameA + frameA);
+        AnalysisReport dup = ResultAnalysisService.analyze(AnalysisKind.MLP_DATASET_CHECK,
+                new ProjectProperty(), this.tempDir.toFile(), "si", "si.log", duplicated,
+                new AnalysisParameters());
+        assertTrue(dup.isSuccess(), dup.getText());
+        assertTrue(dup.getText().contains("Exact-byte duplicate frames: 1"), dup.getText());
+        assertTrue(dup.getText().contains("leakage risk"), dup.getText());
+        assertEquals(2, dup.getCsvLines().size(), "header plus one duplicate pair");
+        assertTrue(dup.getCsvLines().get(1).startsWith("1,2,true"), dup.getCsvLines().get(1));
+
+        File nolabel = write("dataset-nolabel.extxyz",
+                "1\ncomment\nH 0 0 0\n");
+        AnalysisReport warned = ResultAnalysisService.analyze(AnalysisKind.MLP_DATASET_CHECK,
+                new ProjectProperty(), this.tempDir.toFile(), "si", "si.log", nolabel,
+                new AnalysisParameters());
+        assertTrue(warned.isSuccess(), warned.getText());
+        assertTrue(warned.getText().contains("training set"), warned.getText());
+        assertTrue(warned.getText().contains("periodic"), warned.getText());
+
+        File broken = write("dataset-broken.extxyz", "1\ncomment\nH 0 NaN 0\n");
+        AnalysisReport refused = ResultAnalysisService.analyze(AnalysisKind.MLP_DATASET_CHECK,
+                new ProjectProperty(), this.tempDir.toFile(), "si", "si.log", broken,
+                new AnalysisParameters());
+        assertFalse(refused.isSuccess(), "Non-finite coordinates must fail closed");
+    }
 }

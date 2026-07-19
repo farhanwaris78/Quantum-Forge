@@ -87,6 +87,7 @@ import quantumforge.run.parser.QESmearingConvergenceAnalyzer;
 import quantumforge.run.parser.QETimingResourceParser;
 import quantumforge.run.parser.QETensorAnalyzer;
 import quantumforge.run.parser.TrajectoryIndexReader;
+import quantumforge.neural.ExtXyzDatasetValidator;
 import quantumforge.run.parser.ScfConvergenceAnalyzer;
 import quantumforge.run.parser.ScfIterationRecord;
 import quantumforge.symmetry.MagneticSpaceGroupDetector;
@@ -189,7 +190,8 @@ public final class ResultAnalysisService {
         EFFECTIVE_MASS("Effective-mass tensor fit (k,E series)"),
         CONSTRAINTS_PREVIEW("Ionic constraint preview (if_pos flags)"),
         PHONOPY_DATA_REVIEW("phonopy FORCE_SETS review (finite displacements)"),
-        TRAJECTORY_INDEX("XYZ trajectory streaming index (frame offsets)");
+        TRAJECTORY_INDEX("XYZ trajectory streaming index (frame offsets)"),
+        MLP_DATASET_CHECK("ML dataset validation (extXYZ schema/labels/leaks)");
 
         private final String label;
 
@@ -687,6 +689,8 @@ public final class ResultAnalysisService {
         case TRAJECTORY_INDEX:
             return (name.endsWith(".xyz") || name.contains("extxyz"))
                     && !name.contains("force");
+        case MLP_DATASET_CHECK:
+            return name.endsWith(".xyz") || name.contains("extxyz");
         default:
             return false;
         }
@@ -808,6 +812,8 @@ public final class ResultAnalysisService {
                 return analyzeEffectiveMass(source);
             case TRAJECTORY_INDEX:
                 return analyzeTrajectoryIndex(source);
+            case MLP_DATASET_CHECK:
+                return analyzeDatasetCheck(source);
             case SITE_PROFILE_CHECK:
                 return analyzeSiteProfile(source);
             default:
@@ -3880,6 +3886,63 @@ public final class ResultAnalysisService {
                 + "grounds for large-trajectory work (Roadmap #127). Coordinates were not "
                 + "parsed or validated here; windowed, decimated reads and the bounded "
                 + "MD_MSD analysis remain the consuming layers.");
+        return new AnalysisReport(label, true, text.toString(), csv, null);
+    }
+
+    /**
+     * extXYZ ML dataset validation (Roadmap #143 data layer): schema, label
+     * presence, lattice/properties metadata, species coverage, energy range and
+     * exact-byte duplicate (leakage) review through the tested
+     * {@link ExtXyzDatasetValidator}. Force-energy consistency and split hygiene
+     * need a model and are stated as outside this validator.
+     */
+    private static AnalysisReport analyzeDatasetCheck(File source) {
+        String label = AnalysisKind.MLP_DATASET_CHECK.getLabel();
+        OperationResult<ExtXyzDatasetValidator.DatasetReport> validated =
+                ExtXyzDatasetValidator.validate(source.toPath());
+        if (!validated.isSuccess() || validated.getValue().isEmpty()) {
+            return failure(label, "Dataset validation failed closed: " + validated.getMessage());
+        }
+        ExtXyzDatasetValidator.DatasetReport report = validated.getValue().orElseThrow();
+        StringBuilder text = new StringBuilder();
+        text.append("Source: ").append(source.getName()).append('\n');
+        text.append(String.format(Locale.ROOT,
+                "Frames: %d; atoms per frame: %d..%d%n", report.getFrameCount(),
+                report.getMinAtoms(), report.getMaxAtoms()));
+        text.append(String.format(Locale.ROOT,
+                "Frames with energy/free_energy label: %d of %d%n",
+                report.getFramesWithEnergy(), report.getFrameCount()));
+        if (report.getFramesWithEnergy() > 0) {
+            text.append(String.format(Locale.ROOT,
+                    "Energy label range: %.10f .. %.10f (label units - ASE convention: eV)%n",
+                    report.getMinEnergyEv(), report.getMaxEnergyEv()));
+        }
+        text.append(String.format(Locale.ROOT,
+                "Species (%d%s): %s%n", report.getSpecies().size(),
+                report.isSpeciesListComplete() ? "" : "+, list capped",
+                String.join(" ", report.getSpecies())));
+        text.append(String.format(Locale.ROOT,
+                "Frames with a valid 9-number Lattice: %d of %d%n",
+                report.getFramesWithLattice(), report.getFrameCount()));
+        if (!report.getPropertiesSchema().isEmpty()) {
+            text.append("First-frame Properties schema: \"").append(report.getPropertiesSchema())
+                    .append("\"\n");
+        }
+        text.append(String.format(Locale.ROOT, "Exact-byte duplicate frames: %d%n",
+                report.getDuplicateCount()));
+        List<String> csv = new ArrayList<>();
+        csv.add("duplicate_frame_a,duplicate_frame_b,sha256_equal");
+        for (int[] pair : report.getDuplicatePairs()) {
+            csv.add(pair[0] + "," + pair[1] + ",true");
+        }
+        for (String warning : report.getWarnings()) {
+            text.append("WARNING: ").append(warning).append('\n');
+        }
+        text.append("\nHonesty boundary: this is schema-level validation only - force-energy "
+                + "consistency, descriptor distances and split/leakage review require a model "
+                + "and references; energy 'units' are the label's own convention per the ASE "
+                + "extXYZ schema and are never converted here. Files above 64 MiB belong to "
+                + "offline tooling.");
         return new AnalysisReport(label, true, text.toString(), csv, null);
     }
 

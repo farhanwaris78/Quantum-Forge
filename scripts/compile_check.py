@@ -337,13 +337,14 @@ def main() -> int:
                   "QEDiffusionBarrierLink", "EffectiveMassTensor", "SymmetricEigen3",
                   "QEConstraintSpec", "QEIonicConstraintManager",
                   "PhonopyForceSetsReader", "QEPhonopyForceSetsWriter",
-                  "TrajectoryIndexReader"]:
+                  "TrajectoryIndexReader", "ExtXyzDatasetValidator"]:
         if token not in service:
             error(f"ResultAnalysisService is not bound to {token}")
     for rel in ["quantumforge/com/math/SymmetricEigen3.java",
                 "quantumforge/builder/QEConstraintSpec.java",
                 "quantumforge/run/parser/PhonopyForceSetsReader.java",
-                "quantumforge/run/parser/TrajectoryIndexReader.java"]:
+                "quantumforge/run/parser/TrajectoryIndexReader.java",
+                "quantumforge/neural/ExtXyzDatasetValidator.java"]:
         text = (SRC / rel).read_text(encoding="utf-8")
         if "class " not in text:
             error(f"{rel} does not declare a type")
