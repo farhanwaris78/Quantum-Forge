@@ -60,6 +60,15 @@ class QEGridDensityDifferenceTest {
     }
 
     @Test
+    void rejectsMalformedGridInsteadOfCreatingInvalidDensityDifference() {
+        double[][] lattice = Matrix3D.unit(4.0);
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
+                () -> new Grid3D(lattice, 2, 2, 2, new double[2][2][1]));
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
+                () -> QEGridDensityDifference.isCompatible(null, null, -1.0));
+    }
+
+    @Test
     void testIncompatibleGridFailsClosed() {
         double[][] lattice = Matrix3D.unit(4.0);
         double[][] latticeDifferent = Matrix3D.unit(5.0); // mismatched cell size

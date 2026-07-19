@@ -27,14 +27,36 @@ public final class QEGridDensityDifference {
         private final double[][][] values; // 3D grid values
 
         public Grid3D(double[][] lattice, int nx, int ny, int nz, double[][][] values) {
-            this.lattice = Matrix3D.copy(Objects.requireNonNull(lattice, "lattice"));
+            if (nx <= 0 || ny <= 0 || nz <= 0 || values == null || values.length != nx) {
+                throw new IllegalArgumentException("Grid dimensions and value-array shape are invalid");
+            }
+            if (lattice == null || lattice.length != 3) {
+                throw new IllegalArgumentException("Lattice must be a 3 by 3 matrix");
+            }
+            this.lattice = Matrix3D.copy(lattice);
+            for (int row = 0; row < 3; row++) {
+                if (this.lattice[row] == null || this.lattice[row].length != 3) {
+                    throw new IllegalArgumentException("Lattice must be a 3 by 3 matrix");
+                }
+                for (double value : this.lattice[row]) {
+                    if (!Double.isFinite(value)) throw new IllegalArgumentException("Lattice is non-finite");
+                }
+            }
+            if (!(Math.abs(Matrix3D.determinant(this.lattice)) > 1.0e-15)) {
+                throw new IllegalArgumentException("Lattice volume is zero");
+            }
             this.nx = nx;
             this.ny = ny;
             this.nz = nz;
             this.values = new double[nx][ny][nz];
             for (int i = 0; i < nx; i++) {
+                if (values[i] == null || values[i].length != ny) throw new IllegalArgumentException("Grid y shape is invalid");
                 for (int j = 0; j < ny; j++) {
-                    System.arraycopy(values[i][j], 0, this.values[i][j], 0, nz);
+                    if (values[i][j] == null || values[i][j].length != nz) throw new IllegalArgumentException("Grid z shape is invalid");
+                    for (int k = 0; k < nz; k++) {
+                        if (!Double.isFinite(values[i][j][k])) throw new IllegalArgumentException("Grid contains a non-finite density");
+                        this.values[i][j][k] = values[i][j][k];
+                    }
                 }
             }
         }
@@ -73,8 +95,8 @@ public final class QEGridDensityDifference {
                     }
                 }
             }
-            double dV = this.getVolume() / (nx * ny * nz);
-            return sum * dV;
+            double points = (double) nx * (double) ny * (double) nz;
+            return sum * (this.getVolume() / points);
         }
     }
 
@@ -105,6 +127,9 @@ public final class QEGridDensityDifference {
      * Verifies if two 3D grids have compatible dimensions and identical lattices within tolerances.
      */
     public static boolean isCompatible(Grid3D g1, Grid3D g2, double latticeTolerance) {
+        if (!Double.isFinite(latticeTolerance) || latticeTolerance < 0.0) {
+            throw new IllegalArgumentException("latticeTolerance must be finite and non-negative");
+        }
         if (g1 == null || g2 == null) {
             return false;
         }
@@ -145,13 +170,17 @@ public final class QEGridDensityDifference {
 
         double[][][] diffVals = new double[nx][ny][nz];
         double[][][] sysVals = system.getValues();
+        List<double[][][]> componentValues = new ArrayList<>();
+        for (Grid3D component : components) {
+            componentValues.add(component.getValues());
+        }
 
         for (int i = 0; i < nx; i++) {
             for (int j = 0; j < ny; j++) {
                 for (int k = 0; k < nz; k++) {
                     double val = sysVals[i][j][k];
-                    for (Grid3D comp : components) {
-                        val -= comp.getValues()[i][j][k];
+                    for (double[][][] component : componentValues) {
+                        val -= component[i][j][k];
                     }
                     diffVals[i][j][k] = val;
                 }
@@ -161,7 +190,7 @@ public final class QEGridDensityDifference {
         Grid3D diffGrid = new Grid3D(system.getLattice(), nx, ny, nz, diffVals);
         double integral = diffGrid.integrate();
 
-        String msg = String.format("Density difference computed successfully. Net integrated charge difference: %.6f electrons (Charge conservation validation).", integral);
+        String msg = String.format("Density difference computed successfully. Integrated difference: %.6f (electrons only when input density is e/Angstrom^3).", integral);
         return new DiffResult(diffGrid, integral, true, msg);
     }
 }

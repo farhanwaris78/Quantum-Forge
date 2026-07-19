@@ -493,3 +493,10 @@ The **twenty-fourth** batch integrates Raman/IR mode inspection without fabricat
 | 53 | **GUI wired Partial** | **Inspect Raman / IR modes** reads supported engine-mode rows from the project log and displays raw mode frequency, IR intensity, and Raman activity. It does not silently choose broadening, powder/orientation, tensor, or experimental comparison assumptions. |
 | 53/16 | **Stronger** | The Raman/IR parser clears stale data, fails closed for missing files, accepts Fortran `D` notation, and bounds invalid spectrum-grid requests. Regression coverage checks D notation and stale-state reset. |
 | 16 | **Verified** | GUI action wiring, parser regression checks, static/structural checks, and fixtures pass. Full Maven/JUnit remains pending a Java/Maven-enabled runner. |
+
+The **twenty-fifth** batch hardens volumetric density-difference backend safety:
+
+| # | Status after batch 25 | What landed |
+|---:|---|---|
+| 57 | **Stronger Partial** | Grid construction now validates 3×3 finite non-singular lattices, positive dimensions, exact 3D shape, and finite density values. Difference computation validates tolerance, caches component grids instead of cloning them per voxel, avoids grid-count overflow in integration, and no longer labels an integral as electrons unless the density-unit convention supports it. |
+| 57/16 | **Verified** | Added malformed-grid/tolerance regression checks; static/structural checks and fixtures pass. GUI volumetric import/rendering remains unavailable until a streaming CUBE/XSF reader and unit/provenance model are connected. |
