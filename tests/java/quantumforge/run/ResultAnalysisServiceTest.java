@@ -1625,4 +1625,28 @@ class ResultAnalysisServiceTest {
                 "Without an input the report is not a success, though it still renders");
         assertTrue(noInput.getText().contains("no current input"), noInput.getText());
     }
+
+    @Test
+    void testRoCrateKindHashesKnownArtifacts() throws IOException {
+        write("espresso.in", "hello-in\n");
+        write("espresso.log", "hello\n");
+        AnalysisReport report = ResultAnalysisService.analyze(AnalysisKind.RO_CRATE,
+                stubProject(this.tempDir), new AnalysisParameters());
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains("Included entries: 2"), report.getText());
+        assertTrue(report.getText().contains("espresso.in"), report.getText());
+        assertTrue(report.getText().contains("espresso.log"), report.getText());
+        assertTrue(report.getText().contains("sha256=2cf24dba5fb0a30e26e83b2ac5b9e29e"
+                + "1b161e5c1fa7425e73043362938b9824"), report.getText());
+        assertNotNull(report.getGeneratedInput());
+        assertTrue(report.getGeneratedInput().contains("ro/crate/1.1/context"),
+                report.getGeneratedInput());
+        assertTrue(report.getText().contains("Payload packaging"), report.getText());
+
+        // A clean second directory (no input/log/manifest) fails closed.
+        java.nio.file.Path empty = java.nio.file.Files.createTempDirectory("qf-empty");
+        AnalysisReport emptyReport = ResultAnalysisService.analyze(AnalysisKind.RO_CRATE,
+                stubProject(empty), new AnalysisParameters());
+        assertFalse(emptyReport.isSuccess(), "An empty project directory must fail closed");
+    }
 }

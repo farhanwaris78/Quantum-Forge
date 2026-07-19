@@ -31,6 +31,7 @@ import quantumforge.builder.adsorption.MoleculeAdsorber;
 import quantumforge.builder.QEHullThermodynamics;
 import quantumforge.builder.QEPointDefectBuilder;
 import quantumforge.export.MethodsTextBuilder;
+import quantumforge.export.RoCrateExporter;
 import quantumforge.hpc.SiteProfile;
 import quantumforge.hpc.SiteProfileValidator;
 import quantumforge.input.QEExxPlanner;
@@ -171,7 +172,8 @@ public final class ResultAnalysisService {
         BAND_GAP("Band-gap summary from pw.x log"),
         DOS_INTEGRATION("Projected DOS integration (projwfc.x)"),
         ELASTIC_DIRECTIONAL("Directional Young\u0027s modulus (elastic tensor)"),
-        METHODS_TEXT("Methods-section draft (input transcription)");
+        METHODS_TEXT("Methods-section draft (input transcription)"),
+        RO_CRATE("RO-Crate metadata draft (artifact checksums)");
 
         private final String label;
 
@@ -208,7 +210,8 @@ public final class ResultAnalysisService {
                     || this == GEOMETRY_CONVERGENCE || this == PSEUDO_FAMILY || this == SYMMETRY_KPATH
                     || this == INPUT_DIFF || this == KMESH_QUALITY || this == DEFECT_PREVIEW
                     || this == SERIES_PLAN || this == ADSORPTION_PREVIEW || this == ML_MODEL_CHECK
-                    || this == EXX_GUIDANCE || this == BZ_GEOMETRY || this == METHODS_TEXT;
+                    || this == EXX_GUIDANCE || this == BZ_GEOMETRY || this == METHODS_TEXT
+                    || this == RO_CRATE;
         }
 
         /** True for project-bound kinds that additionally parse a user data file. */
@@ -815,6 +818,8 @@ public final class ResultAnalysisService {
                 return analyzeBzGeometry(project);
             case METHODS_TEXT:
                 return analyzeMethodsText(project);
+            case RO_CRATE:
+                return analyzeRoCrate(project);
             default:
                 return failure(kind.getLabel(), "This analysis kind is not implemented.");
         }
@@ -3879,5 +3884,54 @@ public final class ResultAnalysisService {
         text.append(draft.getText());
         return new AnalysisReport(label, input != null, text.toString(), List.of(),
                 draft.getText());
+    }
+
+    /**
+     * RO-Crate metadata draft (Roadmap #135, partial): hashes the project's own
+     * artifacts (input copy, log, run manifest) under the 64 MiB bound and
+     * composes a deterministic JSON-LD skeleton. Payload packaging is explicit
+     * future work; saving the draft is an explicit user action.
+     */
+    private static AnalysisReport analyzeRoCrate(Project project) {
+        String label = AnalysisKind.RO_CRATE.getLabel();
+        File directory = project.getDirectory();
+        if (directory == null) {
+            return failure(label, "The project has no on-disk directory to describe.");
+        }
+        List<Path> candidates = new ArrayList<>();
+        String[] names = {project.getInpFileName(null), project.getLogFileName(null),
+                RunManifest.FILE_NAME};
+        for (String name : names) {
+            if (name == null || name.isBlank()) {
+                continue;
+            }
+            Path candidate = directory.toPath().resolve(name);
+            if (Files.isRegularFile(candidate)) {
+                candidates.add(candidate);
+            }
+        }
+        if (candidates.isEmpty()) {
+            return failure(label, "No project artifacts were found to describe (looked for "
+                    + "the input file, the log file, and " + RunManifest.FILE_NAME + ").");
+        }
+        RoCrateExporter.CrateDraft crate = RoCrateExporter.build(
+                project.getPrefixName(), directory.toPath(), candidates);
+        StringBuilder text = new StringBuilder();
+        text.append("Artifacts scanned in: ").append(directory.getAbsolutePath()).append('\n');
+        text.append("Included entries: ").append(crate.getEntries().size())
+                .append("; skipped: ").append(crate.getSkipped().size()).append("\n\n");
+        for (RoCrateExporter.CrateEntry entry : crate.getEntries()) {
+            text.append(String.format(Locale.ROOT, "  %-40s %10d bytes  sha256=%s%n",
+                    entry.getRelativePath(), entry.getBytes(), entry.getSha256()));
+        }
+        for (String skipped : crate.getSkipped()) {
+            text.append("  SKIPPED: ").append(skipped).append('\n');
+        }
+        text.append("\nThe JSON-LD draft below (explicitly savable) carries checksums of the "
+                + "artifacts as they exist now; re-running a calculation invalidates them. "
+                + "Payload packaging, licence metadata and author records are not automated "
+                + "here (Roadmap #135 remainder).");
+        return new AnalysisReport(label, !crate.getEntries().isEmpty(), text.toString(),
+                List.of(), crate.getJson());
     }
 }
