@@ -32,6 +32,7 @@ import quantumforge.builder.QEHullThermodynamics;
 import quantumforge.builder.QEPointDefectBuilder;
 import quantumforge.hpc.SiteProfile;
 import quantumforge.hpc.SiteProfileValidator;
+import quantumforge.input.QEExxPlanner;
 import quantumforge.neural.MlModelManifest;
 import quantumforge.input.QEInput;
 import quantumforge.input.QEInputDiffPreview;
@@ -160,7 +161,8 @@ public final class ResultAnalysisService {
         VOLTAGE_PROFILE("Battery voltage profile from hull CSV"),
         ADSORPTION_PREVIEW("Molecule adsorption preview (site/collision check)"),
         SITE_PROFILE_CHECK("HPC site profile validation (scheduler/container)"),
-        ML_MODEL_CHECK("ML potential model-manifest validation");
+        ML_MODEL_CHECK("ML potential model-manifest validation"),
+        EXX_GUIDANCE("Exact-exchange (hybrid) k/q grid guidance");
 
         private final String label;
 
@@ -196,7 +198,8 @@ public final class ResultAnalysisService {
                     || this == CITATIONS || this == BERRY_POLARIZATION
                     || this == GEOMETRY_CONVERGENCE || this == PSEUDO_FAMILY || this == SYMMETRY_KPATH
                     || this == INPUT_DIFF || this == KMESH_QUALITY || this == DEFECT_PREVIEW
-                    || this == SERIES_PLAN || this == ADSORPTION_PREVIEW || this == ML_MODEL_CHECK;
+                    || this == SERIES_PLAN || this == ADSORPTION_PREVIEW || this == ML_MODEL_CHECK
+                    || this == EXX_GUIDANCE;
         }
 
         /** True for project-bound kinds that additionally parse a user data file. */
@@ -237,6 +240,9 @@ public final class ResultAnalysisService {
         private double adsorbHeight = 2.0;
         private double adsorbX = 0.5;
         private double adsorbY = 0.5;
+        private int exxNq1 = 0; // 0 means "must be supplied explicitly"
+        private int exxNq2 = 0;
+        private int exxNq3 = 0;
 
         public double getFermiEv() { return this.fermiEv; }
         public int getKpointIndex() { return this.kpointIndex; }
@@ -268,6 +274,9 @@ public final class ResultAnalysisService {
         public double getAdsorbHeight() { return this.adsorbHeight; }
         public double getAdsorbX() { return this.adsorbX; }
         public double getAdsorbY() { return this.adsorbY; }
+        public int getExxNq1() { return this.exxNq1; }
+        public int getExxNq2() { return this.exxNq2; }
+        public int getExxNq3() { return this.exxNq3; }
 
         public AnalysisParameters withFermiEv(double value) { this.fermiEv = value; return this; }
         public AnalysisParameters withKpointIndex(int value) { this.kpointIndex = value; return this; }
@@ -357,6 +366,12 @@ public final class ResultAnalysisService {
         }
         public AnalysisParameters withAdsorbY(double value) {
             this.adsorbY = value;
+            return this;
+        }
+        public AnalysisParameters withExxNqGrid(int q1, int q2, int q3) {
+            this.exxNq1 = q1;
+            this.exxNq2 = q2;
+            this.exxNq3 = q3;
             return this;
         }
     }
@@ -775,6 +790,8 @@ public final class ResultAnalysisService {
                 return analyzeAdsorptionPreview(project, params);
             case ML_MODEL_CHECK:
                 return analyzeMlModel(project, file);
+            case EXX_GUIDANCE:
+                return analyzeExxGuidance(project, params);
             default:
                 return failure(kind.getLabel(), "This analysis kind is not implemented.");
         }
@@ -3495,5 +3512,66 @@ public final class ResultAnalysisService {
                 + "inference was run.");
         boolean success = check.isUsable() && domainOk;
         return new AnalysisReport(label, success, text.toString(), csv, null);
+    }
+
+    /**
+     * EXX/hybrid guidance (Roadmap #70): validates the user-proposed Fock q grid
+     * against the current input's automatic k mesh. Physics namelist choices are
+     * never guessed; the only quantitative output is the pre-symmetry pair count.
+     */
+    private static AnalysisReport analyzeExxGuidance(Project project,
+            AnalysisParameters params) {
+        String label = AnalysisKind.EXX_GUIDANCE.getLabel();
+        QEContext context = requireInputAndCell(project, label);
+        if (context.failure != null) {
+            return context.failure;
+        }
+        QEKPoints kpoints = context.input.getCard(QEKPoints.class);
+        if (kpoints == null) {
+            return failure(label, "The current input has no K_POINTS card to check against.");
+        }
+        if (kpoints.isGamma() || !kpoints.isAutomatic()) {
+            return failure(label, "EXX q-grid guidance requires an automatic k mesh; the "
+                    + "input is " + (kpoints.isGamma() ? "Gamma-only" : "an explicit k-point "
+                            + "list") + ", for which no grid statement can be made.");
+        }
+        int[] kGrid = kpoints.getKGrid();
+        int nq1 = params.getExxNq1();
+        int nq2 = params.getExxNq2();
+        int nq3 = params.getExxNq3();
+
+        QEExxPlanner.ExxGuidance guidance = QEExxPlanner.plan(
+                kGrid[0], kGrid[1], kGrid[2], nq1, nq2, nq3);
+        StringBuilder text = new StringBuilder();
+        text.append(String.format(Locale.ROOT,
+                "Current automatic k mesh: %d %d %d  (offset %d %d %d)%n",
+                kGrid[0], kGrid[1], kGrid[2], kpoints.getKOffset()[0],
+                kpoints.getKOffset()[1], kpoints.getKOffset()[2]));
+        text.append(String.format(Locale.ROOT, "Proposed Fock q mesh: %d %d %d%n%n",
+                nq1, nq2, nq3));
+        List<String> csv = new ArrayList<>();
+        csv.add("axis,n_k,n_q,divides");
+        for (int axis = 0; axis < 3; axis++) {
+            int nqAxis = axis == 0 ? nq1 : axis == 1 ? nq2 : nq3;
+            boolean divides = nqAxis >= 1 && nqAxis <= kGrid[axis]
+                    && kGrid[axis] % nqAxis == 0;
+            csv.add(String.format(Locale.ROOT, "%d,%d,%d,%s", axis + 1, kGrid[axis],
+                    nqAxis, divides));
+        }
+        if (guidance.getKqPairCount() > 0L) {
+            text.append(String.format(Locale.ROOT,
+                    "k/q pair count before symmetry reduction: %d%n%n",
+                    guidance.getKqPairCount()));
+        }
+        for (ValidationIssue issue : guidance.getIssues()) {
+            text.append(issue).append('\n');
+            if (!issue.getDocumentationUrl().isEmpty()) {
+                text.append("  ").append(issue.getDocumentationUrl()).append('\n');
+            }
+        }
+        text.append("\nThis guidance validates grid compatibility only. It does not start a "
+                + "hybrid calculation, does not estimate wall time from a universal factor, "
+                + "and leaves input_dft/ecutfock/exxdiv_treatment as explicit physics choices.");
+        return new AnalysisReport(label, guidance.isUsable(), text.toString(), csv, null);
     }
 }

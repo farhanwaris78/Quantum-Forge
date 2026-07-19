@@ -315,6 +315,22 @@ public final class AnalysisAction {
                     .withSeriesCount(count);
             break;
         }
+        case EXX_GUIDANCE: {
+            Integer nq1 = askInteger("Fock q-grid nq1 (must divide nk1)", 1);
+            if (nq1 == null) {
+                return null;
+            }
+            Integer nq2 = askInteger("Fock q-grid nq2 (must divide nk2)", 1);
+            if (nq2 == null) {
+                return null;
+            }
+            Integer nq3 = askInteger("Fock q-grid nq3 (must divide nk3)", 1);
+            if (nq3 == null) {
+                return null;
+            }
+            parameters.withExxNqGrid(nq1, nq2, nq3);
+            break;
+        }
         case DEFECT_PREVIEW: {
             String type = askText("Defect type: 'vacancy' or 'substitution'", "vacancy");
             if (type == null) {

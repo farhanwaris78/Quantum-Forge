@@ -1437,4 +1437,47 @@ class ResultAnalysisServiceTest {
         assertFalse(noFile.getProvenanceLines().toString().contains("source:"),
                 "Nothing may be claimed when no manifest was read");
     }
+
+    @Test
+    void testExxGuidanceKindValidationPaths() {
+        Cell cell = new Cell(quantumforge.com.math.Matrix3D.unit(10.0));
+        cell.addAtom("Si", 0.0, 0.0, 0.0);
+
+        QESCFInput automatic = new QESCFInput();
+        QEKPoints points = automatic.getCard(QEKPoints.class);
+        points.setAutomatic();
+        points.setKGrid(new int[] {8, 8, 8});
+        points.setKOffset(new int[] {0, 0, 0});
+
+        AnalysisReport ok = ResultAnalysisService.analyze(AnalysisKind.EXX_GUIDANCE,
+                stubProjectWithInput(this.tempDir, automatic, cell),
+                new AnalysisParameters().withExxNqGrid(2, 2, 2));
+        assertTrue(ok.isSuccess(), ok.getText());
+        assertTrue(ok.getText().contains("Current automatic k mesh: 8 8 8"), ok.getText());
+        assertTrue(ok.getText().contains("pair count before symmetry reduction: 4096"),
+                ok.getText());
+        assertTrue(ok.getText().contains("does not start a hybrid calculation"), ok.getText());
+        assertEquals(4, ok.getCsvLines().size(), "header plus three axes");
+
+        AnalysisReport notDivisor = ResultAnalysisService.analyze(AnalysisKind.EXX_GUIDANCE,
+                stubProjectWithInput(this.tempDir, automatic, cell),
+                new AnalysisParameters().withExxNqGrid(3, 3, 3));
+        assertFalse(notDivisor.isSuccess(), "nq=3 does not divide nk=8 and must block");
+        assertTrue(notDivisor.getText().contains("EXX_NQ_NOT_DIVISOR"), notDivisor.getText());
+
+        AnalysisReport zero = ResultAnalysisService.analyze(AnalysisKind.EXX_GUIDANCE,
+                stubProjectWithInput(this.tempDir, automatic, cell),
+                new AnalysisParameters().withExxNqGrid(0, 2, 2));
+        assertFalse(zero.isSuccess(), "nq=0 must fail closed");
+        assertTrue(zero.getText().contains("EXX_NQ_INVALID"), zero.getText());
+
+        QESCFInput gamma = new QESCFInput();
+        gamma.getCard(QEKPoints.class).setGamma();
+        AnalysisReport gammaReport = ResultAnalysisService.analyze(AnalysisKind.EXX_GUIDANCE,
+                stubProjectWithInput(this.tempDir, gamma, cell),
+                new AnalysisParameters().withExxNqGrid(1, 1, 1));
+        assertFalse(gammaReport.isSuccess(),
+                "Gamma-only inputs get an honest no-grid statement, not advice");
+        assertTrue(gammaReport.getText().contains("Gamma-only"), gammaReport.getText());
+    }
 }

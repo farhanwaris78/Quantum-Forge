@@ -313,6 +313,13 @@ def main() -> int:
     for token in ["MlModelManifest"]:
         if token not in service:
             error(f"ResultAnalysisService is not bound to {token}")
+    for token in ["QEExxPlanner"]:
+        if token not in service:
+            error(f"ResultAnalysisService is not bound to {token}")
+    rel = "quantumforge/input/QEExxPlanner.java"
+    text = (SRC / rel).read_text(encoding="utf-8")
+    if "class " not in text:
+        error(f"{rel} does not declare a type")
     for rel in ["quantumforge/neural/MlModelManifest.java",
                 "quantumforge/neural/MLPotentialService.java"]:
         text = (SRC / rel).read_text(encoding="utf-8")
