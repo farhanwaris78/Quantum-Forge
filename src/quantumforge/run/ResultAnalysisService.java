@@ -210,7 +210,8 @@ public final class ResultAnalysisService {
         ARRAY_SWEEP_PLAN("Scheduler array sweep manifest (JSONL + sbatch preview)"),
         CELL_EXTXYZ_EXPORT("Extended-XYZ export of the live cell (geometry only)"),
         RAMAN_IR_SPECTRUM("Powder IR/Raman spectrum (Lorentzian broadening)"),
-        TRAJECTORY_WINDOW_SCAN("Trajectory window scan (bbox/centroid per sampled frame)");
+        TRAJECTORY_WINDOW_SCAN("Trajectory window scan (bbox/centroid per sampled frame)"),
+        TENSOR_DIRECTIONAL("Tensor directional surface n^T.T.n (eigen basis)");
 
         private final String label;
 
@@ -793,6 +794,8 @@ public final class ResultAnalysisService {
         case TRAJECTORY_WINDOW_SCAN:
             return (name.endsWith(".xyz") || name.contains("extxyz"))
                     && !name.contains("force");
+        case TENSOR_DIRECTIONAL:
+            return name.contains("tensor") || name.contains("direction");
         case PHONON_MODE_FRAMES:
             return name.contains("dynmat") || name.contains("modes");
         default:
@@ -922,6 +925,8 @@ public final class ResultAnalysisService {
                 return analyzeSeriesCompare(source);
             case TENSOR_EIGEN:
                 return analyzeTensorEigen(source);
+            case TENSOR_DIRECTIONAL:
+                return analyzeTensorDirectional(source);
             case RAMAN_IR_SPECTRUM:
                 return analyzeRamanIrSpectrum(property, source, params);
             case TRAJECTORY_WINDOW_SCAN:
@@ -4805,6 +4810,157 @@ public final class ResultAnalysisService {
                 + "reported at this layer (Roadmap #125 viewer work).");
         text.append(String.format(Locale.ROOT, "Jacobi converged in %d sweep(s).",
                 eigen.getSweeps()));
+        return new AnalysisReport(label, true, text.toString(), csv, null);
+    }
+
+    /**
+     * Roadmap #125 directional layer: eigen-pairs plus the quadratic-form
+     * directional surface n^T.T.n on a fixed 15-degree grid, with residual and
+     * orthonormality self-checks that fail closed.
+     */
+    private static AnalysisReport analyzeTensorDirectional(File source) throws IOException {
+        String label = AnalysisKind.TENSOR_DIRECTIONAL.getLabel();
+        long size = Files.size(source.toPath());
+        if (size > 64L * 1024L * 1024L) {
+            return failure(label, source.getName() + " exceeds the 64 MiB parse bound.");
+        }
+        List<String> lines = Files.readAllLines(source.toPath(), StandardCharsets.UTF_8);
+        double[][] matrix = new double[3][3];
+        int rowsRead = 0;
+        for (String line : lines) {
+            if (rowsRead >= 3) {
+                break;
+            }
+            String trimmed = line.trim();
+            if (trimmed.isEmpty()) {
+                continue;
+            }
+            String[] cells = trimmed.split("[,\\s]+");
+            if (cells.length < 3) {
+                return failure(label, "Line \"" + trimmed + "\" has fewer than 3 numeric "
+                        + "values; the contract is the 3x3 matrix rows, three per line.");
+            }
+            for (int col = 0; col < 3; col++) {
+                try {
+                    matrix[rowsRead][col] = Double.parseDouble(normalizeExponent(cells[col]));
+                } catch (NumberFormatException ex) {
+                    return failure(label, "Non-numeric value \"" + cells[col]
+                            + "\" in matrix row " + (rowsRead + 1) + ".");
+                }
+                if (!Double.isFinite(matrix[rowsRead][col])) {
+                    return failure(label, "Non-finite value \"" + cells[col]
+                            + "\" in matrix row " + (rowsRead + 1) + ".");
+                }
+            }
+            rowsRead++;
+        }
+        if (rowsRead < 3) {
+            return failure(label, "Only " + rowsRead + " matrix row(s) were found; three "
+                    + "numeric rows (the first three non-blank lines) are required.");
+        }
+        SymmetricEigen3.EigenDecomposition eigen;
+        try {
+            eigen = SymmetricEigen3.eigenvectors(matrix);
+        } catch (IllegalArgumentException ex) {
+            return failure(label, "Tensor refused: " + ex.getMessage()
+                    + " (an asymmetric tensor has no real eigenbasis; this analysis covers "
+                    + "symmetric tensors only).");
+        }
+        if (!eigen.isConverged()) {
+            return failure(label, "The Jacobi eigen decomposition did not converge within "
+                    + "the sweep budget; not reporting suspicious eigensystem.");
+        }
+        double[] values = eigen.getEigenvalues();
+        double[][] vectors = eigen.getEigenvectors();
+        double scale = Math.max(1.0, Math.abs(values[2]));
+        double tolerance = 1.0e-9 * scale;
+        // Self-check: residuals and orthonormality must pass before any report.
+        double maxResidual = 0.0;
+        double maxOrtho = 0.0;
+        for (int i = 0; i < 3; i++) {
+            for (int k = 0; k < 3; k++) {
+                double av = matrix[k][0] * vectors[i][0] + matrix[k][1] * vectors[i][1]
+                        + matrix[k][2] * vectors[i][2];
+                maxResidual = Math.max(maxResidual,
+                        Math.abs(av - values[i] * vectors[i][k]));
+            }
+            for (int j = 0; j < 3; j++) {
+                double dot = vectors[i][0] * vectors[j][0] + vectors[i][1] * vectors[j][1]
+                        + vectors[i][2] * vectors[j][2];
+                maxOrtho = Math.max(maxOrtho, Math.abs(dot - (i == j ? 1.0 : 0.0)));
+            }
+        }
+        if (maxResidual > tolerance || maxOrtho > tolerance) {
+            return failure(label, String.format(Locale.ROOT,
+                    "Internal self-check failed: residual %.3e, orthonormality %.3e "
+                            + "(tolerance %.3e); refusing to display an unreliable "
+                            + "eigenbasis.", maxResidual, maxOrtho, tolerance));
+        }
+        StringBuilder text = new StringBuilder();
+        text.append("Source: ").append(source.getName()).append('\n');
+        text.append(String.format(Locale.ROOT,
+                "Self-check: residual %.3e, orthonormality %.3e (tolerance %.3e)%n%n",
+                maxResidual, maxOrtho, tolerance));
+        text.append(String.format(Locale.ROOT,
+                " %-8s %-16s %-34s%n", "eigenvalue", "value", "principal direction"));
+        for (int i = 0; i < 3; i++) {
+            text.append(String.format(Locale.ROOT, " %-8d %-16.10e (% .8f, % .8f, % .8f)%n",
+                    i + 1, values[i], vectors[i][0], vectors[i][1], vectors[i][2]));
+        }
+        // Directional surface on a fixed 15-degree grid (13 x 24 = 312 samples).
+        List<String> csv = new ArrayList<>();
+        csv.add("azimuth_deg,polar_deg,directional_value");
+        double gridMin = Double.POSITIVE_INFINITY;
+        double gridMax = Double.NEGATIVE_INFINITY;
+        double gridMinAz = 0.0;
+        double gridMinPol = 0.0;
+        double gridMaxAz = 0.0;
+        double gridMaxPol = 0.0;
+        for (int ip = 0; ip <= 12; ip++) {
+            double polar = Math.toRadians(15.0 * ip);
+            for (int ia = 0; ia < 24; ia++) {
+                double azimuth = Math.toRadians(15.0 * ia);
+                double nx = Math.sin(polar) * Math.cos(azimuth);
+                double ny = Math.sin(polar) * Math.sin(azimuth);
+                double nz = Math.cos(polar);
+                double value = nx * (matrix[0][0] * nx + matrix[0][1] * ny
+                        + matrix[0][2] * nz)
+                        + ny * (matrix[1][0] * nx + matrix[1][1] * ny + matrix[1][2] * nz)
+                        + nz * (matrix[2][0] * nx + matrix[2][1] * ny + matrix[2][2] * nz);
+                if (value < gridMin) {
+                    gridMin = value;
+                    gridMinAz = 15.0 * ia;
+                    gridMinPol = 15.0 * ip;
+                }
+                if (value > gridMax) {
+                    gridMax = value;
+                    gridMaxAz = 15.0 * ia;
+                    gridMaxPol = 15.0 * ip;
+                }
+                csv.add(String.format(Locale.ROOT, "%.1f,%.1f,%.10e", 15.0 * ia, 15.0 * ip,
+                        value));
+            }
+        }
+        // Consistency: sampled values must stay inside the eigen-bounds.
+        if (gridMin < values[0] - tolerance || gridMax > values[2] + tolerance) {
+            return failure(label, String.format(Locale.ROOT,
+                    "Sampled directional values escaped the eigen-bounds (grid %.6e..%.6e "
+                            + "vs eigen %.6e..%.6e); internal error.", gridMin, gridMax,
+                    values[0], values[2]));
+        }
+        text.append(String.format(Locale.ROOT,
+                "%nDirectional grid (15 deg, %d samples): min %.10e at (az %.1f, pol %.1f); "
+                        + "max %.10e at (az %.1f, pol %.1f)%n", csv.size() - 1, gridMin,
+                gridMinAz, gridMinPol, gridMax, gridMaxAz, gridMaxPol));
+        text.append(String.format(Locale.ROOT,
+                "Eigen-bounds for reference: [%.10e, %.10e]; grid min/max approach them "
+                        + "at 15-degree resolution.%n", values[0], values[2]));
+        text.append("\nHonesty boundary: this is the quadratic-form directional surface "
+                + "n^T.T.n of a rank-2 symmetric tensor only - rank-4 elastic surfaces "
+                + "(anisotropic stiffness evaluation, #119 ELATE) are NOT covered. "
+                + "Eigenvector signs are gauge (canonical display sign applied); the "
+                + "surface itself is sign-invariant. Units and physical meaning come from "
+                + "the source you selected; no interpretation is attached at this layer.");
         return new AnalysisReport(label, true, text.toString(), csv, null);
     }
 

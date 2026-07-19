@@ -72,4 +72,55 @@ class SymmetricEigen3Test {
         assertThrows(IllegalArgumentException.class, () -> SymmetricEigen3.eigenvalues(
                 new double[][] {{1, 0.5, 0}, {0.5001, 1, 0}, {0, 0, 1}}));
     }
+
+    @Test
+    void testEigenvectorsReconstructRotatedTensor() {
+        // A = R diag(0.125, 0.25, 0.5) R^T with R = 30-degree rotation about z.
+        double c = Math.cos(Math.toRadians(30.0));
+        double s = Math.sin(Math.toRadians(30.0));
+        double[][] r = {{c, -s, 0.0}, {s, c, 0.0}, {0.0, 0.0, 1.0}};
+        double[] d = {0.125, 0.25, 0.5};
+        double[][] a = new double[3][3];
+        for (int i = 0; i < 3; i++) {
+            for (int j = 0; j < 3; j++) {
+                for (int k = 0; k < 3; k++) {
+                    a[i][j] += r[i][k] * d[k] * r[j][k];
+                }
+            }
+        }
+        SymmetricEigen3.EigenDecomposition eigen = SymmetricEigen3.eigenvectors(a);
+        assertTrue(eigen.isConverged());
+        double[] values = eigen.getEigenvalues();
+        double[][] vectors = eigen.getEigenvectors();
+        assertEquals(0.125, values[0], 1.0e-14);
+        assertEquals(0.25, values[1], 1.0e-14);
+        assertEquals(0.5, values[2], 1.0e-14);
+        // Canonical-sign principal directions: (c,s,0), (-s,c,0), (0,0,1).
+        assertEquals(c, vectors[0][0], 1.0e-12, "eigenvector 1 x");
+        assertEquals(s, vectors[0][1], 1.0e-12, "eigenvector 1 y");
+        assertEquals(-s, vectors[1][0], 1.0e-12, "eigenvector 2 x");
+        assertEquals(c, vectors[1][1], 1.0e-12, "eigenvector 2 y");
+        assertEquals(1.0, vectors[2][2], 1.0e-12, "eigenvector 3 z");
+        // Residual and orthonormality checks.
+        for (int i = 0; i < 3; i++) {
+            double norm = 0.0;
+            for (int k = 0; k < 3; k++) {
+                norm += vectors[i][k] * vectors[i][k];
+                double av = 0.0;
+                for (int j = 0; j < 3; j++) {
+                    av += a[k][j] * vectors[i][j];
+                }
+                assertEquals(values[i] * vectors[i][k], av, 1.0e-12,
+                        "A*v must equal lambda*v");
+            }
+            assertEquals(1.0, norm, 1.0e-12, "eigenvectors are unit vectors");
+        }
+        // Diagonal input recovers the identity basis in ascending order.
+        SymmetricEigen3.EigenDecomposition diag = SymmetricEigen3.eigenvectors(
+                new double[][] {{5.0, 0, 0}, {0, 2.0, 0}, {0, 0, 8.0}});
+        assertEquals(2.0, diag.getEigenvalues()[0], 1.0e-14);
+        assertEquals(1.0, diag.getEigenvectors()[0][1], 1.0e-14);
+        assertThrows(IllegalArgumentException.class, () -> SymmetricEigen3.eigenvectors(
+                new double[][] {{1, 0.5, 0}, {0.5001, 1, 0}, {0, 0, 1}}));
+    }
 }

@@ -2438,4 +2438,51 @@ class ResultAnalysisServiceTest {
                 new AnalysisParameters().withWindowStartFrame(9));
         assertFalse(badStart.isSuccess(), "A start past the last frame must fail closed");
     }
+
+    @Test
+    void testTensorDirectionalKindEigenBasisAndGrid() throws IOException {
+        File diag = write("diag-tensor.dat", "2 0 0\n0 5 0\n0 0 8\n");
+        AnalysisReport report = ResultAnalysisService.analyze(
+                AnalysisKind.TENSOR_DIRECTIONAL, new ProjectProperty(),
+                this.tempDir.toFile(), "si", "si.log", diag, new AnalysisParameters());
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains("Self-check: residual 0.000e+00"),
+                report.getText());
+        assertTrue(report.getText().contains("2.0000000000e+00"), report.getText());
+        assertTrue(report.getText().contains("min 2.0000000000e+00"), report.getText());
+        assertTrue(report.getText().contains("max 8.0000000000e+00"), report.getText());
+        assertEquals(313, report.getCsvLines().size(), "header plus 312 grid samples");
+        assertTrue(report.getText().contains("quadratic-form directional surface"),
+                report.getText());
+
+        // 30-degree rotated diag(0.125, 0.25, 0.5): eigen grid hits (az 30, pol 90).
+        File rotated = write("rot-tensor.dat",
+                "0.15625 -0.05412658773852742 0.0\n"
+                + "-0.05412658773852742 0.21875 0.0\n"
+                + "0.0 0.0 0.5\n");
+        AnalysisReport rot = ResultAnalysisService.analyze(
+                AnalysisKind.TENSOR_DIRECTIONAL, new ProjectProperty(),
+                this.tempDir.toFile(), "si", "si.log", rotated, new AnalysisParameters());
+        assertTrue(rot.isSuccess(), rot.getText());
+        assertTrue(rot.getText().contains("1.2500000000e-01"), rot.getText());
+        assertTrue(rot.getText().contains("0.86602540"),
+                "Principal direction must be recovered: " + rot.getText());
+        assertTrue(rot.getText().contains("min 1.2500000000e-01 at (az 30.0, pol 90.0)"),
+                rot.getText());
+        assertTrue(rot.getText().contains("gauge"), rot.getText());
+
+        File asymmetric = write("asym-tensor.dat", "1 0.5 0\n0.4 1 0\n0 0 1\n");
+        AnalysisReport refused = ResultAnalysisService.analyze(
+                AnalysisKind.TENSOR_DIRECTIONAL, new ProjectProperty(),
+                this.tempDir.toFile(), "si", "si.log", asymmetric,
+                new AnalysisParameters());
+        assertFalse(refused.isSuccess(), "Asymmetric tensors must fail closed");
+
+        File shortFile = write("short-tensor2.dat", "1 0 0\n0 1 0\n");
+        AnalysisReport shallow = ResultAnalysisService.analyze(
+                AnalysisKind.TENSOR_DIRECTIONAL, new ProjectProperty(),
+                this.tempDir.toFile(), "si", "si.log", shortFile,
+                new AnalysisParameters());
+        assertFalse(shallow.isSuccess(), "Two rows are not a tensor");
+    }
 }
