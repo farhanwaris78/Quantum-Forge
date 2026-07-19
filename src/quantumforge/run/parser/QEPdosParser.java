@@ -138,26 +138,46 @@ public final class QEPdosParser extends LogParser {
 
         List<Double> energiesList = new ArrayList<>();
         List<Double> pdosList = new ArrayList<>();
+        boolean headerConfirmsPdos = false;
 
         try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
             String line;
             while ((line = reader.readLine()) != null) {
                 String trim = line.trim();
-                if (trim.isEmpty() || trim.startsWith("#")) {
-                    continue; // Skip comments/headers
+                if (trim.isEmpty()) {
+                    continue;
+                }
+                if (trim.startsWith("#")) {
+                    String lower = trim.toLowerCase(java.util.Locale.ROOT);
+                    // QE PDOS files label column two LDOS and the following
+                    // column(s) PDOS. A header is required so LDOS is never
+                    // misreported as an orbital projection.
+                    headerConfirmsPdos |= lower.contains("pdos");
+                    continue;
                 }
                 String[] tokens = trim.split("\\s+");
-                if (tokens.length >= 2) {
-                    try {
-                        double energy = Double.parseDouble(tokens[0]);
-                        double pdosVal = Double.parseDouble(tokens[1]); // ldos or pdos is in column 2
-                        energiesList.add(energy);
-                        pdosList.add(pdosVal);
-                    } catch (NumberFormatException e) {
-                        // Skip malformed data row
+                if (!headerConfirmsPdos || tokens.length < 3) {
+                    continue;
+                }
+                try {
+                    double energy = ScfConvergenceAnalyzer.parseFortranDouble(tokens[0]);
+                    double projected = 0.0;
+                    for (int column = 2; column < tokens.length; column++) {
+                        projected += ScfConvergenceAnalyzer.parseFortranDouble(tokens[column]);
                     }
+                    if (!Double.isFinite(energy) || !Double.isFinite(projected)
+                            || (!energiesList.isEmpty() && energy <= energiesList.get(energiesList.size() - 1))) {
+                        return null;
+                    }
+                    energiesList.add(energy);
+                    pdosList.add(projected);
+                } catch (NumberFormatException e) {
+                    return null;
                 }
             }
+        }
+        if (!headerConfirmsPdos || energiesList.isEmpty()) {
+            return null;
         }
 
         double[] energies = new double[energiesList.size()];

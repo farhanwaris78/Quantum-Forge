@@ -461,3 +461,11 @@ The **twentieth** batch exposes conservative electronic/geometry result review i
 | 47 | **GUI wired Partial** | **Analyze band gap from QE log** parses only explicit QE occupied/unoccupied or stated gap summaries. It reports the 0.01 eV tolerance, preserves unknown directness unless explicitly stated, and refuses to invent k-resolved/direct-indirect evidence from a text summary. |
 | 39/40 | **GUI wired Partial** | **Preview final geometry** now displays only a validated, converged, coordinate-bearing final optimization step. The preview checks atom-count compatibility with the active project and explicitly performs no input mutation. Transactional coordinate/cell write-back remains fail-closed until a lossless card-rewrite path and rollback test exist. |
 | 16 | **Verified** | Viewer wiring, coordinate-bearing geometry preview, static/structural checks, fixture harness, and whitespace checks pass. Full Maven/JUnit remains pending a Java/Maven-enabled runner. |
+
+The **twenty-first** batch corrects electronic-output parser semantics before further visualization wiring:
+
+| # | Status after batch 21 | What landed |
+|---:|---|---|
+| 46 | **Stronger Partial** | `bands.x` gnu-data parsing now resets stale state, rejects a missing/non-finite Fermi reference, accepts Fortran `D` exponents, records malformed/non-monotonic rows, and never retains bands from a previous file after a failed parse. |
+| 48 | **Stronger Partial** | PDOS parsing now requires a header identifying PDOS, reads projection columns after LDOS, sums resolved orbital components, enforces increasing finite energy grids, and refuses ambiguous two-column/headerless data rather than plotting LDOS as PDOS. |
+| 16 | **Verified** | Added parser regression tests for D-exponent bands, stale-state reset, summed p components, and ambiguous PDOS rejection. Static/structural checks and fixtures pass; full Maven/JUnit remains pending a Java/Maven-enabled runner. |

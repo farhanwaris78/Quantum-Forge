@@ -52,4 +52,20 @@ class QEBandsDataParserTest {
         assertEquals(3, bands.get(1).size());
         assertEquals(2.5, bands.get(1).getEnergyEv()[0], 1e-6);
     }
+
+    @Test
+    void resetsStateAndAcceptsFortranExponentBandData() throws IOException {
+        File tempFile = File.createTempFile("qe-bands-d", ".dat");
+        tempFile.deleteOnExit();
+        try (FileWriter writer = new FileWriter(tempFile)) {
+            writer.write("0.0D+00 1.0D+00\n1.0D+00 2.0D+00\n");
+        }
+        QEBandsDataParser parser = new QEBandsDataParser(new ProjectProperty());
+        parser.parseWithFermi(tempFile, 1.0);
+        assertEquals(1, parser.getBands().size());
+        assertEquals(0.0, parser.getBands().get(0).getEnergyEv()[0], 1e-12);
+        parser.parseWithFermi(new File(tempFile.getParentFile(), "missing.dat"), 0.0);
+        assertTrue(parser.getBands().isEmpty());
+        assertTrue(!parser.getDiagnostics().isEmpty());
+    }
 }
