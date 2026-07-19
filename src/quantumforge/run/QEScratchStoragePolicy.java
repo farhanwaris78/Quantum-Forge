@@ -38,8 +38,12 @@ public final class QEScratchStoragePolicy {
     }
 
     public QEScratchStoragePolicy(Path scratchRoot, RetentionPolicy retentionPolicy, long maxQuotaBytes) {
-        this.scratchRoot = scratchRoot != null ? scratchRoot : getDefaultScratchPath();
+        Path configured = scratchRoot != null ? scratchRoot : getDefaultScratchPath();
+        this.scratchRoot = configured.toAbsolutePath().normalize();
         this.retentionPolicy = retentionPolicy != null ? retentionPolicy : RetentionPolicy.CLEAN_WFC_ONLY;
+        if (maxQuotaBytes <= 0L) {
+            throw new IllegalArgumentException("maxQuotaBytes must be positive");
+        }
         this.maxQuotaBytes = maxQuotaBytes;
     }
 
@@ -67,16 +71,19 @@ public final class QEScratchStoragePolicy {
         QEValue nbndVal = system.getValue("nbnd");
         int nbnd = nbndVal != null ? nbndVal.getIntegerValue() : 0;
         if (nbnd <= 0) {
-            // Estimate nbnd from valence electrons if omitted
-            double zValence = 0.0;
-            // Default guess of bands based on elements
-            nbnd = 20; 
+            // Without pseudo valence metadata an exact value is impossible.
+            // Use a deliberately conservative floor rather than a fabricated
+            // element-specific electron count.
+            nbnd = Math.max(20, Math.max(1, cell.numAtoms()) * 4);
+        }
+        if (!(ecutwfc > 0.0) || !Double.isFinite(ecutwfc)) {
+            return 0L;
         }
 
         // Cell volume in Bohr^3
         double volume = Math.abs(quantumforge.com.math.Matrix3D.determinant(cell.copyLattice()));
-        if (volume <= 0.0) {
-            volume = 100.0; // Fallback
+        if (!(volume > 0.0) || !Double.isFinite(volume)) {
+            return 0L;
         }
 
         // N_pw = (4*pi/3) * Vol * Ecut^(1.5) / (8 * pi^3)
@@ -91,35 +98,58 @@ public final class QEScratchStoragePolicy {
         if (kPoints != null) {
             if (kPoints.isAutomatic()) {
                 int[] grid = kPoints.getKGrid();
-                nkpoints = Math.max(1, grid[0] * grid[1] * grid[2] / 2); // irreducible guestimate
+                if (grid == null || grid.length < 3 || grid[0] <= 0 || grid[1] <= 0 || grid[2] <= 0) {
+                    return 0L;
+                }
+                // Scratch can contain wavefunctions for the full mesh; do not
+                // halve it by guessing symmetry reduction.
+                long product = (long) grid[0] * (long) grid[1] * (long) grid[2];
+                nkpoints = product > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) product;
             } else {
                 nkpoints = Math.max(1, kPoints.numKPoints());
             }
         }
 
-        // Double Complex = 16 bytes
-        double rawBytes = nkpoints * nbnd * npw * 16.0;
-        return (long) Math.max(1024.0 * 1024.0, rawBytes); // At least 1 MB
+        // Complex coefficients alone are 16 bytes. Apply a factor two for
+        // buffers/restart metadata, then clamp instead of overflowing long.
+        double rawBytes = nkpoints * (double) nbnd * npw * 32.0;
+        if (!Double.isFinite(rawBytes) || rawBytes >= Long.MAX_VALUE) {
+            return Long.MAX_VALUE;
+        }
+        return Math.max(1024L * 1024L, (long) Math.ceil(rawBytes));
     }
 
     /**
      * Checks if target filesystem has enough quota/usable space for the expected run.
      */
     public boolean verifySpace(Path path, long estimatedSizeBytes, List<String> warnings) {
+        List<String> messages = warnings == null ? new ArrayList<>() : warnings;
+        if (path == null || estimatedSizeBytes <= 0L) {
+            messages.add("Scratch-space estimate is unavailable; refusing to treat storage as verified.");
+            return false;
+        }
         try {
+            Files.createDirectories(path);
             long usableSpace = Files.getFileStore(path).getUsableSpace();
-            if (usableSpace < estimatedSizeBytes) {
-                warnings.add(String.format("Insufficient disk space on %s. Estimated required: %.2f MB, available: %.2f MB",
-                    path, estimatedSizeBytes / (1024.0 * 1024.0), usableSpace / (1024.0 * 1024.0)));
+            long required = estimatedSizeBytes;
+            if (required > this.maxQuotaBytes) {
+                messages.add(String.format("Estimated scratch requirement %.2f MB exceeds configured quota %.2f MB.",
+                        estimatedSizeBytes / (1024.0 * 1024.0), this.maxQuotaBytes / (1024.0 * 1024.0)));
                 return false;
             }
-            if (usableSpace < 500L * 1024L * 1024L) {
-                warnings.add(String.format("Warning: Directory %s is running dangerously low on space (< 500 MB).", path));
+            if (usableSpace < required) {
+                messages.add(String.format("Insufficient disk space on %s. Estimated required: %.2f MB, available: %.2f MB",
+                    path, required / (1024.0 * 1024.0), usableSpace / (1024.0 * 1024.0)));
+                return false;
             }
-        } catch (IOException e) {
-            warnings.add("Disk space query failed on " + path + ": " + e.getMessage());
+            if (usableSpace - required < 500L * 1024L * 1024L) {
+                messages.add(String.format("Warning: scratch allocation would leave less than 500 MB free on %s.", path));
+            }
+            return true;
+        } catch (IOException | SecurityException e) {
+            messages.add("Disk space query failed on " + path + ": " + e.getMessage());
+            return false;
         }
-        return true;
     }
 
     /**
@@ -131,29 +161,33 @@ public final class QEScratchStoragePolicy {
             return 0;
         }
 
+        Path normalizedRunDir = runDir.toAbsolutePath().normalize();
+        if (!normalizedRunDir.startsWith(this.scratchRoot)) {
+            AppLog.warn("scratch", "Refused cleanup outside configured scratch root: " + normalizedRunDir);
+            return 0;
+        }
         int deletedCount = 0;
         try {
             List<Path> filesToDelete = new ArrayList<>();
-            Files.walk(runDir).forEach(p -> {
-                String name = p.getFileName().toString().toLowerCase();
-                if (retentionPolicy == RetentionPolicy.CLEAN_WFC_ONLY) {
-                    if (name.endsWith(".wfc") || name.endsWith(".igk")) {
-                        filesToDelete.add(p);
+            try (java.util.stream.Stream<Path> paths = Files.walk(normalizedRunDir)) {
+                paths.filter(Files::isRegularFile).forEach(p -> {
+                    String name = p.getFileName().toString().toLowerCase(java.util.Locale.ROOT);
+                    if (retentionPolicy == RetentionPolicy.CLEAN_WFC_ONLY) {
+                        if (name.endsWith(".wfc") || name.endsWith(".igk")) {
+                            filesToDelete.add(p);
+                        }
+                    } else if (retentionPolicy == RetentionPolicy.CLEAN_ALL_TEMPS) {
+                        if (name.endsWith(".wfc") || name.endsWith(".igk") || name.endsWith(".mix") || name.endsWith(".grid")) {
+                            filesToDelete.add(p);
+                        }
                     }
-                } else if (retentionPolicy == RetentionPolicy.CLEAN_ALL_TEMPS) {
-                    if (name.endsWith(".wfc") || name.endsWith(".igk") || name.endsWith(".mix") || name.endsWith(".grid")) {
-                        filesToDelete.add(p);
-                    }
-                }
-            });
-
-            for (Path p : filesToDelete) {
-                if (Files.isRegularFile(p)) {
-                    Files.delete(p);
-                    deletedCount++;
-                }
+                });
             }
-        } catch (IOException e) {
+            for (Path p : filesToDelete) {
+                Files.deleteIfExists(p);
+                deletedCount++;
+            }
+        } catch (IOException | SecurityException e) {
             AppLog.warn("scratch", "Cleanup failed: " + e.getMessage());
         }
         return deletedCount;

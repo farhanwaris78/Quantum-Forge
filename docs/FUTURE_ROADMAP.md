@@ -421,3 +421,11 @@ The **fifteenth** batch closes a force-unit error path between QE XML and phonop
 |---:|---|---|
 | 42/107 | **Stronger Partial** | QE XML atomic-force parsing now records the document-declared Hartree/bohr or Ry/bohr convention, rejects incomplete force blocks, accepts Fortran exponents, and provides an explicit normalized Ry/bohr accessor. This connects safely to the FORCE_SETS conversion boundary and prevents a silent factor-of-two error for `Units="Hartree atomic units"`. |
 | 16 | **Verified** | Static consistency, structural compile-readiness, and parser fixture checks pass after the unit-boundary change. Full Maven/JUnit remains pending a Java/Maven-enabled runner. |
+
+The **sixteenth** batch makes scratch storage conservative and deletion-safe:
+
+| # | Status after batch 16 | What landed |
+|---:|---|---|
+| 34 | **Stronger Partial** | Scratch roots are normalized, quota must be positive, invalid estimates fail closed, full k meshes are used instead of guessed symmetry-halving, overflow is clamped, and a buffer/restart factor is included. Cleanup now refuses any path outside the configured scratch root, avoids following a broad arbitrary run directory, closes directory streams, and has a regression test proving it cannot delete an unrelated `.wfc`. |
+| 45 | **Stronger Partial** | Scratch-space verification creates/checks the requested directory, rejects unknown/non-positive estimates and quota overruns, and reports filesystem-query failures as failed verification rather than success. |
+| 16 | **Verified** | Static consistency, structural compile-readiness, parser fixtures, shell syntax, and whitespace checks pass after the scratch-policy changes. Full Maven/JUnit remains pending a Java/Maven-enabled runner. |

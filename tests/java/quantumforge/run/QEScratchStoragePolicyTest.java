@@ -92,4 +92,16 @@ class QEScratchStoragePolicyTest {
         assertTrue(!Files.exists(wfc), "Clean-up must delete transient wavefunctions");
         assertTrue(!Files.exists(igk), "Clean-up must delete transient G-vector lists");
     }
+
+    @Test
+    void refusesCleanupOutsideConfiguredScratchRoot() throws IOException {
+        Path scratch = Files.createTempDirectory("qe-scratch-root");
+        Path unrelated = Files.createTempDirectory("qe-unrelated-run");
+        Path wavefunction = unrelated.resolve("keep.wfc");
+        Files.createFile(wavefunction);
+        QEScratchStoragePolicy policy = new QEScratchStoragePolicy(
+                scratch, QEScratchStoragePolicy.RetentionPolicy.CLEAN_WFC_ONLY, 1024L * 1024L);
+        assertEquals(0, policy.performCleanup(unrelated));
+        assertTrue(Files.exists(wavefunction));
+    }
 }
