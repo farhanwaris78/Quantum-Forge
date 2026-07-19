@@ -37,6 +37,7 @@ import quantumforge.builder.QEPointDefectBuilder;
 import quantumforge.export.MethodsTextBuilder;
 import quantumforge.export.RoCrateExporter;
 import quantumforge.builder.QEDiffusionBarrierLink;
+import quantumforge.builder.SupercellMatrixValidator;
 import quantumforge.builder.QEThermochemistryMath;
 import quantumforge.builder.ExtXyzCellExporter;
 import quantumforge.builder.QEConstraintSpec;
@@ -212,7 +213,8 @@ public final class ResultAnalysisService {
         RAMAN_IR_SPECTRUM("Powder IR/Raman spectrum (Lorentzian broadening)"),
         TRAJECTORY_WINDOW_SCAN("Trajectory window scan (bbox/centroid per sampled frame)"),
         TENSOR_DIRECTIONAL("Tensor directional surface n^T.T.n (eigen basis)"),
-        DENSITY_DIFFERENCE("Grid density difference (compatible CUBE pair)");
+        DENSITY_DIFFERENCE("Grid density difference (compatible CUBE pair)"),
+        SUPERCELL_PREVIEW("Supercell transformation preview (integer 3x3 matrix)");
 
         private final String label;
 
@@ -254,7 +256,8 @@ public final class ResultAnalysisService {
                     || this == BARRIER_DIFFUSION || this == CONSTRAINTS_PREVIEW
                     || this == PHONON_MODE_FRAMES || this == HYPERFINE_LOOKUP
                     || this == KEYWORD_HELP || this == ARRAY_SWEEP_PLAN
-                    || this == CELL_EXTXYZ_EXPORT || this == DENSITY_DIFFERENCE;
+                    || this == CELL_EXTXYZ_EXPORT || this == DENSITY_DIFFERENCE
+                    || this == SUPERCELL_PREVIEW;
         }
 
         /** True for project-bound kinds that additionally parse a user data file. */
@@ -320,6 +323,7 @@ public final class ResultAnalysisService {
         private String spectrumChannel = "ir";   // "ir" or "raman"
         private int windowStartFrame = 1;        // 1-based trajectory window start
         private int windowStride = 1;            // frames between samples
+        private String supercellSpec = "";       // 3x3 integer matrix, rows by ';'
         private String constraintSpec = "";      // empty means "must be supplied"
         private String constraintMode = "relax"; // relax, vc-relax, or md
 
@@ -376,6 +380,7 @@ public final class ResultAnalysisService {
         public String getSpectrumChannel() { return this.spectrumChannel; }
         public int getWindowStartFrame() { return this.windowStartFrame; }
         public int getWindowStride() { return this.windowStride; }
+        public String getSupercellSpec() { return this.supercellSpec; }
         public String getConstraintSpec() { return this.constraintSpec; }
         public String getConstraintMode() { return this.constraintMode; }
 
@@ -550,6 +555,11 @@ public final class ResultAnalysisService {
 
         public AnalysisParameters withWindowStride(int value) {
             this.windowStride = value;
+            return this;
+        }
+
+        public AnalysisParameters withSupercellSpec(String value) {
+            this.supercellSpec = value == null ? "" : value;
             return this;
         }
 
@@ -1070,6 +1080,8 @@ public final class ResultAnalysisService {
                 return analyzeCellExtXyzExport(project);
             case DENSITY_DIFFERENCE:
                 return analyzeDensityDifference(project, file);
+            case SUPERCELL_PREVIEW:
+                return analyzeSupercellPreview(project, params);
             default:
                 return failure(kind.getLabel(), "This analysis kind is not implemented.");
         }
@@ -4968,6 +4980,104 @@ public final class ResultAnalysisService {
                 + "surface itself is sign-invariant. Units and physical meaning come from "
                 + "the source you selected; no interpretation is attached at this layer.");
         return new AnalysisReport(label, true, text.toString(), csv, null);
+    }
+
+    /**
+     * Roadmap #81 preview: general integer 3x3 supercell transformation with an
+     * exact integer determinant - new lattice, volume and atom count only; no
+     * atoms are written, generated or modified.
+     */
+    private static AnalysisReport analyzeSupercellPreview(Project project,
+            AnalysisParameters params) {
+        String label = AnalysisKind.SUPERCELL_PREVIEW.getLabel();
+        Cell cell = project.getCell();
+        if (cell == null || cell.numAtoms() <= 0) {
+            return failure(label, "The project has no atoms/cell to preview a supercell of.");
+        }
+        OperationResult<SupercellMatrixValidator.SupercellTransform> validated =
+                SupercellMatrixValidator.validate(params.getSupercellSpec());
+        if (!validated.isSuccess() || validated.getValue().isEmpty()) {
+            return failure(label, "Matrix refused: " + validated.getMessage());
+        }
+        SupercellMatrixValidator.SupercellTransform transform =
+                validated.getValue().get();
+        double[][] lattice = cell.copyLattice();
+        if (lattice == null || lattice.length < 3) {
+            return failure(label, "The live cell has no 3x3 lattice to transform.");
+        }
+        double volume = lattice[0][0] * (lattice[1][1] * lattice[2][2]
+                - lattice[1][2] * lattice[2][1])
+                - lattice[0][1] * (lattice[1][0] * lattice[2][2]
+                        - lattice[1][2] * lattice[2][0])
+                + lattice[0][2] * (lattice[1][0] * lattice[2][1]
+                        - lattice[1][1] * lattice[2][0]);
+        if (Math.abs(volume) < 1.0e-12 || !Double.isFinite(volume)) {
+            return failure(label, "The live cell lattice is numerically degenerate "
+                    + "(|det| too small); refusing to preview a supercell.");
+        }
+        double[][] newLattice = transform.applyToLattice(lattice);
+        double newVolume = newLattice[0][0] * (newLattice[1][1] * newLattice[2][2]
+                - newLattice[1][2] * newLattice[2][1])
+                - newLattice[0][1] * (newLattice[1][0] * newLattice[2][2]
+                        - newLattice[1][2] * newLattice[2][0])
+                + newLattice[0][2] * (newLattice[1][0] * newLattice[2][1]
+                        - newLattice[1][1] * newLattice[2][0]);
+        double expected = transform.getDeterminant() * volume;
+        double deviation = Math.abs(Math.abs(newVolume) - Math.abs(expected))
+                / Math.max(1.0e-30, Math.abs(expected));
+        if (deviation > 1.0e-9) {
+            return failure(label, String.format(Locale.ROOT,
+                    "Internal volume cross-check failed: |det(new lattice)| = %.10e vs %d "
+                            + "* V = %.10e; refusing the preview.", Math.abs(newVolume),
+                    transform.getDeterminant(), volume));
+        }
+        int[][] m = transform.getMatrix();
+        StringBuilder text = new StringBuilder();
+        text.append("Transformation matrix (rows multiply the lattice rows; convention:\n");
+        text.append("new lattice row i = sum_j M[i][j] * a_j):\n");
+        for (int i = 0; i < 3; i++) {
+            text.append(String.format(Locale.ROOT, "  %4d %4d %4d%n", m[i][0], m[i][1],
+                    m[i][2]));
+        }
+        text.append(String.format(Locale.ROOT,
+                "Exact integer multiplicity det(M) = %d%n", transform.getDeterminant()));
+        text.append(String.format(Locale.ROOT,
+                "Atoms: %d -> %d (multiplicity x current count)%n", cell.numAtoms(),
+                cell.numAtoms() * transform.getDeterminant()));
+        text.append(String.format(Locale.ROOT,
+                "Cell volume: %.8f -> %.8f Ang^3%n", volume, expected));
+        StringBuilder block = new StringBuilder("CELL_PARAMETERS angstrom\n");
+        text.append("\nNew lattice rows (Angstrom):\n");
+        for (int i = 0; i < 3; i++) {
+            String row = String.format(Locale.ROOT, "  %14.8f %14.8f %14.8f",
+                    newLattice[i][0], newLattice[i][1], newLattice[i][2]);
+            text.append(row).append('\n');
+            block.append(row.trim()).append('\n');
+        }
+        text.append(String.format(Locale.ROOT,
+                "Volume cross-check |det(new)| = %.8f; deviation %.1e%n",
+                Math.abs(newVolume), deviation));
+        List<String> csv = new ArrayList<>();
+        csv.add("field,value");
+        csv.add("multiplicity," + transform.getDeterminant());
+        csv.add("atoms_before," + cell.numAtoms());
+        csv.add("atoms_after," + cell.numAtoms() * transform.getDeterminant());
+        csv.add(String.format(Locale.ROOT, "volume_before_ang3,%.10f", volume));
+        csv.add(String.format(Locale.ROOT, "volume_after_ang3,%.10f", expected));
+        for (int i = 0; i < 3; i++) {
+            csv.add(String.format(Locale.ROOT, "new_lattice_row_%d,%.10f %.10f %.10f",
+                    i + 1, newLattice[i][0], newLattice[i][1], newLattice[i][2]));
+        }
+        text.append("\nHonesty boundary: PREVIEW ONLY - no atoms are enumerated, mapped or "
+                + "written; the CELL_PARAMETERS block leaves only through the explicit save "
+                + "action. An integer matrix with det >= 1 preserves periodicity by "
+                + "construction; handedness flips (det < 0) were refused upstream. Atom "
+                + "site mapping, image merging and the #37 k-mesh re-derivation (a "
+                + "supercell needs a rescaled grid!) are YOUR next steps. Entries are "
+                + "bounded to |m| <= " + SupercellMatrixValidator.MAX_ENTRY
+                + " and multiplicity to " + SupercellMatrixValidator.MAX_DETERMINANT
+                + "; beyond that use the full supercell builder.");
+        return new AnalysisReport(label, true, text.toString(), csv, block.toString());
     }
 
     /**

@@ -2567,4 +2567,60 @@ class ResultAnalysisServiceTest {
                 new AnalysisParameters());
         assertFalse(noSystem.isSuccess(), "A missing system cube must fail closed");
     }
+
+    @Test
+    void testSupercellPreviewKindExactTransformAndRefusals() {
+        Cell cell = new Cell(quantumforge.com.math.Matrix3D.unit(10.0));
+        cell.addAtom("Si", 0.0, 0.0, 0.0);
+        cell.addAtom("Si", 0.15, 0.0, 0.0);
+
+        AnalysisReport report = ResultAnalysisService.analyze(
+                AnalysisKind.SUPERCELL_PREVIEW, stubProject(this.tempDir, cell),
+                new AnalysisParameters().withSupercellSpec("2 0 0; 0 2 0; 0 0 2"));
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains("det(M) = 8"), report.getText());
+        assertTrue(report.getText().contains("Atoms: 2 -> 16"), report.getText());
+        assertTrue(report.getText().contains("Cell volume: 1000.00000000 -> 8000.00000000"),
+                report.getText());
+        String block = report.getGeneratedInput();
+        assertTrue(block != null && block.startsWith("CELL_PARAMETERS angstrom\n"),
+                block);
+        assertTrue(block.contains("20.00000000"), block);
+        assertTrue(report.getText().contains("deviation 0.0e+00"), report.getText());
+        assertEquals(9, report.getCsvLines().size());
+
+        AnalysisReport shear = ResultAnalysisService.analyze(
+                AnalysisKind.SUPERCELL_PREVIEW, stubProject(this.tempDir, cell),
+                new AnalysisParameters().withSupercellSpec("1 1 0; 0 1 0; 0 0 1"));
+        assertTrue(shear.isSuccess(), shear.getText());
+        assertTrue(shear.getText().contains("det(M) = 1"), shear.getText());
+        assertTrue(shear.getText().contains("Atoms: 2 -> 2"), shear.getText());
+        assertTrue(shear.getCsvLines().get(6).equals("new_lattice_row_1,10.0000000000 "
+                + "10.0000000000 0.0000000000"), shear.getCsvLines().get(6));
+
+        AnalysisReport singular = ResultAnalysisService.analyze(
+                AnalysisKind.SUPERCELL_PREVIEW, stubProject(this.tempDir, cell),
+                new AnalysisParameters().withSupercellSpec("1 1 0; 2 2 0; 0 0 1"));
+        assertFalse(singular.isSuccess(), "Singular matrices must fail closed");
+
+        AnalysisReport handed = ResultAnalysisService.analyze(
+                AnalysisKind.SUPERCELL_PREVIEW, stubProject(this.tempDir, cell),
+                new AnalysisParameters().withSupercellSpec("-1 0 0; 0 1 0; 0 0 1"));
+        assertFalse(handed.isSuccess(), "Handedness flips must fail closed");
+
+        AnalysisReport bound = ResultAnalysisService.analyze(
+                AnalysisKind.SUPERCELL_PREVIEW, stubProject(this.tempDir, cell),
+                new AnalysisParameters().withSupercellSpec("9 0 0; 0 1 0; 0 0 1"));
+        assertFalse(bound.isSuccess(), "Over-bound entries must fail closed");
+
+        AnalysisReport empty = ResultAnalysisService.analyze(
+                AnalysisKind.SUPERCELL_PREVIEW, stubProject(this.tempDir, cell),
+                new AnalysisParameters());
+        assertFalse(empty.isSuccess(), "An empty spec must fail closed");
+
+        AnalysisReport noCell = ResultAnalysisService.analyze(
+                AnalysisKind.SUPERCELL_PREVIEW, stubProject(this.tempDir),
+                new AnalysisParameters().withSupercellSpec("2 0 0; 0 2 0; 0 0 1"));
+        assertFalse(noCell.isSuccess(), "No live cell must fail closed");
+    }
 }

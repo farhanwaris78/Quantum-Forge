@@ -432,6 +432,15 @@ public final class AnalysisAction {
             parameters.withConstraintSpec(spec).withConstraintMode(mode);
             break;
         }
+        case SUPERCELL_PREVIEW: {
+            String spec = askText("Supercell matrix rows (integers), e.g. "
+                    + "2 0 0; 0 2 0; 0 0 1", "");
+            if (spec == null) {
+                return null;
+            }
+            parameters.withSupercellSpec(spec);
+            break;
+        }
         case TRAJECTORY_WINDOW_SCAN: {
             Integer start = askInteger("Start frame (1-based)", 1);
             if (start == null) {
