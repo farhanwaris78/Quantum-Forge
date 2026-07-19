@@ -1396,4 +1396,45 @@ class ResultAnalysisServiceTest {
         assertFalse(fail.isSuccess(), "An unknown scheduler must block");
         assertTrue(fail.getText().contains("SITE_SCHEDULER_UNKNOWN"), fail.getText());
     }
+
+    @Test
+    void testMlModelCheckKindAndDomainGate() throws IOException {
+        File manifest = write("model-manifest.txt",
+                "name: MACE-test\nversion: 1.0\nlicense: MIT\ncitation: ref\n"
+                        + "cutoff_angstrom: 6.0\nspecies: Si, O\n"
+                        + "sha256: " + "ab".repeat(32) + "\n");
+        Cell covered = new Cell(quantumforge.com.math.Matrix3D.unit(10.0));
+        covered.addAtom("Si", 0.1, 0.1, 0.1);
+        covered.addAtom("O", 0.6, 0.6, 0.6);
+        AnalysisReport ok = ResultAnalysisService.analyze(AnalysisKind.ML_MODEL_CHECK,
+                stubProject(this.tempDir, covered), manifest, new AnalysisParameters());
+        assertTrue(ok.isSuccess(), ok.getText());
+        assertTrue(ok.getText().contains("Model: MACE-test"), ok.getText());
+        assertTrue(ok.getText().contains("all project elements are covered"), ok.getText());
+        assertTrue(ok.getText().contains("No Python was started"), ok.getText());
+
+        Cell outside = new Cell(quantumforge.com.math.Matrix3D.unit(10.0));
+        outside.addAtom("Si", 0.1, 0.1, 0.1);
+        outside.addAtom("H", 0.4, 0.4, 0.4);
+        AnalysisReport out = ResultAnalysisService.analyze(AnalysisKind.ML_MODEL_CHECK,
+                stubProject(this.tempDir, outside), manifest, new AnalysisParameters());
+        assertFalse(out.isSuccess(), "Out-of-domain chemistry must fail the report");
+        assertTrue(out.getText().contains("OUT OF DOMAIN"), out.getText());
+        assertTrue(out.getCsvLines().toString().contains("ML_OUT_OF_DOMAIN"),
+                out.getCsvLines().toString());
+
+        File noHash = write("model-nohash.txt",
+                "name: x\nversion: 1\nlicense: MIT\ncitation: c\n"
+                        + "cutoff_angstrom: 5.0\nspecies: Si\n");
+        AnalysisReport unusable = ResultAnalysisService.analyze(AnalysisKind.ML_MODEL_CHECK,
+                stubProject(this.tempDir, covered), noHash, new AnalysisParameters());
+        assertFalse(unusable.isSuccess(), "A provenance-less model must fail closed");
+        assertTrue(unusable.getText().contains("ML_HASH_MISSING"), unusable.getText());
+
+        AnalysisReport noFile = ResultAnalysisService.analyze(AnalysisKind.ML_MODEL_CHECK,
+                stubProject(this.tempDir, covered), null, new AnalysisParameters());
+        assertFalse(noFile.isSuccess(), "A missing manifest selection must fail closed");
+        assertFalse(noFile.getProvenanceLines().toString().contains("source:"),
+                "Nothing may be claimed when no manifest was read");
+    }
 }

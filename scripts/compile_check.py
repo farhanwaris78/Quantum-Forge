@@ -310,6 +310,22 @@ def main() -> int:
     text = (SRC / "quantumforge/hpc/SiteProfileValidator.java").read_text(encoding="utf-8")
     if "class " not in text:
         error("quantumforge/hpc/SiteProfileValidator.java does not declare a type")
+    for token in ["MlModelManifest"]:
+        if token not in service:
+            error(f"ResultAnalysisService is not bound to {token}")
+    for rel in ["quantumforge/neural/MlModelManifest.java",
+                "quantumforge/neural/MLPotentialService.java"]:
+        text = (SRC / rel).read_text(encoding="utf-8")
+        if "class " not in text:
+            error(f"{rel} does not declare a type")
+    for stale in ["GNNFroceField", "GNNField"]:
+        # Roadmap #136: the misspelled names must not reappear in code (comments
+        # and strings are stripped so the historical note in the javadoc stays).
+        for path in list(SRC.rglob("*.java")) + list(TESTS.rglob("*.java")):
+            raw = path.read_text(encoding="utf-8", errors="replace")
+            if stale in strip_strings_and_comments(raw):
+                error(f"stale pre-rename name {stale} remains in {path.relative_to(ROOT)}")
+                break
     node = (SRC / "quantumforge/run/RunningNode.java").read_text(encoding="utf-8")
     if "DryRunPreflight" not in node or "ArtifactScanner" not in node or "QECommandDag" not in node:
         error("RunningNode is not wired to dry-run/DAG/artifact scanning")

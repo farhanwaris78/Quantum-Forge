@@ -15,8 +15,10 @@ import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -30,6 +32,7 @@ import quantumforge.builder.QEHullThermodynamics;
 import quantumforge.builder.QEPointDefectBuilder;
 import quantumforge.hpc.SiteProfile;
 import quantumforge.hpc.SiteProfileValidator;
+import quantumforge.neural.MlModelManifest;
 import quantumforge.input.QEInput;
 import quantumforge.input.QEInputDiffPreview;
 import quantumforge.input.QEKpointMeshAdvisor;
@@ -156,7 +159,8 @@ public final class ResultAnalysisService {
         PHONON_MODES("Phonon eigenvector audit (dynmat.x)"),
         VOLTAGE_PROFILE("Battery voltage profile from hull CSV"),
         ADSORPTION_PREVIEW("Molecule adsorption preview (site/collision check)"),
-        SITE_PROFILE_CHECK("HPC site profile validation (scheduler/container)");
+        SITE_PROFILE_CHECK("HPC site profile validation (scheduler/container)"),
+        ML_MODEL_CHECK("ML potential model-manifest validation");
 
         private final String label;
 
@@ -192,12 +196,12 @@ public final class ResultAnalysisService {
                     || this == CITATIONS || this == BERRY_POLARIZATION
                     || this == GEOMETRY_CONVERGENCE || this == PSEUDO_FAMILY || this == SYMMETRY_KPATH
                     || this == INPUT_DIFF || this == KMESH_QUALITY || this == DEFECT_PREVIEW
-                    || this == SERIES_PLAN || this == ADSORPTION_PREVIEW;
+                    || this == SERIES_PLAN || this == ADSORPTION_PREVIEW || this == ML_MODEL_CHECK;
         }
 
         /** True for project-bound kinds that additionally parse a user data file. */
         public boolean needsDataFile() {
-            return this == MD_MSD || this == INPUT_DIFF;
+            return this == MD_MSD || this == INPUT_DIFF || this == ML_MODEL_CHECK;
         }
     }
 
@@ -553,6 +557,8 @@ public final class ResultAnalysisService {
             return name.contains("dynmat") || name.contains("modes");
         case SITE_PROFILE_CHECK:
             return name.endsWith(".yaml") || name.endsWith(".yml");
+        case ML_MODEL_CHECK:
+            return name.contains("manifest") || name.endsWith(".mlmf");
         default:
             return false;
         }
@@ -767,13 +773,15 @@ public final class ResultAnalysisService {
                 return analyzeSeriesPlan(params);
             case ADSORPTION_PREVIEW:
                 return analyzeAdsorptionPreview(project, params);
+            case ML_MODEL_CHECK:
+                return analyzeMlModel(project, file);
             default:
                 return failure(kind.getLabel(), "This analysis kind is not implemented.");
-            }
-        } catch (RuntimeException ex) {
-            return failure(kind.getLabel(), "Analysis failed closed: " + ex.getMessage());
         }
+    } catch (RuntimeException ex) {
+        return failure(kind.getLabel(), "Analysis failed closed: " + ex.getMessage());
     }
+}
 
     /** Deterministic binaries/disk/MPI/input/DAG preflight; identical to the runner's gate. */
     private static AnalysisReport analyzePreflight(Project project) {
@@ -3392,5 +3400,100 @@ public final class ResultAnalysisService {
             return '"' + cell.replace("\"", "\"\"") + '"';
         }
         return cell;
+    }
+
+    /**
+     * ML model-manifest validation (Roadmap #139) plus the element-level
+     * domain-of-applicability gate against the live cell (Roadmap #140, partial).
+     * This analysis runs no Python and no inference; it can only state whether a
+     * manifest is internally provenance-complete.
+     */
+    private static AnalysisReport analyzeMlModel(Project project, File file) {
+        String label = AnalysisKind.ML_MODEL_CHECK.getLabel();
+        if (file == null || !file.isFile()) {
+            return failure(label, "Select a model manifest file (key: value text; fields: "
+                    + "name, version, license, citation, cutoff_angstrom, species, sha256). "
+                    + "No manifest was provided.");
+        }
+        MlModelManifest.ManifestReport check = MlModelManifest.parse(file.toPath());
+        StringBuilder text = new StringBuilder();
+        text.append("Source: ").append(file.getName()).append('\n');
+        MlModelManifest manifest = check.getManifest();
+        if (manifest != null) {
+            text.append("Model: ").append(manifest.getName().isBlank() ? "(unnamed)"
+                    : manifest.getName());
+            text.append("  version: ").append(manifest.getVersion().isBlank() ? "(missing)"
+                    : manifest.getVersion()).append('\n');
+            text.append("License: ").append(manifest.getLicense().isBlank() ? "(missing)"
+                    : manifest.getLicense()).append('\n');
+            if (!manifest.getCitation().isBlank()) {
+                text.append("Citation: ").append(manifest.getCitation()).append('\n');
+            }
+            if (Double.isFinite(manifest.getCutoffAngstrom())) {
+                text.append(String.format(Locale.ROOT, "Cutoff: %.4f Ang%n",
+                        manifest.getCutoffAngstrom()));
+            }
+            text.append("Species declared: ").append(manifest.getSpecies().isEmpty()
+                    ? "(none parsed)" : String.join(", ", manifest.getSpecies())).append('\n');
+            text.append("Model-file sha256: ").append(manifest.getSha256().isBlank()
+                    ? "(missing)" : manifest.getSha256()).append('\n');
+        }
+        List<String> csv = new ArrayList<>();
+        csv.add("severity,code,message,documentation");
+        for (ValidationIssue issue : check.getIssues()) {
+            text.append(issue).append('\n');
+            csv.add(csvCell(issue.getSeverity().name()) + "," + csvCell(issue.getCode())
+                    + "," + csvCell(issue.getMessage())
+                    + "," + csvCell(issue.getDocumentationUrl()));
+        }
+        if (!check.getUnparsedLines().isEmpty()) {
+            text.append("Unparsed lines (ignored, never guessed): ")
+                    .append(check.getUnparsedLines().size()).append('\n');
+        }
+
+        boolean domainChecked = false;
+        boolean domainOk = true;
+        if (manifest != null && !manifest.getSpecies().isEmpty()
+                && project.getCell() != null) {
+            Set<String> projectElements = new LinkedHashSet<>();
+            Atom[] atoms = project.getCell().listAtoms(false);
+            if (atoms != null) {
+                for (Atom atom : atoms) {
+                    if (atom != null) {
+                        projectElements.add(atom.getElementName());
+                    }
+                }
+            }
+            List<String> missing = manifest.elementsOutsideDomain(projectElements);
+            if (!projectElements.isEmpty()) {
+                domainChecked = true;
+                domainOk = missing.isEmpty();
+                text.append('\n');
+                text.append("Project elements: ").append(String.join(", ", projectElements))
+                        .append('\n');
+                if (missing.isEmpty()) {
+                    text.append("Domain check (elements): all project elements are covered by "
+                            + "the manifest species list.\n");
+                } else {
+                    text.append("Domain check (elements): OUT OF DOMAIN - not covered: ")
+                            .append(String.join(", ", missing)).append('\n');
+                    csv.add(csvCell("WARNING") + "," + csvCell("ML_OUT_OF_DOMAIN")
+                            + "," + csvCell("Project elements outside manifest species: "
+                                    + String.join(", ", missing))
+                            + "," + csvCell(MlModelManifest.DOCS));
+                }
+            }
+        }
+        text.append('\n');
+        if (!domainChecked) {
+            text.append("Domain check (elements): not performed (no manifest species or no "
+                    + "project cell); this does not make the model applicable.\n");
+        }
+        text.append("Element coverage is necessary, not sufficient: coordination, density and "
+                + "descriptor-distance gates (Roadmap #140) and backend conformance tests "
+                + "(Roadmap #138) are separate evidence. No Python was started and no "
+                + "inference was run.");
+        boolean success = check.isUsable() && domainOk;
+        return new AnalysisReport(label, success, text.toString(), csv, null);
     }
 }
