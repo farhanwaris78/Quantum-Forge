@@ -2820,4 +2820,62 @@ class ResultAnalysisServiceTest {
         assertFalse(refused.isSuccess(), "A zero scale factor must fail closed");
         assertTrue(refused.getText().contains("[POSCAR_SCALE]"), refused.getText());
     }
+
+    @Test
+    void testElasticElateDraftKindStableGatedAndRefusals() throws IOException {
+        String cubic = "  Elastic Constant Matrix (kbar)\n"
+                + "  5000 1000 1000    0    0    0\n"
+                + "  1000 5000 1000    0    0    0\n"
+                + "  1000 1000 5000    0    0    0\n"
+                + "     0    0    0 2000    0    0\n"
+                + "     0    0    0    0 2000    0\n"
+                + "     0    0    0    0    0 2000\n";
+        File stable = write("elate-stable.out", cubic);
+        AnalysisReport report = ResultAnalysisService.analyze(
+                AnalysisKind.ELASTIC_ELATE_DRAFT, new ProjectProperty(),
+                this.tempDir.toFile(), "si", "si.log", stable, new AnalysisParameters());
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains("max |C_ij - C_ji| = 0"), report.getText());
+        assertTrue(report.getText().contains("STABLE"), report.getText());
+        assertTrue(report.getText().contains("Voigt 1=xx 2=yy 3=zz"), report.getText());
+        assertTrue(report.getText().contains("NO unit conversion"), report.getText());
+        assertTrue(report.getGeneratedInput() != null
+                && report.getGeneratedInput().contains("TENSOR = ["),
+                "the draft travels the generated-input channel only");
+        assertTrue(report.getGeneratedInput().contains("[5000.0, 1000.0"),
+                report.getGeneratedInput());
+        assertTrue(report.getGeneratedInput().contains("CONVERT_TO_GPA = False"),
+                report.getGeneratedInput());
+        assertEquals(7, report.getCsvLines().size(), "header + 6 Voigt rows");
+        assertEquals("1,5000.000000,1000.000000,1000.000000,0.000000000,0.000000000,"
+                + "0.000000000", report.getCsvLines().get(1));
+
+        File unstable = write("elate-unstable.out", cubic.replace("  5000 1000 1000",
+                "   500 1000 1000"));
+        AnalysisReport refused = ResultAnalysisService.analyze(
+                AnalysisKind.ELASTIC_ELATE_DRAFT, new ProjectProperty(),
+                this.tempDir.toFile(), "si", "si.log", unstable, new AnalysisParameters());
+        assertFalse(refused.isSuccess(),
+                "an unstable tensor gets NO draft - directional numbers would be unphysical");
+        assertTrue(refused.getText().contains("FAILED Born mechanical stability"),
+                refused.getText());
+        assertTrue(refused.getGeneratedInput() == null,
+                "no artifact for unstable tensors");
+
+        File asymmetric = write("elate-asym.out", cubic.replace("  1000 5000 1000",
+                "  1200 5000 1000"));
+        AnalysisReport asymRefused = ResultAnalysisService.analyze(
+                AnalysisKind.ELASTIC_ELATE_DRAFT, new ProjectProperty(),
+                this.tempDir.toFile(), "si", "si.log", asymmetric, new AnalysisParameters());
+        assertFalse(asymRefused.isSuccess());
+        assertTrue(asymRefused.getText().contains("[ELATE_ASYMMETRY]"),
+                asymRefused.getText());
+
+        File none = write("elate-none.out", "scf output only\n");
+        AnalysisReport noBlock = ResultAnalysisService.analyze(
+                AnalysisKind.ELASTIC_ELATE_DRAFT, new ProjectProperty(),
+                this.tempDir.toFile(), "si", "si.log", none, new AnalysisParameters());
+        assertFalse(noBlock.isSuccess());
+        assertTrue(noBlock.getText().contains("[ELATE_BLOCK]"), noBlock.getText());
+    }
 }

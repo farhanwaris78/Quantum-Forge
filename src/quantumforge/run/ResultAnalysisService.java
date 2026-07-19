@@ -34,6 +34,7 @@ import quantumforge.builder.QECitationManager;
 import quantumforge.builder.adsorption.MoleculeAdsorber;
 import quantumforge.builder.QEHullThermodynamics;
 import quantumforge.builder.QEPointDefectBuilder;
+import quantumforge.export.ELateTensorDraft;
 import quantumforge.export.MethodsTextBuilder;
 import quantumforge.export.RoCrateExporter;
 import quantumforge.builder.QEDiffusionBarrierLink;
@@ -224,7 +225,8 @@ public final class ResultAnalysisService {
         TIMING_RESOURCE("pw.x timing/resource table (CPU/WALL per routine)"),
         WORKSPACE_SEARCH("Light workspace catalogue (project dir, status markers)"),
         TEMPLATE_LIBRARY("Curated workflow templates (with prerequisites/pitfalls)"),
-        POSCAR_REVIEW("POSCAR structure review (VASP 4/5, fail-closed parser)");
+        POSCAR_REVIEW("POSCAR structure review (VASP 4/5, fail-closed parser)"),
+        ELASTIC_ELATE_DRAFT("ELATE elastic tensor draft (Voigt, stability-gated)");
 
         private final String label;
 
@@ -829,6 +831,8 @@ public final class ResultAnalysisService {
         case POSCAR_REVIEW:
             return name.contains("poscar") || name.contains("contcar")
                     || name.endsWith(".vasp");
+        case ELASTIC_ELATE_DRAFT:
+            return name.contains("elastic") || name.contains("elate");
         default:
             return false;
         }
@@ -968,6 +972,8 @@ public final class ResultAnalysisService {
                 return analyzeSiteProfile(source);
             case POSCAR_REVIEW:
                 return analyzePoscarReview(source);
+            case ELASTIC_ELATE_DRAFT:
+                return analyzeElasticElateDraft(source);
             default:
                 return failure(kind.getLabel(), "This analysis kind is not implemented.");
             }
@@ -5442,6 +5448,71 @@ public final class ResultAnalysisService {
                 + "from your convergence workflows (#36/#37/#38) for the specific "
                 + "material; a template cannot certify a result.");
         return new AnalysisReport(label, true, text.toString(), csv, null);
+    }
+
+    /**
+     * Roadmap #119: ELATE-convention tensor draft. The tensor is parsed through
+     * the STRICT reader (no zero padding), the asymmetry audit is printed, and
+     * Born mechanical stability gates the artifact: an unstable tensor yields a
+     * failed report and NO draft. The draft itself applies no unit conversion.
+     */
+    private static AnalysisReport analyzeElasticElateDraft(File source) {
+        String label = AnalysisKind.ELASTIC_ELATE_DRAFT.getLabel();
+        OperationResult<ELateTensorDraft.TensorBlock> read =
+                ELateTensorDraft.readTensor(source.toPath());
+        if (!read.isSuccess() || read.getValue().isEmpty()) {
+            return failure(label, "ELATE draft refused the file " + source.getName()
+                    + ":\n[" + read.getCode() + "] " + read.getMessage());
+        }
+        ELateTensorDraft.TensorBlock block = read.getValue().get();
+        QEElasticStabilityValidator.StabilityResult stability =
+                QEElasticStabilityValidator.validateStability(block.getCij());
+        StringBuilder diagnostics = new StringBuilder();
+        for (String diagnostic : stability.getDiagnostics()) {
+            if (diagnostics.length() > 0) {
+                diagnostics.append("; ");
+            }
+            diagnostics.append(diagnostic);
+        }
+        String summary = diagnostics.length() == 0 ? "no diagnostics" : diagnostics.toString();
+        if (!stability.isMechanicallyStable()) {
+            return failure(label, "The tensor of " + source.getName()
+                    + " parsed but FAILED Born mechanical stability (Sylvester "
+                    + "leading-minors): " + summary + "\nELATE directional properties of a "
+                    + "mechanically unstable phase are not physical equilibrium properties, "
+                    + "so NO draft artifact is emitted - review the tensor with the "
+                    + "ELASTIC_STABILITY kind first.");
+        }
+        StringBuilder text = new StringBuilder();
+        text.append("Source: ").append(source.getName()).append('\n');
+        text.append(String.format(Locale.ROOT,
+                "Symmetry audit: max |C_ij - C_ji| = %.6g (within the %.0e relative "
+                        + "print tolerance vs max |C| = %.6g); tensor used as "
+                        + "(C + C^T)/2.%n",
+                block.getMaxAsymmetry(), ELateTensorDraft.SYMMETRY_REL_TOLERANCE,
+                block.getMaxAbs()));
+        text.append("Born mechanical stability (Sylvester leading-minors): STABLE ("
+                + summary + ").\n");
+        text.append("Convention: Voigt 1=xx 2=yy 3=zz 4=yz 5=xz 6=xy, rows exactly as "
+                + "parsed - NO convention transform and NO unit conversion was applied.\n");
+        text.append(String.format(Locale.ROOT,
+                "max |C_ij| = %.6g (tensor units as printed; thermo_pw prints kbar, ELATE "
+                        + "expects GPa - the draft's REQUIRED-EDIT flag does the /10).%n",
+                block.getMaxAbs()));
+        text.append("\nThe draft below is written ONLY via the explicit 'Save input "
+                + "file...' action; QuantumForge never sends the tensor anywhere. "
+                + "Reference: Gaillac, Coudert, J. Phys.: Condens. Matter 28 (2016) "
+                + "275201. Rendering the anisotropic surfaces inside the GUI remains "
+                + "the viewer-level #119/#125 work.");
+        String draft = ELateTensorDraft.draft(block, source.getName(), true, summary);
+        List<String> csv = new ArrayList<>();
+        csv.add("voigt_row,c1,c2,c3,c4,c5,c6");
+        double[][] cij = block.getCij();
+        for (int i = 0; i < 6; i++) {
+            csv.add(String.format(Locale.ROOT, "%d,%.10g,%.10g,%.10g,%.10g,%.10g,%.10g",
+                    i + 1, cij[i][0], cij[i][1], cij[i][2], cij[i][3], cij[i][4], cij[i][5]));
+        }
+        return new AnalysisReport(label, true, text.toString(), csv, draft);
     }
 
     /**

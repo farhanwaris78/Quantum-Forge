@@ -352,7 +352,8 @@ def main() -> int:
                   "HUBBARD_HP_DRAFT", "QETimingParser", "TIMING_RESOURCE",
                   "WorkspaceLightIndex", "WORKSPACE_SEARCH",
                   "QEWorkflowTemplateLibrary", "TEMPLATE_LIBRARY",
-                  "PoscarStructureReader", "POSCAR_REVIEW"]:
+                  "PoscarStructureReader", "POSCAR_REVIEW",
+                  "ELateTensorDraft", "ELASTIC_ELATE_DRAFT"]:
         if token not in service:
             error(f"ResultAnalysisService is not bound to {token}")
     for rel in ["quantumforge/com/math/SymmetricEigen3.java",
@@ -371,7 +372,8 @@ def main() -> int:
                 "quantumforge/run/parser/QETimingParser.java",
                 "quantumforge/project/WorkspaceLightIndex.java",
                 "quantumforge/input/QEWorkflowTemplateLibrary.java",
-                "quantumforge/builder/PoscarStructureReader.java"]:
+                "quantumforge/builder/PoscarStructureReader.java",
+                "quantumforge/export/ELateTensorDraft.java"]:
         text = (SRC / rel).read_text(encoding="utf-8")
         if "class " not in text:
             error(f"{rel} does not declare a type")
