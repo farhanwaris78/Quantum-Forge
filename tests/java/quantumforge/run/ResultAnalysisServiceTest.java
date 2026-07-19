@@ -564,4 +564,209 @@ class ResultAnalysisServiceTest {
                 stubProject(this.tempDir), new AnalysisParameters());
         assertFalse(noLog.isSuccess(), "A project without a Berry log must fail closed");
     }
+
+    @Test
+    void testScfConvergenceFromLogTail() throws IOException {
+        File log = write("si-scf.out",
+                "     iteration #  1     ecut=    25.00 Ry     beta= 0.70\n"
+                + "     total energy              =     -15.84012345 Ry\n"
+                + "     estimated scf accuracy    <       0.01200000 Ry\n"
+                + "     iteration #  2     ecut=    25.00 Ry     beta= 0.70\n"
+                + "!    total energy              =     -15.85245678 Ry\n"
+                + "     estimated scf accuracy    <       0.00000001 Ry\n");
+        AnalysisReport report = ResultAnalysisService.analyze(AnalysisKind.SCF_CONVERGENCE,
+                new ProjectProperty(), this.tempDir.toFile(), "si", "si.log", log,
+                new AnalysisParameters());
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains("Iterations parsed: 2"), report.getText());
+        assertTrue(report.getText().contains("Converged marker ('! total energy') found: true"),
+                report.getText());
+        assertTrue(report.getText().contains("Final total energy: -15.85245678 Ry"),
+                report.getText());
+        assertEquals("iteration,total_energy_Ry,estimated_accuracy_Ry",
+                report.getCsvLines().get(0));
+        assertEquals(3, report.getCsvLines().size(), "header plus 2 iterations");
+    }
+
+    @Test
+    void testScfConvergenceFailureStates() throws IOException {
+        File notConverged = write("si-nc.out",
+                "     total energy              =     -15.84012345 Ry\n"
+                + "     total energy              =     -15.83012345 Ry\n"
+                + "     convergence NOT achieved after 100 iterations: stopping\n");
+        AnalysisReport report = ResultAnalysisService.analyze(AnalysisKind.SCF_CONVERGENCE,
+                new ProjectProperty(), this.tempDir.toFile(), "si", "si.log", notConverged,
+                new AnalysisParameters());
+        assertFalse(report.isSuccess(), "An explicitly unconverged SCF must not report success");
+        assertTrue(report.getText().contains("Explicit 'convergence NOT achieved': true"),
+                report.getText());
+
+        File empty = write("empty.out", "Program PWSCF starts ...\nkinetic-energy cutoff\n");
+        AnalysisReport noScf = ResultAnalysisService.analyze(AnalysisKind.SCF_CONVERGENCE,
+                new ProjectProperty(), this.tempDir.toFile(), "si", "si.log", empty,
+                new AnalysisParameters());
+        assertFalse(noScf.isSuccess(), "A log without SCF iterations must fail closed");
+    }
+
+    @Test
+    void testTimingProfileFromPwLog() throws IOException {
+        File log = write("si-timing.out",
+                "     Parallel version (MPI), running on     8 processors\n"
+                + "     Estimated max_memory     =   120.50 MB\n"
+                + "     FFT dimensions:  (  64,  64,  64)\n"
+                + "     PWSCF        :      5m 12.34s CPU      5m 14.56s WALL\n");
+        AnalysisReport report = ResultAnalysisService.analyze(AnalysisKind.TIMING_PROFILE,
+                new ProjectProperty(), this.tempDir.toFile(), "si", "si.log", log,
+                new AnalysisParameters());
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains("MPI processors: 8"), report.getText());
+        assertTrue(report.getText().contains("FFT grid: 64 x 64 x 64"), report.getText());
+        assertTrue(report.getText().contains("Estimated max memory: 120.50 MB"), report.getText());
+        assertTrue(report.getText().contains("CPU time:  312.34 s"), report.getText());
+        assertTrue(report.getText().contains("Wall time: 314.56 s"), report.getText());
+        assertTrue(report.getText().contains("Derived CPU-time-per-rank utilization: 12.4 %"),
+                report.getText());
+
+        File noTiming = write("noise.out", "nothing relevant here\n");
+        AnalysisReport fail = ResultAnalysisService.analyze(AnalysisKind.TIMING_PROFILE,
+                new ProjectProperty(), this.tempDir.toFile(), "si", "si.log", noTiming,
+                new AnalysisParameters());
+        assertFalse(fail.isSuccess());
+    }
+
+    @Test
+    void testSmearingSafetyVerdicts() throws IOException {
+        File log = write("cu-smearing.out",
+                "     total energy              =   -12.703512 Ry\n"
+                + "     smearing contrib. (-TS)   =    -0.004500 Ry\n"
+                + "     total free energy         =   -12.708012 Ry\n");
+        AnalysisReport unsafe = ResultAnalysisService.analyze(AnalysisKind.SMEARING_ANALYSIS,
+                new ProjectProperty(), this.tempDir.toFile(), "cu", "cu.log", log,
+                new AnalysisParameters().withAtomCount(2));
+        assertTrue(unsafe.isSuccess(), unsafe.getText());
+        assertTrue(unsafe.getText().contains("Smearing -TS:        -0.00450000 Ry"),
+                unsafe.getText());
+        assertTrue(unsafe.getText().contains("|-TS| per atom (N=2): 0.00225000 Ry"),
+                unsafe.getText());
+        assertTrue(unsafe.getText().contains("If the system is an insulator/semiconductor: WARNING"),
+                "0.00225 Ry/atom exceeds the 0.001 Ry force-bias limit: " + unsafe.getText());
+
+        AnalysisReport safe = ResultAnalysisService.analyze(AnalysisKind.SMEARING_ANALYSIS,
+                new ProjectProperty(), this.tempDir.toFile(), "cu", "cu.log", log,
+                new AnalysisParameters().withAtomCount(10));
+        assertTrue(safe.getText().contains("If the system is an insulator/semiconductor: SAFE"),
+                safe.getText());
+        assertTrue(safe.getText().contains("If the system is metallic: SAFE"), safe.getText());
+
+        AnalysisReport badCount = ResultAnalysisService.analyze(AnalysisKind.SMEARING_ANALYSIS,
+                new ProjectProperty(), this.tempDir.toFile(), "cu", "cu.log", log,
+                new AnalysisParameters().withAtomCount(0));
+        assertFalse(badCount.isSuccess(), "A zero atom count must be rejected");
+
+        File noSmearing = write("si- fixed.out", "     total energy = -12.0 Ry\n");
+        AnalysisReport noData = ResultAnalysisService.analyze(AnalysisKind.SMEARING_ANALYSIS,
+                new ProjectProperty(), this.tempDir.toFile(), "si", "si.log", noSmearing,
+                new AnalysisParameters().withAtomCount(2));
+        assertFalse(noData.isSuccess(), "A non-smearing log must fail closed");
+    }
+
+    @Test
+    void testPhononDosThermodynamicsFromTwoColumnGrid() throws IOException {
+        File dos = write("si-phdos.dat", "0.0 0.0\n100.0 1.0\n200.0 1.0\n300.0 0.0\n");
+        AnalysisReport report = ResultAnalysisService.analyze(AnalysisKind.PHONON_DOS_THERMO,
+                new ProjectProperty(), this.tempDir.toFile(), "si", "si.log", dos,
+                new AnalysisParameters().withTemperatureK(300.0));
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains("Integrated DOS (mode count): 200.000000"),
+                report.getText());
+        assertTrue(report.getText().contains("Temperature: 300.00 K"), report.getText());
+        assertTrue(report.getText().contains("Zero-point energy:"), report.getText());
+        assertTrue(report.getText().contains("Heat capacity Cv:"), report.getText());
+        assertTrue(report.getText().contains("3*natoms"), report.getText());
+    }
+
+    @Test
+    void testPhononDosValidationFailures() throws IOException {
+        File nonIncreasing = write("bad-phdos.dat", "100.0 1.0\n50.0 1.0\n300.0 0.0\n");
+        AnalysisReport gridFail = ResultAnalysisService.analyze(AnalysisKind.PHONON_DOS_THERMO,
+                new ProjectProperty(), this.tempDir.toFile(), "si", "si.log", nonIncreasing,
+                new AnalysisParameters().withTemperatureK(300.0));
+        assertFalse(gridFail.isSuccess());
+        assertTrue(gridFail.getText().contains("Phonon DOS validation failed"), gridFail.getText());
+
+        File dos = write("ok-phdos.dat", "0.0 0.0\n100.0 1.0\n200.0 0.0\n");
+        AnalysisReport badTemp = ResultAnalysisService.analyze(AnalysisKind.PHONON_DOS_THERMO,
+                new ProjectProperty(), this.tempDir.toFile(), "si", "si.log", dos,
+                new AnalysisParameters().withTemperatureK(-5.0));
+        assertFalse(badTemp.isSuccess(), "A negative temperature must be rejected");
+    }
+
+    @Test
+    void testElasticStabilityFromThermoPwMatrix() throws IOException {
+        File stable = write("elastic.out",
+                "  Elastic Constant Matrix (kbar)\n"
+                + "  5000 1000 1000    0    0    0\n"
+                + "  1000 5000 1000    0    0    0\n"
+                + "  1000 1000 5000    0    0    0\n"
+                + "     0    0    0 2000    0    0\n"
+                + "     0    0    0    0 2000    0\n"
+                + "     0    0    0    0    0 2000\n");
+        AnalysisReport report = ResultAnalysisService.analyze(AnalysisKind.ELASTIC_STABILITY,
+                new ProjectProperty(), this.tempDir.toFile(), "si", "si.log", stable,
+                new AnalysisParameters());
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains(
+                "Mechanically stable (Sylvester leading-minors criterion): true"),
+                report.getText());
+        assertTrue(report.getText().contains("Cubic Born mechanical criteria satisfied"),
+                report.getText());
+        assertTrue(report.getText().contains("kbar"), report.getText());
+
+        File unstable = write("elastic-unstable.out",
+                "  Elastic Constant Matrix (kbar)\n"
+                + "   500 1000 1000    0    0    0\n"
+                + "  1000  500 1000    0    0    0\n"
+                + "  1000 1000  500    0    0    0\n"
+                + "     0    0    0 2000    0    0\n"
+                + "     0    0    0    0 2000    0\n"
+                + "     0    0    0    0    0 2000\n");
+        AnalysisReport bad = ResultAnalysisService.analyze(AnalysisKind.ELASTIC_STABILITY,
+                new ProjectProperty(), this.tempDir.toFile(), "si", "si.log", unstable,
+                new AnalysisParameters());
+        assertFalse(bad.isSuccess(), "C11=500 < 2*C12=1000 must fail Born stability");
+        assertTrue(bad.getText().contains("FAILED"), bad.getText());
+
+        File noBlock = write("no-elastic.out", "SCF output only\n");
+        AnalysisReport missing = ResultAnalysisService.analyze(AnalysisKind.ELASTIC_STABILITY,
+                new ProjectProperty(), this.tempDir.toFile(), "si", "si.log", noBlock,
+                new AnalysisParameters());
+        assertFalse(missing.isSuccess(), "A log without the matrix block must fail closed");
+    }
+
+    @Test
+    void testLammpsThermoTrajectoryAndCsv() throws IOException {
+        File log = write("log.lammps",
+                "Memory usage per processor = 2.45 Mbytes\n"
+                + "Step Temp Press PotEng KinEng TotEng\n"
+                + "   0  300.0  1.0  -150.0  15.0  -135.0\n"
+                + " 100  310.0  2.0  -152.0  16.0  -136.0\n"
+                + " 200  290.0  0.0  -148.0  14.0  -134.0\n"
+                + "Loop time of 12.345s on 4 procs\n");
+        AnalysisReport report = ResultAnalysisService.analyze(AnalysisKind.LAMMPS_THERMO,
+                new ProjectProperty(), this.tempDir.toFile(), "ml", "ml.log", log,
+                new AnalysisParameters());
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains("Thermo steps parsed: 3"), report.getText());
+        assertTrue(report.getText().contains("Total-energy drift over the run: +1.000000"),
+                report.getText());
+        assertTrue(report.getText().contains("'units' command"), report.getText());
+        assertEquals("step,temp_K,press_bar,poteng,kineng,toteng", report.getCsvLines().get(0));
+        assertEquals(4, report.getCsvLines().size(), "header plus 3 thermo rows");
+
+        File noThermo = write("lammps-broken.log", "LAMMPS (29 Sep 2021)\nERROR: pair style\n");
+        AnalysisReport fail = ResultAnalysisService.analyze(AnalysisKind.LAMMPS_THERMO,
+                new ProjectProperty(), this.tempDir.toFile(), "ml", "ml.log", noThermo,
+                new AnalysisParameters());
+        assertFalse(fail.isSuccess(), "A LAMMPS log without thermo rows must fail closed");
+    }
 }

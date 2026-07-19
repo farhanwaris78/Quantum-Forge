@@ -35,19 +35,27 @@ import quantumforge.project.Project;
 import quantumforge.project.property.ProjectEnergies;
 import quantumforge.project.property.ProjectProperty;
 import quantumforge.run.parser.CubeGridReader;
+import quantumforge.run.parser.ElasticParser;
+import quantumforge.run.parser.PhononDosThermodynamics;
 import quantumforge.run.parser.QEAcousticSumRuleValidator;
 import quantumforge.run.parser.QEBandsDataParser;
 import quantumforge.run.parser.QEBerryPolarizationParser;
 import quantumforge.run.parser.QEBornChargeDielectricParser;
 import quantumforge.run.parser.QECarParrinelloParser;
+import quantumforge.run.parser.QEElasticStabilityValidator;
 import quantumforge.run.parser.QEEliashbergTcCalculator;
 import quantumforge.run.parser.QEGipawNmrParser;
 import quantumforge.run.parser.QEGridDensityDifference;
 import quantumforge.run.parser.QEHubbardHpParser;
+import quantumforge.run.parser.QELammpsThermoParser;
 import quantumforge.run.parser.QEMagneticMomentParser;
 import quantumforge.run.parser.QEMdDiffusionMsdParser;
 import quantumforge.run.parser.QEPhono3pyKappaParser;
 import quantumforge.run.parser.QESlabPlateauDiagnostic;
+import quantumforge.run.parser.QESmearingConvergenceAnalyzer;
+import quantumforge.run.parser.QETimingResourceParser;
+import quantumforge.run.parser.ScfConvergenceAnalyzer;
+import quantumforge.run.parser.ScfIterationRecord;
 import quantumforge.symmetry.MagneticSpaceGroupDetector;
 import quantumforge.run.parser.QEPwcondConductanceParser;
 import quantumforge.run.parser.QEThermoPwEosParser;
@@ -57,8 +65,9 @@ import quantumforge.run.parser.QEXSpectraXanesParser;
 
 /**
  * Deterministic, read-only result-analysis service bound to existing, individually
- * tested parser backends (roadmap items 46, 55, 58, 59, 61, 63, 64, 65, 66, 68,
- * 69, 106, 108, and 165). This class owns no process execution and writes nothing:
+ * tested parser backends (roadmap items 32, 38, 43, 46, 51/54/55/58, 59, 60, 61,
+ * 63, 64, 65, 66, 67, 68, 69, 74, 79, 106, 108, 113, 119, 134, 151, 156, and 165).
+ * This class owns no process execution and writes nothing:
  * produced reports are returned to the caller (GUI or CLI) which decides what to
  * persist. Every report states units, source-file provenance, and the analysis'
  * limitations instead of presenting parsed numbers as validation evidence.
@@ -104,7 +113,13 @@ public final class ResultAnalysisService {
         CP_TRAJECTORY("Car-Parrinello cp.x energy trajectory"),
         MAGNETIC_ORDER("Magnetic order classification"),
         CUBE_INSPECT("CUBE volumetric grid inspection"),
-        CITATIONS("Citation / BibTeX bundle");
+        CITATIONS("Citation / BibTeX bundle"),
+        SCF_CONVERGENCE("SCF energy convergence"),
+        TIMING_PROFILE("pw.x timing and resource profile"),
+        SMEARING_ANALYSIS("Smearing entropy and degauss safety"),
+        PHONON_DOS_THERMO("Phonon DOS harmonic thermodynamics"),
+        ELASTIC_STABILITY("Elastic tensor stability (thermo_pw)"),
+        LAMMPS_THERMO("LAMMPS MD thermo trajectory");
 
         private final String label;
 
@@ -160,6 +175,8 @@ public final class ResultAnalysisService {
         private int atomIndexC = 0; // 0 means "not supplied"
         private int atomIndexD = 0;
         private double frameTimeStepPs = 1.0;
+        private double temperatureK = 300.0;
+        private int atomCount = 1;
 
         public double getFermiEv() { return this.fermiEv; }
         public int getKpointIndex() { return this.kpointIndex; }
@@ -173,6 +190,8 @@ public final class ResultAnalysisService {
         public int getAtomIndexC() { return this.atomIndexC; }
         public int getAtomIndexD() { return this.atomIndexD; }
         public double getFrameTimeStepPs() { return this.frameTimeStepPs; }
+        public double getTemperatureK() { return this.temperatureK; }
+        public int getAtomCount() { return this.atomCount; }
 
         public AnalysisParameters withFermiEv(double value) { this.fermiEv = value; return this; }
         public AnalysisParameters withKpointIndex(int value) { this.kpointIndex = value; return this; }
@@ -190,6 +209,14 @@ public final class ResultAnalysisService {
         }
         public AnalysisParameters withFrameTimeStepPs(double value) {
             this.frameTimeStepPs = value;
+            return this;
+        }
+        public AnalysisParameters withTemperatureK(double value) {
+            this.temperatureK = value;
+            return this;
+        }
+        public AnalysisParameters withAtomCount(int value) {
+            this.atomCount = value;
             return this;
         }
     }
@@ -292,6 +319,17 @@ public final class ResultAnalysisService {
             return name.contains("cp") && (name.endsWith(".out") || name.endsWith(".log"));
         case CUBE_INSPECT:
             return name.endsWith(".cube") || name.endsWith(".cub");
+        case SCF_CONVERGENCE:
+        case TIMING_PROFILE:
+        case SMEARING_ANALYSIS:
+            return name.endsWith(".log") || name.endsWith(".out");
+        case PHONON_DOS_THERMO:
+            return name.contains("phdos") || name.endsWith(".dos")
+                    || (name.contains("dos") && name.endsWith(".dat"));
+        case ELASTIC_STABILITY:
+            return name.contains("elastic");
+        case LAMMPS_THERMO:
+            return name.contains("lammps");
         default:
             return false;
         }
@@ -358,6 +396,18 @@ public final class ResultAnalysisService {
                 return analyzeCpTrajectory(property, source);
             case CUBE_INSPECT:
                 return analyzeCube(source);
+            case SCF_CONVERGENCE:
+                return analyzeScfConvergence(source);
+            case TIMING_PROFILE:
+                return analyzeTiming(property, source);
+            case SMEARING_ANALYSIS:
+                return analyzeSmearing(property, source, params);
+            case PHONON_DOS_THERMO:
+                return analyzePhononDosThermo(source, params);
+            case ELASTIC_STABILITY:
+                return analyzeElastic(property, source);
+            case LAMMPS_THERMO:
+                return analyzeLammpsThermo(property, source);
             default:
                 return failure(kind.getLabel(), "This analysis kind is not implemented.");
             }
@@ -1739,5 +1789,324 @@ public final class ResultAnalysisService {
                 + "density); an electron-count claim additionally requires the explicit density "
                 + "convention and is not made here.");
         return new AnalysisReport(label, true, text.toString(), List.of(), null);
+    }
+
+    /** SCF iteration history from a bounded log tail: energies, accuracies, trend, verdict. */
+    private static AnalysisReport analyzeScfConvergence(File source) throws IOException {
+        String label = AnalysisKind.SCF_CONVERGENCE.getLabel();
+        String tail = readTailUtf8(source.toPath(), LOG_SCAN_BYTES);
+        ScfConvergenceAnalyzer.Report report = ScfConvergenceAnalyzer.analyze(tail);
+        List<ScfIterationRecord> iterations = report.getIterations();
+        if (iterations.isEmpty()) {
+            return failure(label, "No pw.x 'total energy' iteration lines were found in the last "
+                    + (LOG_SCAN_BYTES / (1024L * 1024L)) + " MiB of " + source.getName()
+                    + ". A pw.x electronic (scf/nscf/relax) log is required.");
+        }
+        StringBuilder text = new StringBuilder();
+        text.append("Source: ").append(source.getName()).append(" (bounded ")
+                .append(LOG_SCAN_BYTES / (1024L * 1024L)).append(" MiB tail scan)\n");
+        text.append("Iterations parsed: ").append(iterations.size()).append('\n');
+        text.append("Converged marker ('! total energy') found: ").append(report.isConverged())
+                .append('\n');
+        text.append("Explicit 'convergence NOT achieved': ")
+                .append(report.isExplicitlyNotConverged()).append('\n');
+        text.append("Accuracy trend classification: ").append(report.getTrend()).append('\n');
+        if (report.getFinalEnergyRy() != null) {
+            text.append(String.format(Locale.ROOT, "Final total energy: %.8f Ry (%.6f eV)%n",
+                    report.getFinalEnergyRy(), report.getFinalEnergyRy() * 13.605693122994));
+        }
+        if (report.getFinalAccuracyRy() != null) {
+            text.append(String.format(Locale.ROOT, "Final estimated SCF accuracy: %.8g Ry%n",
+                    report.getFinalAccuracyRy()));
+        }
+        List<String> csv = new ArrayList<>();
+        csv.add("iteration,total_energy_Ry,estimated_accuracy_Ry");
+        for (ScfIterationRecord record : iterations) {
+            csv.add(String.format(Locale.ROOT, "%d,%.8f,%s", record.getIteration(),
+                    record.getTotalEnergyRy(),
+                    record.getEstimatedAccuracyRy() == null ? ""
+                            : String.format(Locale.ROOT, "%.8g", record.getEstimatedAccuracyRy())));
+        }
+        text.append("\nThe tail scan is bounded; long relax/vc-relax logs may hold several SCF "
+                + "loops and the trend is computed on the parsed stream as-is. A parsed "
+                + "iteration history is not by itself evidence that every geometry step "
+                + "converged; the explicit markers above carry that information.");
+        boolean success = report.isConverged() && !report.isExplicitlyNotConverged();
+        return new AnalysisReport(label, success, text.toString(), csv, null);
+    }
+
+    /** pw.x MPI/FFT/memory/timing records with per-rank efficiency derivation and caveats. */
+    private static AnalysisReport analyzeTiming(ProjectProperty property, File source)
+            throws IOException {
+        String label = AnalysisKind.TIMING_PROFILE.getLabel();
+        QETimingResourceParser parser = new QETimingResourceParser(property);
+        parser.parse(source);
+        double cpu = parser.getCpuTimeSeconds();
+        double wall = parser.getWallTimeSeconds();
+        double memoryMb = parser.getEstimatedMaxMemoryMb();
+        int processors = parser.getNumProcessors();
+        if (!Double.isFinite(cpu) && !Double.isFinite(wall) && processors <= 0
+                && !Double.isFinite(memoryMb)) {
+            return failure(label, "No pw.x timing, MPI, memory, or FFT records were found in "
+                    + source.getName() + ". A pw.x output log is required.");
+        }
+        StringBuilder text = new StringBuilder();
+        text.append("Source: ").append(source.getName()).append('\n');
+        text.append("MPI processors: ")
+                .append(processors > 0 ? String.valueOf(processors) : "not reported")
+                .append('\n');
+        text.append("FFT grid: ")
+                .append("0 x 0 x 0".equals(parser.getFftGrid()) ? "not reported"
+                        : parser.getFftGrid())
+                .append('\n');
+        text.append("Estimated max memory: ")
+                .append(Double.isFinite(memoryMb)
+                        ? String.format(Locale.ROOT, "%.2f MB", memoryMb) : "not reported")
+                .append('\n');
+        if (Double.isFinite(cpu)) {
+            text.append(String.format(Locale.ROOT, "CPU time:  %.2f s%n", cpu));
+        }
+        if (Double.isFinite(wall)) {
+            text.append(String.format(Locale.ROOT, "Wall time: %.2f s%n", wall));
+        }
+        if (Double.isFinite(cpu) && Double.isFinite(wall) && wall > 0.0) {
+            text.append(String.format(Locale.ROOT,
+                    "CPU/WALL ratio: %.4f (values far above 1 reflect multi-core CPU accounting)%n",
+                    cpu / wall));
+            if (processors > 0) {
+                text.append(String.format(Locale.ROOT,
+                        "Derived CPU-time-per-rank utilization: %.1f %%%n",
+                        100.0 * cpu / (wall * processors)));
+            }
+        }
+        text.append("\nThe memory figure is pw.x's own heuristic estimate, not a measurement; "
+                + "scaling conclusions need a processor-count series, not a single run.");
+        return new AnalysisReport(label, true, text.toString(), List.of(), null);
+    }
+
+    /** Smearing -TS record with per-atom degauss safety verdicts for both metallic assumptions. */
+    private static AnalysisReport analyzeSmearing(ProjectProperty property, File source,
+            AnalysisParameters params) throws IOException {
+        String label = AnalysisKind.SMEARING_ANALYSIS.getLabel();
+        int natoms = params.getAtomCount();
+        if (natoms < 1) {
+            return failure(label, "The per-atom entropy check needs the number of atoms in the "
+                    + "simulation cell (got " + natoms + ").");
+        }
+        QESmearingConvergenceAnalyzer analyzer = new QESmearingConvergenceAnalyzer(property);
+        analyzer.parse(source);
+        if (!analyzer.isSmearingFound()) {
+            return failure(label, "No smearing entropy (-TS / demet) records were found in "
+                    + source.getName() + ". The check applies to occupations='smearing' runs "
+                    + "(a Methfessel-Paxton / Marzari-Vanderbilt / Gaussian SCF log).");
+        }
+        List<String> base = analyzer.getDiagnostics();
+        boolean insulatorSafe = analyzer.verifySmearingSafe(natoms, false);
+        List<String> afterInsulator = analyzer.getDiagnostics();
+        boolean metalSafe = analyzer.verifySmearingSafe(natoms, true);
+        List<String> afterMetal = analyzer.getDiagnostics();
+
+        double perAtomRy = Math.abs(analyzer.getEntropyRy()) / natoms;
+        StringBuilder text = new StringBuilder();
+        text.append("Source: ").append(source.getName()).append('\n');
+        text.append(String.format(Locale.ROOT, "Total energy:        %.8f Ry%n",
+                analyzer.getTotalEnergyRy()));
+        text.append(String.format(Locale.ROOT, "Smearing -TS:        %.8f Ry%n",
+                analyzer.getEntropyRy()));
+        text.append(String.format(Locale.ROOT, "Total free energy:   %.8f Ry%n",
+                analyzer.getFreeEnergyRy()));
+        text.append(String.format(Locale.ROOT,
+                "|-TS| per atom (N=%d): %.8f Ry = %.4f meV/atom%n%n", natoms, perAtomRy,
+                perAtomRy * 13605.693122994));
+        for (String diagnostic : base) {
+            text.append(" - ").append(diagnostic).append('\n');
+        }
+        text.append("If the system is an insulator/semiconductor: ")
+                .append(insulatorSafe ? "SAFE" : "WARNING").append('\n');
+        for (int i = base.size(); i < afterInsulator.size(); i++) {
+            text.append("   ").append(afterInsulator.get(i)).append('\n');
+        }
+        text.append("If the system is metallic: ")
+                .append(metalSafe ? "SAFE" : "WARNING").append('\n');
+        for (int i = afterInsulator.size(); i < afterMetal.size(); i++) {
+            text.append("   ").append(afterMetal.get(i)).append('\n');
+        }
+        text.append("\nSafety limits: |-TS|/atom > 0.001 Ry (~13.6 meV/atom) biases forces; a "
+                + "near-zero -TS in a metal risks SCF oscillations. This single-point check "
+                + "does not replace a degauss/smearing-scheme convergence series "
+                + "(roadmap #38).");
+        return new AnalysisReport(label, true, text.toString(), List.of(), null);
+    }
+
+    /** Harmonic ZPE/F/U/S/Cv from a two-column phonon DOS with explicit mode-count honesty. */
+    private static AnalysisReport analyzePhononDosThermo(File source, AnalysisParameters params)
+            throws IOException {
+        String label = AnalysisKind.PHONON_DOS_THERMO.getLabel();
+        double temperature = params.getTemperatureK();
+        if (!(temperature > 0.0) || !Double.isFinite(temperature)) {
+            return failure(label, "A positive finite temperature in kelvin is required (got "
+                    + temperature + ").");
+        }
+        List<Double> frequencies = new ArrayList<>();
+        List<Double> dosValues = new ArrayList<>();
+        int rejected = 0;
+        for (String raw : Files.readAllLines(source.toPath(), StandardCharsets.UTF_8)) {
+            String line = raw.trim();
+            if (line.isEmpty() || line.startsWith("#") || line.startsWith("@")
+                    || line.startsWith("!")) {
+                continue;
+            }
+            String[] tokens = line.split("\\s+");
+            if (tokens.length < 2) {
+                rejected++;
+                continue;
+            }
+            try {
+                double frequency = Double.parseDouble(normalizeExponent(tokens[0]));
+                double dos = Double.parseDouble(normalizeExponent(tokens[1]));
+                if (Double.isFinite(frequency) && Double.isFinite(dos)) {
+                    frequencies.add(frequency);
+                    dosValues.add(dos);
+                } else {
+                    rejected++;
+                }
+            } catch (NumberFormatException ex) {
+                rejected++;
+            }
+        }
+        if (frequencies.size() < 2) {
+            return failure(label, "Fewer than two (frequency, DOS) rows were parsed from "
+                    + source.getName() + ". A matdyn.x/ph.x-derived DOS file in cm^-1 is "
+                    + "required.");
+        }
+        double[] frequency = new double[frequencies.size()];
+        double[] dos = new double[dosValues.size()];
+        for (int i = 0; i < frequency.length; i++) {
+            frequency[i] = frequencies.get(i);
+            dos[i] = dosValues.get(i);
+        }
+        OperationResult<PhononDosThermodynamics.Result> integrated =
+                PhononDosThermodynamics.integrate(frequency, dos, temperature);
+        if (!integrated.isSuccess() || integrated.getValue().isEmpty()) {
+            return failure(label, "Phonon DOS validation failed for " + source.getName()
+                    + ": " + integrated.getMessage());
+        }
+        PhononDosThermodynamics.Result result = integrated.getValue().orElseThrow();
+        StringBuilder text = new StringBuilder();
+        text.append("Source: ").append(source.getName()).append("; grid samples: ")
+                .append(frequency.length);
+        if (rejected > 0) {
+            text.append("; rejected rows: ").append(rejected);
+        }
+        text.append('\n');
+        text.append(String.format(Locale.ROOT, "Frequency grid: %.4f .. %.4f cm^-1%n",
+                frequency[0], frequency[frequency.length - 1]));
+        text.append(String.format(Locale.ROOT, "Temperature: %.2f K%n", result.getTemperatureK()));
+        text.append(String.format(Locale.ROOT, "Integrated DOS (mode count): %.6f%n",
+                result.getIntegratedDos()));
+        text.append(String.format(Locale.ROOT, "Zero-point energy:      %.8f eV%n",
+                result.getZeroPointEnergyEv()));
+        text.append(String.format(Locale.ROOT, "Helmholtz free energy: %.8f eV%n",
+                result.getHelmholtzFreeEnergyEv()));
+        text.append(String.format(Locale.ROOT, "Internal energy:       %.8f eV%n",
+                result.getInternalEnergyEv()));
+        text.append(String.format(Locale.ROOT, "Entropy:               %.8f eV/K%n",
+                result.getEntropyEvPerK()));
+        text.append(String.format(Locale.ROOT, "Heat capacity Cv:      %.8f eV/K = %.4f J/(mol K)%n",
+                result.getHeatCapacityEvPerK(), result.getHeatCapacityEvPerK() * 96485.33212));
+        text.append('\n').append(result.getNotes()).append('\n');
+        text.append("\nThe integrated DOS should equal 3*natoms (3*natoms-3 without acoustic "
+                + "modes) for a normalized phonon DOS; comparing it against your cell remains "
+                + "your check. Values are harmonic (no thermal expansion) and sensitive to the "
+                + "low-frequency grid near the acoustic branches.");
+        return new AnalysisReport(label, true, text.toString(), List.of(), null);
+    }
+
+    /** thermo_pw 6x6 elastic tensor with Sylvester Born-stability verdict and units caveat. */
+    private static AnalysisReport analyzeElastic(ProjectProperty property, File source)
+            throws IOException {
+        String label = AnalysisKind.ELASTIC_STABILITY.getLabel();
+        long size = Files.size(source.toPath());
+        if (size > 64L * 1024L * 1024L) {
+            return failure(label, source.getName() + " is " + (size / (1024L * 1024L))
+                    + " MiB; pass the thermo_pw output containing the 'Elastic Constant "
+                    + "Matrix' block (or an extract of it), bounded to 64 MiB.");
+        }
+        String content = Files.readString(source.toPath(), StandardCharsets.UTF_8);
+        if (!content.contains("Elastic Constant Matrix")) {
+            return failure(label, "No 'Elastic Constant Matrix' block exists in "
+                    + source.getName() + ". A thermo_pw elastic-constants output is required.");
+        }
+        ElasticParser parser = new ElasticParser(property);
+        parser.parse(source);
+        double[][] cij = parser.getCij();
+        QEElasticStabilityValidator.StabilityResult stability = parser.getStabilityResult();
+        StringBuilder text = new StringBuilder();
+        text.append("Source: ").append(source.getName()).append('\n');
+        text.append("Elastic constant matrix Cij (units as printed; thermo_pw defaults to "
+                + "kbar - divide by 10 for GPa, and verify the header lines before the "
+                + "block):\n");
+        for (int i = 0; i < 6; i++) {
+            for (int j = 0; j < 6; j++) {
+                text.append(String.format(Locale.ROOT, "%12.6g", cij[i][j]));
+            }
+            text.append('\n');
+        }
+        text.append('\n');
+        if (stability != null) {
+            text.append("Mechanically stable (Sylvester leading-minors criterion): ")
+                    .append(stability.isMechanicallyStable()).append('\n');
+            for (String diagnostic : stability.getDiagnostics()) {
+                text.append(" - ").append(diagnostic).append('\n');
+            }
+        }
+        text.append("\nPositive-definiteness of the symmetrized Cij is the Born necessary "
+                + "condition; it does not prove dynamical (phonon) or thermodynamic stability. "
+                + "Convention and units stay exactly as thermo_pw printed them.");
+        boolean success = stability == null || stability.isMechanicallyStable();
+        return new AnalysisReport(label, success, text.toString(), List.of(), null);
+    }
+
+    /** LAMMPS default-thermo trajectory with averages, drift, and a full CSV export. */
+    private static AnalysisReport analyzeLammpsThermo(ProjectProperty property, File source)
+            throws IOException {
+        String label = AnalysisKind.LAMMPS_THERMO.getLabel();
+        QELammpsThermoParser parser = new QELammpsThermoParser(property);
+        parser.parse(source);
+        List<QELammpsThermoParser.ThermoStep> steps = parser.getSteps();
+        if (steps.isEmpty()) {
+            return failure(label, "No 'Step Temp Press PotEng KinEng TotEng' thermo rows were "
+                    + "found in " + source.getName() + ". A LAMMPS log with the default "
+                    + "thermo_style columns is required.");
+        }
+        QELammpsThermoParser.ThermoStep first = steps.get(0);
+        QELammpsThermoParser.ThermoStep last = steps.get(steps.size() - 1);
+        StringBuilder text = new StringBuilder();
+        text.append("Source: ").append(source.getName()).append('\n');
+        text.append("Thermo steps parsed: ").append(steps.size()).append('\n');
+        text.append(String.format(Locale.ROOT,
+                "First step %d: TotEng=%.6f, Temp=%.2f K, Press=%.4f%n", first.getStep(),
+                first.getTotalEnergyEv(), first.getTemperatureK(), first.getPressureBar()));
+        text.append(String.format(Locale.ROOT,
+                "Last step %d:  TotEng=%.6f, Temp=%.2f K, Press=%.4f%n", last.getStep(),
+                last.getTotalEnergyEv(), last.getTemperatureK(), last.getPressureBar()));
+        text.append(String.format(Locale.ROOT,
+                "Total-energy drift over the run: %+.6f (energy units)%n",
+                last.getTotalEnergyEv() - first.getTotalEnergyEv()));
+        for (String diagnostic : parser.getDiagnostics()) {
+            text.append(" - ").append(diagnostic).append('\n');
+        }
+        List<String> csv = new ArrayList<>();
+        csv.add("step,temp_K,press_bar,poteng,kineng,toteng");
+        for (QELammpsThermoParser.ThermoStep step : steps) {
+            csv.add(String.format(Locale.ROOT, "%d,%.4f,%.6f,%.8f,%.8f,%.8f", step.getStep(),
+                    step.getTemperatureK(), step.getPressureBar(), step.getPotentialEnergyEv(),
+                    step.getKineticEnergyEv(), step.getTotalEnergyEv()));
+        }
+        text.append("\nColumn units follow the LAMMPS 'units' command of the producing input "
+                + "(the parser labels the common eV/bar convention of metal units); verify "
+                + "against your log's 'units' line, which this report does not parse. The "
+                + "drift sign carries no equilibration guarantee.");
+        return new AnalysisReport(label, true, text.toString(), csv, null);
     }
 }

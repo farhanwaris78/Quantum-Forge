@@ -206,6 +206,27 @@ public final class AnalysisAction {
             parameters.withFrameTimeStepPs(dt);
             break;
         }
+        case PHONON_DOS_THERMO: {
+            Double temperature = askDouble(
+                    "Temperature in kelvin for the harmonic phonon integration", "300.0");
+            if (temperature != null) {
+                parameters.withTemperatureK(temperature);
+            }
+            break;
+        }
+        case SMEARING_ANALYSIS: {
+            int defaultAtoms = 1;
+            if (this.project.getCell() != null && this.project.getCell().numAtoms() > 0) {
+                defaultAtoms = this.project.getCell().numAtoms();
+            }
+            Integer atoms = askInteger("Number of atoms in the simulation cell "
+                    + "(needed for the per-atom entropy safety check)", defaultAtoms);
+            if (atoms == null) {
+                return null;
+            }
+            parameters.withAtomCount(atoms);
+            break;
+        }
         default:
             break;
         }
