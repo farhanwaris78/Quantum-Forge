@@ -80,6 +80,9 @@ public class ThermoPwExtension implements SoftwareExtension {
 
     @Override
     public boolean isAvailable() {
-        return true;
+        // These forms are retained only as experimental source material.  They
+        // cannot create, execute, parse, and validate a complete workflow.
+        // Never expose a prototype as an installable scientific capability.
+        return false;
     }
 }

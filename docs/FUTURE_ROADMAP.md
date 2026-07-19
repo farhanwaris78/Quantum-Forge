@@ -396,3 +396,11 @@ The **twelfth** batch is a massive integration of 100+ roadmap items from the re
 | 165 | **Partial** | `QEEliashbergTcCalculator` Allen-Dynes Tc |
 | 166 | **Partial** | `HyperfineMapper` isotope database |
 | 170 | **Partial** | `QECatMapMkmExporter` microkinetics |
+
+The **thirteenth** batch restores the trust boundary between experimental source sketches and the production GUI:
+
+| # | Status after batch 13 | What landed |
+|---:|---|---|
+| 1 | **Stronger** | VASP, CASTEP, thermo_pw, phonopy, BoltzTraP2, and ML editor sketches now report unavailable and are filtered from `ExtensionManager`; production UI code cannot advertise their disconnected forms as working workflows. |
+| 2 | **Stronger** | A regression test verifies the production extension list is empty and immutable until an end-to-end, independently validated extension is admitted. |
+| 16 | **Verified** | Static/compile checks, fixture harness, shell syntax checks, and an isolated portable install/uninstall smoke test pass in this checkout; full Maven/JUnit execution remains blocked here because no JDK/Maven is installed. |
