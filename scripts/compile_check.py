@@ -320,7 +320,7 @@ def main() -> int:
     text = (SRC / rel).read_text(encoding="utf-8")
     if "class " not in text:
         error(f"{rel} does not declare a type")
-    for token in ["QEBrillouinZoneGeometry"]:
+    for token in ["QEBrillouinZoneGeometry", "BandGapParser", "QEPdosParser"]:
         if token not in service:
             error(f"ResultAnalysisService is not bound to {token}")
     rel = "quantumforge/symmetry/QEBrillouinZoneGeometry.java"

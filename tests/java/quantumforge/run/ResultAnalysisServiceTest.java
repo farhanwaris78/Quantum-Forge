@@ -1502,4 +1502,68 @@ class ResultAnalysisServiceTest {
                 stubProject(this.tempDir), new AnalysisParameters());
         assertFalse(noCell.isSuccess(), "No cell must fail closed");
     }
+
+    @Test
+    void testBandGapKindHonestDirectness() throws IOException {
+        File gapped = write("gapped-pw.out",
+                "     the Fermi energy is      6.5400 ev\n"
+                + "     highest occupied, lowest unoccupied level (ev):   -2.0000     1.5000\n");
+        AnalysisReport report = ResultAnalysisService.analyze(AnalysisKind.BAND_GAP,
+                new ProjectProperty(), this.tempDir.toFile(), "si", "si.log", gapped,
+                new AnalysisParameters());
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains("Gap: 3.500000 eV"), report.getText());
+        assertTrue(report.getText().contains("Fermi energy: 6.540000 eV"), report.getText());
+        assertTrue(report.getText().contains("Directness: unknown"), report.getText());
+        assertTrue(report.getText().contains("gapped above the 0.01 eV analysis tolerance"),
+                report.getText());
+        assertTrue(report.getText().contains("not a convergence-tested band gap"),
+                report.getText());
+
+        File direct = write("direct-pw.out", "     direct band gap is    0.5000\n");
+        AnalysisReport directReport = ResultAnalysisService.analyze(AnalysisKind.BAND_GAP,
+                new ProjectProperty(), this.tempDir.toFile(), "si", "si.log", direct,
+                new AnalysisParameters());
+        assertTrue(directReport.isSuccess(), directReport.getText());
+        assertTrue(directReport.getText().contains("explicitly reported direct"),
+                directReport.getText());
+
+        File none = write("nogap-pw.out", "     total energy = -100.0 Ry\n");
+        AnalysisReport missing = ResultAnalysisService.analyze(AnalysisKind.BAND_GAP,
+                new ProjectProperty(), this.tempDir.toFile(), "si", "si.log", none,
+                new AnalysisParameters());
+        assertFalse(missing.isSuccess(), "Logs without gap records must fail closed");
+    }
+
+    @Test
+    void testDosIntegrationKindValidatedTrapezoid() throws IOException {
+        File pdos = write("espresso.pdos_atm#1(Si)_wfc#2(p).dat",
+                "# E (eV)   ldos(E)   pdos(E)\n"
+                + "  0.0    0.0   0.0\n"
+                + "  1.0    0.0   2.0\n"
+                + "  3.0    0.0   4.0\n");
+        AnalysisReport report = ResultAnalysisService.analyze(AnalysisKind.DOS_INTEGRATION,
+                new ProjectProperty(), this.tempDir.toFile(), "espresso", "espresso.log", pdos,
+                new AnalysisParameters());
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains("atom #1 (Si), wfc #2 (l=p)"), report.getText());
+        // Nonuniform trapezoid: 0.5*1*(0+2) + 0.5*2*(2+4) = 1 + 6 = 7.
+        assertTrue(report.getText().contains("Integral (nonuniform trapezoid, energies in eV):"
+                + " 7.000000"), report.getText());
+        assertTrue(report.getText().contains("NOT an electron count"), report.getText());
+        assertEquals(4, report.getCsvLines().size(), "header plus 3 grid rows");
+
+        File headerless = write("espresso.pdos_atm#1(Si)_wfc#1(s).dat",
+                "  0.0    0.0\n  1.0    1.0\n");
+        AnalysisReport refused = ResultAnalysisService.analyze(AnalysisKind.DOS_INTEGRATION,
+                new ProjectProperty(), this.tempDir.toFile(), "espresso", "espresso.log",
+                headerless, new AnalysisParameters());
+        assertFalse(refused.isSuccess(), "Headerless two-column data must be refused");
+
+        File wrongName = write("random.dat", "# E (eV) ldos pdos\n 0.0 1.0 2.0\n 1.0 2.0 3.0\n");
+        AnalysisReport nameless = ResultAnalysisService.analyze(AnalysisKind.DOS_INTEGRATION,
+                new ProjectProperty(), this.tempDir.toFile(), "espresso", "espresso.log",
+                wrongName, new AnalysisParameters());
+        assertFalse(nameless.isSuccess(), "Files without the projectwfc naming are refused");
+    }
 }

@@ -50,6 +50,7 @@ import quantumforge.project.property.ProjectEnergies;
 import quantumforge.project.property.ProjectGeometryList;
 import quantumforge.project.property.ProjectProperty;
 import quantumforge.pseudo.PseudoFamilyValidator;
+import quantumforge.run.parser.BandGapParser;
 import quantumforge.run.parser.CubeGridReader;
 import quantumforge.run.parser.ElasticParser;
 import quantumforge.run.parser.GeometryConvergenceValidator;
@@ -69,6 +70,7 @@ import quantumforge.run.parser.QEHubbardHpParser;
 import quantumforge.run.parser.QELammpsThermoParser;
 import quantumforge.run.parser.QEMagneticMomentParser;
 import quantumforge.run.parser.QEMdDiffusionMsdParser;
+import quantumforge.run.parser.QEPdosParser;
 import quantumforge.run.parser.QEPhono3pyKappaParser;
 import quantumforge.run.parser.QESlabPlateauDiagnostic;
 import quantumforge.run.parser.QESmearingConvergenceAnalyzer;
@@ -164,7 +166,9 @@ public final class ResultAnalysisService {
         SITE_PROFILE_CHECK("HPC site profile validation (scheduler/container)"),
         ML_MODEL_CHECK("ML potential model-manifest validation"),
         EXX_GUIDANCE("Exact-exchange (hybrid) k/q grid guidance"),
-        BZ_GEOMETRY("Brillouin-zone polyhedron (lattice geometry)");
+        BZ_GEOMETRY("Brillouin-zone polyhedron (lattice geometry)"),
+        BAND_GAP("Band-gap summary from pw.x log"),
+        DOS_INTEGRATION("Projected DOS integration (projwfc.x)");
 
         private final String label;
 
@@ -549,10 +553,13 @@ public final class ResultAnalysisService {
         case SCF_CONVERGENCE:
         case TIMING_PROFILE:
         case SMEARING_ANALYSIS:
+        case BAND_GAP:
             return name.endsWith(".log") || name.endsWith(".out");
         case PHONON_DOS_THERMO:
             return name.contains("phdos") || name.endsWith(".dos")
                     || (name.contains("dos") && name.endsWith(".dat"));
+        case DOS_INTEGRATION:
+            return name.contains("pdos") && name.contains("atm#");
         case ELASTIC_STABILITY:
         case ELASTIC_MODULI:
             return name.contains("elastic");
@@ -687,6 +694,10 @@ public final class ResultAnalysisService {
                 return analyzePhononModes(property, source);
             case VOLTAGE_PROFILE:
                 return analyzeVoltageProfile(source, params);
+            case BAND_GAP:
+                return analyzeBandGapSummary(source);
+            case DOS_INTEGRATION:
+                return analyzeDosIntegration(source);
             case SITE_PROFILE_CHECK:
                 return analyzeSiteProfile(source);
             default:
@@ -3366,6 +3377,106 @@ public final class ResultAnalysisService {
                 + "calculations. Nothing in the project cell was modified.");
         boolean success = !adsorber.isCollisionDetected();
         return new AnalysisReport(label, success, text.toString(), List.of(), null);
+    }
+
+    /**
+     * Explicit band-gap summary parsing (Roadmap #47): the parser reads only
+     * QE occupied/unoccupied or stated-gap lines; directness is reported only
+     * when the engine states it, never inferred from a text summary.
+     */
+    private static AnalysisReport analyzeBandGapSummary(File source) {
+        String label = AnalysisKind.BAND_GAP.getLabel();
+        BandGapParser parser = new BandGapParser(source.getAbsolutePath());
+        if (!parser.parse()) {
+            String details = parser.getDiagnostics().isEmpty()
+                    ? "No explicit or occupied/unoccupied band-gap summary was found."
+                    : String.join("\n", parser.getDiagnostics());
+            return failure(label, "Band-gap parsing failed closed for " + source.getName()
+                    + ":\n" + details);
+        }
+        StringBuilder text = new StringBuilder();
+        text.append("Source: ").append(source.getName()).append('\n');
+        text.append(String.format(Locale.ROOT, "Gap: %.6f eV%n", parser.getBandGap()));
+        if (Double.isFinite(parser.getFermiEnergy())) {
+            text.append(String.format(Locale.ROOT, "Fermi energy: %.6f eV%n",
+                    parser.getFermiEnergy()));
+        }
+        if (parser.isDirectKnown()) {
+            text.append(parser.isDirect()
+                    ? "Directness: explicitly reported direct.\n"
+                    : "Directness: explicitly reported indirect.\n");
+        } else {
+            text.append("Directness: unknown; this QE log summary is not k-resolved "
+                    + "evidence.\n");
+        }
+        text.append("Classification: ").append(parser.isInsulator()
+                ? "gapped above the 0.01 eV analysis tolerance." : "metallic/small-gap "
+                        + "within the 0.01 eV analysis tolerance.").append('\n');
+        if (!parser.getDiagnostics().isEmpty()) {
+            text.append("\nParser diagnostics:\n");
+            for (String diagnostic : parser.getDiagnostics()) {
+                text.append(" - ").append(diagnostic).append('\n');
+            }
+        }
+        text.append("\nParsed statements are repeated as found in the log; a parsed gap "
+                + "summary is not a convergence-tested band gap (k-mesh/functional evidence "
+                + "is separate).");
+        return new AnalysisReport(label, true, text.toString(), List.of(), null);
+    }
+
+    /**
+     * Nonuniform trapezoidal integration of one validated projwfc.x component
+     * file (Roadmap #49, single-projection level). The integral is deliberately
+     * NOT called an electron count without an occupation/Fermi convention.
+     */
+    private static AnalysisReport analyzeDosIntegration(File source) {
+        String label = AnalysisKind.DOS_INTEGRATION.getLabel();
+        QEPdosParser.PdosComponent component;
+        try {
+            component = QEPdosParser.parseSingleFile(source);
+        } catch (IOException | RuntimeException ex) {
+            return failure(label, "PDOS parsing failed closed for " + source.getName() + ": "
+                    + ex.getMessage());
+        }
+        if (component == null) {
+            return failure(label, "Not a validated projwfc.x PDOS file: " + source.getName()
+                    + "\nExpected the atm#N(element)_wfc#N(l) projectwfc naming and a header "
+                    + "line identifying PDOS columns; headerless files are refused.");
+        }
+        double[] energies = component.getEnergies();
+        double[] pdos = component.getPdos();
+        double integral;
+        try {
+            integral = QEPdosParser.integratePdos(energies, pdos);
+        } catch (IllegalArgumentException ex) {
+            return failure(label, "The PDOS grid failed validation: " + ex.getMessage());
+        }
+        StringBuilder text = new StringBuilder();
+        text.append("Source: ").append(source.getName()).append('\n');
+        text.append("Projection: atom #").append(component.getAtomIndex()).append(" (")
+                .append(component.getElement()).append("), wfc #").append(component.getWfcIndex())
+                .append(" (l=").append(component.getOrbitalL()).append("), spin channel ")
+                .append(component.getSpinChannel()).append('\n');
+        text.append(String.format(Locale.ROOT,
+                "Emission energy range of this file: %.6f .. %.6f eV (%d grid points)%n",
+                energies[0], energies[energies.length - 1], energies.length));
+        text.append(String.format(Locale.ROOT,
+                "Integral (nonuniform trapezoid, energies in eV): %.6f%n", integral));
+        List<String> csv = new ArrayList<>();
+        csv.add("energy_eV,pdos_per_eV");
+        int cap = Math.min(energies.length, 20000);
+        for (int i = 0; i < cap; i++) {
+            csv.add(String.format(Locale.ROOT, "%.10f,%.10f", energies[i], pdos[i]));
+        }
+        if (energies.length > cap) {
+            text.append(String.format(Locale.ROOT,
+                    "CSV export truncated at %d of %d rows.%n", cap, energies.length));
+        }
+        text.append("\nThe integral is the summed projection area over the emitted interval "
+                + "only; it is NOT an electron count without a spin/orbital-degeneracy and "
+                + "occupation convention, and it says nothing about states outside the "
+                + "emitted energy window.");
+        return new AnalysisReport(label, true, text.toString(), csv, null);
     }
 
     /** Static site-profile validation (Roadmap #94/#103); connects/probes nothing. */
