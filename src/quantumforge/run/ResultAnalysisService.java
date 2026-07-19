@@ -18,6 +18,7 @@ import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Matcher;
@@ -42,6 +43,7 @@ import quantumforge.builder.QEDiffusionBarrierLink;
 import quantumforge.builder.SupercellMatrixValidator;
 import quantumforge.builder.QEThermochemistryMath;
 import quantumforge.builder.ExtXyzCellExporter;
+import quantumforge.builder.PdbStructureReader;
 import quantumforge.builder.PoscarStructureReader;
 import quantumforge.builder.QEConstraintSpec;
 import quantumforge.builder.QEIonicConstraintManager;
@@ -231,7 +233,8 @@ public final class ResultAnalysisService {
         ELASTIC_ELATE_DRAFT("ELATE elastic tensor draft (Voigt, stability-gated)"),
         SPIN_CUBE_MAGNETIZATION("Spin magnetization from paired up/down CUBE files"),
         ESM_SLAB_CHECK("ESM/slab readiness audit (assume_isolated/esm_bc + vacuum)"),
-        MOIRE_TWIST_PREVIEW("Commensurate twist preview (exact hexagonal (m,n) math)");
+        MOIRE_TWIST_PREVIEW("Commensurate twist preview (exact hexagonal (m,n) math)"),
+        PDB_REVIEW("PDB structure review (fail-closed, no element guessing)");
 
         private final String label;
 
@@ -861,6 +864,8 @@ public final class ResultAnalysisService {
                     || name.endsWith(".vasp");
         case ELASTIC_ELATE_DRAFT:
             return name.contains("elastic") || name.contains("elate");
+        case PDB_REVIEW:
+            return name.endsWith(".pdb") || name.endsWith(".ent");
         default:
             return false;
         }
@@ -1002,6 +1007,8 @@ public final class ResultAnalysisService {
                 return analyzePoscarReview(source);
             case ELASTIC_ELATE_DRAFT:
                 return analyzeElasticElateDraft(source);
+            case PDB_REVIEW:
+                return analyzePdbReview(source);
             default:
                 return failure(kind.getLabel(), "This analysis kind is not implemented.");
             }
@@ -5481,6 +5488,98 @@ public final class ResultAnalysisService {
                 + "universal defaults. ecutwfc/ecutrho/k-mesh/smearing choices must come "
                 + "from your convergence workflows (#36/#37/#38) for the specific "
                 + "material; a template cannot certify a result.");
+        return new AnalysisReport(label, true, text.toString(), csv, null);
+    }
+
+    /**
+     * Roadmap #78: fail-closed PDB review. Nothing is applied to the project;
+     * the element column is never guessed, and unresolved disorder is counted.
+     */
+    private static AnalysisReport analyzePdbReview(File source) {
+        String label = AnalysisKind.PDB_REVIEW.getLabel();
+        OperationResult<PdbStructureReader.PdbStructure> parsed =
+                PdbStructureReader.parse(source.toPath());
+        if (!parsed.isSuccess() || parsed.getValue().isEmpty()) {
+            return failure(label, "PDB review refused the file " + source.getName()
+                    + ":\n[" + parsed.getCode() + "] " + parsed.getMessage());
+        }
+        PdbStructureReader.PdbStructure structure = parsed.getValue().get();
+        double[] lo = {Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY,
+                Double.POSITIVE_INFINITY};
+        double[] hi = {Double.NEGATIVE_INFINITY, Double.NEGATIVE_INFINITY,
+                Double.NEGATIVE_INFINITY};
+        int hetatm = 0;
+        for (PdbStructureReader.PdbAtom atom : structure.getAtoms()) {
+            double[] pos = {atom.getX(), atom.getY(), atom.getZ()};
+            for (int axis = 0; axis < 3; axis++) {
+                lo[axis] = Math.min(lo[axis], pos[axis]);
+                hi[axis] = Math.max(hi[axis], pos[axis]);
+            }
+            if ("HETATM".equals(atom.getRecord())) {
+                hetatm += 1;
+            }
+        }
+        StringBuilder text = new StringBuilder();
+        text.append("File: ").append(source.getName()).append('\n');
+        text.append(String.format(Locale.ROOT,
+                "Records: %d atoms (%d ATOM + %d HETATM); %d non-coordinate line(s) "
+                        + "counted and ignored (HEADER/REMARK/END/CONECT...).%n",
+                structure.getAtoms().size(), structure.getAtoms().size() - hetatm, hetatm,
+                structure.getIgnoredLines()));
+        StringBuilder composition = new StringBuilder();
+        for (Map.Entry<String, Integer> entry : structure.elementCounts().entrySet()) {
+            if (composition.length() > 0) {
+                composition.append(',');
+            }
+            composition.append(entry.getKey()).append('=').append(entry.getValue());
+        }
+        text.append(String.format(Locale.ROOT,
+                "Composition (from the element column ONLY): %s%n",
+                composition.length() == 0 ? "(no element columns present)"
+                        : composition.toString()));
+        text.append(String.format(Locale.ROOT,
+                "Atoms WITHOUT an element column: %d (left anonymous - guessing CA vs Ca "
+                        + "is the classic PDB failure)%n", structure.getMissingElementCount()));
+        text.append(String.format(Locale.ROOT,
+                "Partial-occupancy atoms (0 < occ < 1): %d (unresolved disorder - reported, "
+                        + "never resolved here)%n", structure.getPartialOccupancyCount()));
+        if (structure.hasCryst()) {
+            double[] cryst = structure.getCryst();
+            text.append(String.format(Locale.ROOT,
+                    "CRYST1: a=%.4f b=%.4f c=%.4f alpha=%.3f beta=%.3f gamma=%.3f deg; "
+                            + "cell volume %.4f Ang^3%n",
+                    cryst[0], cryst[1], cryst[2], cryst[3], cryst[4], cryst[5],
+                    structure.cellVolume()));
+        } else {
+            text.append("CRYST1: absent (a non-crystallographic file - no periodic box "
+                    + "is defined).\n");
+        }
+        text.append(String.format(Locale.ROOT,
+                "Bounding box (Angstrom):\n  min %12.4f %12.4f %12.4f%n  max %12.4f "
+                        + "%12.4f %12.4f%n",
+                lo[0], lo[1], lo[2], hi[0], hi[1], hi[2]));
+        text.append("\nHonesty boundary: REVIEW only - the structure was NOT applied to "
+                + "the live project and nothing was written. PDB coordinates are Angstrom "
+                + "as printed; the CRYST1 record is a crystallographic box (MD packages "
+                + "routinely store unrelated or placeholder boxes - it is shown, not "
+                + "trusted as a DFT cell). CONECT bond records are counted and ignored "
+                + "(no bond perception); alternate locations and partial occupancies are "
+                + "reported, never resolved; the 11/12-token grammar is deliberately "
+                + "stricter than permissive PDB parsers - a record outside it fails the "
+                + "whole file instead of being misread.");
+        List<String> csv = new ArrayList<>();
+        csv.add("index,record,name,residue,element,x_ang,y_ang,z_ang,occupancy");
+        int limit = Math.min(structure.getAtoms().size(), 20000);
+        for (int i = 0; i < limit; i++) {
+            PdbStructureReader.PdbAtom atom = structure.getAtoms().get(i);
+            csv.add(String.format(Locale.ROOT, "%d,%s,%s,%s,%s,%.4f,%.4f,%.4f,%.2f",
+                    i + 1, atom.getRecord(), csvCell(atom.getName()),
+                    csvCell(atom.getResidue()), csvCell(atom.getElement()),
+                    atom.getX(), atom.getY(), atom.getZ(), atom.getOccupancy()));
+        }
+        if (limit < structure.getAtoms().size()) {
+            csv.add("# truncated at 20000 atom rows (cap)");
+        }
         return new AnalysisReport(label, true, text.toString(), csv, null);
     }
 

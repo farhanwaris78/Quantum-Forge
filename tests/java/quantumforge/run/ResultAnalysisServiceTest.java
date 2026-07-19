@@ -3059,4 +3059,52 @@ class ResultAnalysisServiceTest {
         assertTrue(outOfRange.getText().contains("[MOIRE_BOUNDS]"),
                 outOfRange.getText());
     }
+
+    @Test
+    void testPdbReviewKindHonestCompositionAndRefusals() throws IOException {
+        File pdb = write("ala.pdb",
+                "HEADER    small alanine example\n"
+                + "CRYST1   30.000   40.000   50.000  90.00  90.00  90.00\n"
+                + "ATOM      1  N   ALA A   1      11.104  13.207  10.325  1.00 20.00           N\n"
+                + "ATOM      2  CA  ALA A   1      12.104  13.500  10.500  0.50 20.00           C\n"
+                + "HETATM  101  O   HOH A 101      20.000  20.000  20.000  1.00 30.00\n"
+                + "END\n");
+        AnalysisReport report = ResultAnalysisService.analyze(AnalysisKind.PDB_REVIEW,
+                new ProjectProperty(), this.tempDir.toFile(), "ala", "ala.log", pdb,
+                new AnalysisParameters());
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains("3 atoms (2 ATOM + 1 HETATM)"),
+                report.getText());
+        assertTrue(report.getText().contains("N=1,C=1"), report.getText());
+        assertTrue(report.getText().contains("Atoms WITHOUT an element column: 1"),
+                report.getText());
+        assertTrue(report.getText().contains("Partial-occupancy atoms (0 < occ < 1): 1"),
+                report.getText());
+        assertTrue(report.getText().contains("cell volume 60000.0000 Ang^3"),
+                report.getText());
+        assertTrue(report.getText().contains("REVIEW only"), report.getText());
+        assertTrue(report.getText().contains("not trusted as a DFT cell")
+                        || report.getText().contains("not\ntrusted"),
+                report.getText());
+        assertEquals(4, report.getCsvLines().size(), "header + 3 atoms");
+        assertEquals("3,HETATM,O,HOH,,20.0000,20.0000,20.0000,1.00",
+                report.getCsvLines().get(3));
+
+        File multimodel = write("multi.pdb",
+                "MODEL        1\n"
+                + "ATOM      1  N   ALA A   1       1.0 1.0 1.0  1.00 20.00           N\n");
+        AnalysisReport refused = ResultAnalysisService.analyze(AnalysisKind.PDB_REVIEW,
+                new ProjectProperty(), this.tempDir.toFile(), "m", "m.log", multimodel,
+                new AnalysisParameters());
+        assertFalse(refused.isSuccess(), "multi-model files refuse, never silently split");
+        assertTrue(refused.getText().contains("[PDB_MODEL]"), refused.getText());
+
+        File shortLine = write("short.pdb",
+                "ATOM      1  N   ALA A   1       1.0 1.0 1.0  1.00\n");
+        AnalysisReport shortRefused = ResultAnalysisService.analyze(AnalysisKind.PDB_REVIEW,
+                new ProjectProperty(), this.tempDir.toFile(), "s", "s.log", shortLine,
+                new AnalysisParameters());
+        assertFalse(shortRefused.isSuccess());
+        assertTrue(shortRefused.getText().contains("[PDB_SYNTAX]"), shortRefused.getText());
+    }
 }
