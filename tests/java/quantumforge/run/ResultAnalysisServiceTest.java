@@ -1594,4 +1594,35 @@ class ResultAnalysisServiceTest {
                 write("nope-elastic.out", "nothing here\n"), new AnalysisParameters());
         assertFalse(missing.isSuccess(), "Missing matrix blocks fail closed");
     }
+
+    @Test
+    void testMethodsTextKindTranscribesAndNeverFabricates() throws IOException {
+        QESCFInput input = new QESCFInput();
+        input.updateInputData("&CONTROL\n  calculation = 'relax'\n/\n"
+                + "&SYSTEM\n  ibrav = 0, nat = 1, ntyp = 1, ecutwfc = 30.0\n/\n"
+                + "ATOMIC_SPECIES\n  Si 28.086 Si.pz-vbc.UPF\n"
+                + "K_POINTS automatic\n  4 4 4 0 0 0\n");
+        Cell cell = new Cell(quantumforge.com.math.Matrix3D.unit(10.0));
+        cell.addAtom("Si", 0.1, 0.1, 0.1);
+
+        AnalysisReport report = ResultAnalysisService.analyze(AnalysisKind.METHODS_TEXT,
+                stubProjectWithInput(this.tempDir, input, cell), new AnalysisParameters());
+        assertTrue(report.isSuccess(), report.getText());
+        assertNotNull(report.getGeneratedInput(), "The draft must be offered for explicit save");
+        assertTrue(report.getGeneratedInput().contains("`relax`"), report.getGeneratedInput());
+        assertTrue(report.getGeneratedInput().contains("`ecutwfc` = 30.00 Ry"),
+                report.getGeneratedInput());
+        assertTrue(report.getGeneratedInput().contains("Si <- Si.pz-vbc.UPF"),
+                report.getGeneratedInput());
+        assertTrue(report.getGeneratedInput().contains("### Not recorded"),
+                report.getGeneratedInput());
+        assertFalse(report.getGeneratedInput().contains("PBE"),
+                "Functional names are never fabricated: " + report.getGeneratedInput());
+
+        AnalysisReport noInput = ResultAnalysisService.analyze(AnalysisKind.METHODS_TEXT,
+                stubProject(this.tempDir, cell), new AnalysisParameters());
+        assertFalse(noInput.isSuccess(),
+                "Without an input the report is not a success, though it still renders");
+        assertTrue(noInput.getText().contains("no current input"), noInput.getText());
+    }
 }

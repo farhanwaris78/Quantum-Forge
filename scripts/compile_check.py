@@ -333,6 +333,13 @@ def main() -> int:
         error(f"{rel} does not declare a type")
     if "SvgSeriesPlotter" not in (SRC / "quantumforge/app/project/viewer/analysis/AnalysisAction.java").read_text(encoding="utf-8"):
         error("AnalysisAction is not wired to SvgSeriesPlotter SVG export")
+    for token in ["MethodsTextBuilder"]:
+        if token not in service:
+            error(f"ResultAnalysisService is not bound to {token}")
+    rel = "quantumforge/export/MethodsTextBuilder.java"
+    text = (SRC / rel).read_text(encoding="utf-8")
+    if "class " not in text:
+        error(f"{rel} does not declare a type")
     for rel in ["quantumforge/neural/MlModelManifest.java",
                 "quantumforge/neural/MLPotentialService.java"]:
         text = (SRC / rel).read_text(encoding="utf-8")

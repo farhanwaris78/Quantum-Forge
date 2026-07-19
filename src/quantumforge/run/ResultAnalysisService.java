@@ -30,6 +30,7 @@ import quantumforge.builder.QECitationManager;
 import quantumforge.builder.adsorption.MoleculeAdsorber;
 import quantumforge.builder.QEHullThermodynamics;
 import quantumforge.builder.QEPointDefectBuilder;
+import quantumforge.export.MethodsTextBuilder;
 import quantumforge.hpc.SiteProfile;
 import quantumforge.hpc.SiteProfileValidator;
 import quantumforge.input.QEExxPlanner;
@@ -169,7 +170,8 @@ public final class ResultAnalysisService {
         BZ_GEOMETRY("Brillouin-zone polyhedron (lattice geometry)"),
         BAND_GAP("Band-gap summary from pw.x log"),
         DOS_INTEGRATION("Projected DOS integration (projwfc.x)"),
-        ELASTIC_DIRECTIONAL("Directional Young\u0027s modulus (elastic tensor)");
+        ELASTIC_DIRECTIONAL("Directional Young\u0027s modulus (elastic tensor)"),
+        METHODS_TEXT("Methods-section draft (input transcription)");
 
         private final String label;
 
@@ -206,7 +208,7 @@ public final class ResultAnalysisService {
                     || this == GEOMETRY_CONVERGENCE || this == PSEUDO_FAMILY || this == SYMMETRY_KPATH
                     || this == INPUT_DIFF || this == KMESH_QUALITY || this == DEFECT_PREVIEW
                     || this == SERIES_PLAN || this == ADSORPTION_PREVIEW || this == ML_MODEL_CHECK
-                    || this == EXX_GUIDANCE || this == BZ_GEOMETRY;
+                    || this == EXX_GUIDANCE || this == BZ_GEOMETRY || this == METHODS_TEXT;
         }
 
         /** True for project-bound kinds that additionally parse a user data file. */
@@ -811,6 +813,8 @@ public final class ResultAnalysisService {
                 return analyzeExxGuidance(project, params);
             case BZ_GEOMETRY:
                 return analyzeBzGeometry(project);
+            case METHODS_TEXT:
+                return analyzeMethodsText(project);
             default:
                 return failure(kind.getLabel(), "This analysis kind is not implemented.");
         }
@@ -2040,11 +2044,16 @@ public final class ResultAnalysisService {
     }
 
     /** Detects used workflows from project artifacts and compiles the exact BibTeX bundle. */
-    private static AnalysisReport analyzeCitations(Project project) {
-        String label = AnalysisKind.CITATIONS.getLabel();
-        boolean phonons = false;
-        boolean thermo = false;
-        boolean wannier = false;
+    /** Artifact detection + registered citations shared by citation/methods kinds. */
+    private static final class CitationContext {
+        boolean phonons;
+        boolean thermo;
+        boolean wannier;
+        QECitationManager manager;
+    }
+
+    private static CitationContext citationContextFor(Project project) {
+        CitationContext context = new CitationContext();
         File directory = project.getDirectory();
         if (directory != null) {
             File[] files = directory.listFiles(File::isFile);
@@ -2053,19 +2062,30 @@ public final class ResultAnalysisService {
                     String name = candidate.getName().toLowerCase(Locale.ROOT);
                     if (name.contains("matdyn") || name.endsWith(".freq") || name.endsWith(".freq.gp")
                             || name.startsWith("ph.")) {
-                        phonons = true;
+                        context.phonons = true;
                     }
                     if (name.contains("thermo") || name.contains("eos")) {
-                        thermo = true;
+                        context.thermo = true;
                     }
                     if (name.endsWith(".wout")) {
-                        wannier = true;
+                        context.wannier = true;
                     }
                 }
             }
         }
-        QECitationManager manager = new QECitationManager();
-        manager.registerFeatureCitations(phonons, thermo, wannier, false);
+        context.manager = new QECitationManager();
+        context.manager.registerFeatureCitations(context.phonons, context.thermo,
+                context.wannier, false);
+        return context;
+    }
+
+    private static AnalysisReport analyzeCitations(Project project) {
+        String label = AnalysisKind.CITATIONS.getLabel();
+        CitationContext context = citationContextFor(project);
+        QECitationManager manager = context.manager;
+        boolean phonons = context.phonons;
+        boolean thermo = context.thermo;
+        boolean wannier = context.wannier;
         String bibtex = manager.compileBibTex();
         if (bibtex == null || bibtex.isBlank()) {
             return failure(label, "No citations were registered; nothing to compile.");
@@ -3830,5 +3850,34 @@ public final class ResultAnalysisService {
                 + "analysis for labelled paths. The polyhedron was accepted only because the "
                 + "volume identity and the Euler characteristic both hold.");
         return new AnalysisReport(label, zone.isConsistent(), text.toString(), csv, null);
+    }
+
+    /**
+     * Methods-section draft (Roadmap #123, partial): transcribes parsed input and
+     * cell facts into reviewable Markdown. Values are never fabricated; missing
+     * physics items are listed explicitly for manual completion.
+     */
+    private static AnalysisReport analyzeMethodsText(Project project) {
+        String label = AnalysisKind.METHODS_TEXT.getLabel();
+        QEInput input = project.getQEInputCurrent();
+        Cell cell = project.getCell();
+        CitationContext context = citationContextFor(project);
+        String bibtex = context.manager.compileBibTex();
+        MethodsTextBuilder.MethodsDraft draft = MethodsTextBuilder.build(
+                input, cell, context.manager.getActiveCitationKeys(), bibtex);
+        StringBuilder text = new StringBuilder();
+        text.append("Generated from the open input and cell. Items NOT parsed are listed in "
+                + "the draft's 'Not recorded' section - ").append(draft.getMissing().size())
+                .append(" item(s).\n\n");
+        if (input == null) {
+            text.append("NOTE: the project has no current input, so every input-dependent "
+                    + "field is in the missing list. The draft is still reviewable but "
+                    + "contains no transcribed input values.\n\n");
+        }
+        text.append("The draft below is also what 'Save input file ...' would write; review "
+                + "and complete it before use.\n\n");
+        text.append(draft.getText());
+        return new AnalysisReport(label, input != null, text.toString(), List.of(),
+                draft.getText());
     }
 }
