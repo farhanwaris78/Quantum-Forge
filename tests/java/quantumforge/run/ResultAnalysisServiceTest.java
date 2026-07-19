@@ -1895,4 +1895,42 @@ class ResultAnalysisServiceTest {
                 stubProject(this.tempDir, matching), null, new AnalysisParameters());
         assertFalse(missing.isSuccess(), "A missing file must fail closed");
     }
+
+    @Test
+    void testTrajectoryIndexKindStreamingAndFailClosed() throws IOException {
+        String frame = "2\ncomment\nSi 0.0 0.0 0.0\nSi 1.0 1.0 1.0\n";
+        File traj = write("md-traj.xyz", frame + frame + frame);
+        AnalysisReport report = ResultAnalysisService.analyze(AnalysisKind.TRAJECTORY_INDEX,
+                new ProjectProperty(), this.tempDir.toFile(), "si", "si.log", traj,
+                new AnalysisParameters());
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains("complete frames: 3; atoms per frame: 2"),
+                report.getText());
+        assertTrue(report.getText().contains("Stored frame offsets: 3 (complete)"),
+                report.getText());
+        assertTrue(report.getText().contains("Truncated tail frame after the last complete "
+                + "frame: no"), report.getText());
+        assertEquals(4, report.getCsvLines().size(), "header plus 3 offset rows");
+        assertTrue(report.getCsvLines().get(1).equals("1,0"), report.getCsvLines().get(1));
+        int frameBytes = frame.getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
+        assertTrue(report.getCsvLines().get(2).equals("2," + frameBytes),
+                report.getCsvLines().get(2));
+
+        File cut = write("md-trunc.xyz", frame + "2\ncomment\nSi 0.0 0.0\n");
+        AnalysisReport tail = ResultAnalysisService.analyze(AnalysisKind.TRAJECTORY_INDEX,
+                new ProjectProperty(), this.tempDir.toFile(), "si", "si.log", cut,
+                new AnalysisParameters());
+        assertTrue(tail.isSuccess(), tail.getText());
+        assertTrue(tail.getText().contains("complete frames: 1"), tail.getText());
+        assertTrue(tail.getText().contains("YES (reported, not indexed)"), tail.getText());
+
+        File mixed = write("md-mixed.xyz",
+                frame + "3\ncomment\nH 0 0 0\nH 0 0 0\nH 0 0 0\n");
+        AnalysisReport refused = ResultAnalysisService.analyze(AnalysisKind.TRAJECTORY_INDEX,
+                new ProjectProperty(), this.tempDir.toFile(), "si", "si.log", mixed,
+                new AnalysisParameters());
+        assertFalse(refused.isSuccess(), "Changing topology must fail closed");
+        assertTrue(refused.getText().contains("TRAJ_INCONSISTENT")
+                || refused.getText().contains("fixed-topology"), refused.getText());
+    }
 }

@@ -86,6 +86,7 @@ import quantumforge.run.parser.QESlabPlateauDiagnostic;
 import quantumforge.run.parser.QESmearingConvergenceAnalyzer;
 import quantumforge.run.parser.QETimingResourceParser;
 import quantumforge.run.parser.QETensorAnalyzer;
+import quantumforge.run.parser.TrajectoryIndexReader;
 import quantumforge.run.parser.ScfConvergenceAnalyzer;
 import quantumforge.run.parser.ScfIterationRecord;
 import quantumforge.symmetry.MagneticSpaceGroupDetector;
@@ -187,7 +188,8 @@ public final class ResultAnalysisService {
         BARRIER_DIFFUSION("Barrier-based diffusivity estimate (Arrhenius hop)"),
         EFFECTIVE_MASS("Effective-mass tensor fit (k,E series)"),
         CONSTRAINTS_PREVIEW("Ionic constraint preview (if_pos flags)"),
-        PHONOPY_DATA_REVIEW("phonopy FORCE_SETS review (finite displacements)");
+        PHONOPY_DATA_REVIEW("phonopy FORCE_SETS review (finite displacements)"),
+        TRAJECTORY_INDEX("XYZ trajectory streaming index (frame offsets)");
 
         private final String label;
 
@@ -682,6 +684,9 @@ public final class ResultAnalysisService {
             return name.contains("force_sets");
         case EFFECTIVE_MASS:
             return name.contains("mass") || name.contains("emk");
+        case TRAJECTORY_INDEX:
+            return (name.endsWith(".xyz") || name.contains("extxyz"))
+                    && !name.contains("force");
         default:
             return false;
         }
@@ -801,6 +806,8 @@ public final class ResultAnalysisService {
                 return analyzeDosIntegration(source);
             case EFFECTIVE_MASS:
                 return analyzeEffectiveMass(source);
+            case TRAJECTORY_INDEX:
+                return analyzeTrajectoryIndex(source);
             case SITE_PROFILE_CHECK:
                 return analyzeSiteProfile(source);
             default:
@@ -3830,6 +3837,49 @@ public final class ResultAnalysisService {
                 + "reference before reporting m*. A POSITIVE eigenmass means an electron-like "
                 + "local minimum; a NEGATIVE one means a hole-like local maximum (negative "
                 + "curvature) - the sign is the curvature, not an error.");
+        return new AnalysisReport(label, true, text.toString(), csv, null);
+    }
+
+    /**
+     * Streaming trajectory index (Roadmap #127 data layer): one O(1)-heap linear
+     * pass that maps frames to byte offsets for future windowed/decimated reads.
+     * Coordinates are not parsed here; validation belongs to the bounded MD_MSD
+     * analysis. A truncated tail frame is reported, never indexed as complete.
+     */
+    private static AnalysisReport analyzeTrajectoryIndex(File source) {
+        String label = AnalysisKind.TRAJECTORY_INDEX.getLabel();
+        OperationResult<TrajectoryIndexReader.TrajectoryIndex> indexed =
+                TrajectoryIndexReader.index(source.toPath());
+        if (!indexed.isSuccess() || indexed.getValue().isEmpty()) {
+            return failure(label, "Trajectory index failed closed: " + indexed.getMessage());
+        }
+        TrajectoryIndexReader.TrajectoryIndex index = indexed.getValue().orElseThrow();
+        StringBuilder text = new StringBuilder();
+        text.append("Source: ").append(source.getName()).append('\n');
+        text.append(String.format(Locale.ROOT,
+                "File bytes: %d; complete frames: %d; atoms per frame: %d%n",
+                index.getFileBytes(), index.getFrameCount(), index.getAtomsPerFrame()));
+        text.append(String.format(Locale.ROOT,
+                "Stored frame offsets: %d%s (storage cap %d)%n", index.getOffsets().size(),
+                index.isOffsetsComplete() ? " (complete)" : " (CAPPED - later frames counted "
+                        + "but not stored)", TrajectoryIndexReader.MAX_STORED_OFFSETS));
+        text.append("Truncated tail frame after the last complete frame: ")
+                .append(index.isTruncatedTail() ? "YES (reported, not indexed)" : "no")
+                .append('\n');
+        List<String> csv = new ArrayList<>();
+        csv.add("frame_index,byte_offset");
+        int csvCap = 20000;
+        List<Long> offsets = index.getOffsets();
+        for (int i = 0; i < offsets.size() && i < csvCap; i++) {
+            csv.add(String.format(Locale.ROOT, "%d,%d", i + 1, offsets.get(i)));
+        }
+        if (offsets.size() > csvCap) {
+            text.append(String.format(Locale.ROOT, "CSV truncated at %d offsets.%n", csvCap));
+        }
+        text.append("\nThis index was built in one streaming pass with constant heap - the "
+                + "grounds for large-trajectory work (Roadmap #127). Coordinates were not "
+                + "parsed or validated here; windowed, decimated reads and the bounded "
+                + "MD_MSD analysis remain the consuming layers.");
         return new AnalysisReport(label, true, text.toString(), csv, null);
     }
 
