@@ -437,3 +437,11 @@ The **seventeenth** batch improves deterministic review and resource parsing fou
 | 43 | **Stronger Partial** | Timing/resource parsing now resets all values before every parse, represents unavailable values as `NaN`/zero rather than stale previous-job data, accepts Fortran `D` notation for memory, and ignores malformed optional resource lines without losing other parsed values. |
 | 44 | **Stronger Partial** | Input diffing now uses deterministic case-insensitive ordering and treats numerically equivalent QE/Fortran spellings such as `3D1` and `30.0` as unchanged, reducing false review noise while retaining literal string/card differences. |
 | 16 | **Verified** | Added regression coverage for stale timing reset and equivalent Fortran numeric input. Static/structural checks, fixture harness, shell syntax, and whitespace checks pass; a Java/Maven-enabled runner is still required for full JUnit execution. |
+
+The **eighteenth** batch connects deterministic preflight to the project GUI and makes pseudo metadata uncertainty visible:
+
+| # | Status after batch 18 | What landed |
+|---:|---|---|
+| 25/45 | **GUI wired** | Each project viewer now has **Validate QE input**. It resolves the current input, runs the existing deterministic validator without launching/modifying a calculation, and presents blocking errors/warnings with QE documentation links. A clean report explicitly says it is not convergence or physical-validation evidence. |
+| 35 | **Stronger Partial** | Pseudopotential validation no longer silently accepts a filename with unavailable library metadata. It emits `PSEUDO_METADATA_UNAVAILABLE` with the affected species/file names and requires a verified manifest or manual UPF inspection before family/XC/relativity compatibility can be claimed. |
+| 16 | **Verified** | The project-viewer action is structurally checked; pseudo uncertainty has a regression test; static/structural checks and fixtures pass. Full Maven/JUnit remains pending a Java/Maven-enabled runner. |

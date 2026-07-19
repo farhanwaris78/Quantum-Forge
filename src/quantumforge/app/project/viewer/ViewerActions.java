@@ -13,6 +13,7 @@ package quantumforge.app.project.viewer;
 import java.io.File;
 import java.io.IOException;
 import java.util.Optional;
+import java.util.List;
 
 import quantumforge.app.project.ProjectAction;
 import quantumforge.app.project.ProjectActions;
@@ -30,6 +31,9 @@ import quantumforge.app.project.viewer.save.SaveAction;
 import quantumforge.app.project.viewer.screenshot.QEFXScreenshotDialog;
 import quantumforge.export.AtomicExporter;
 import quantumforge.operation.OperationResult;
+import quantumforge.input.QEInput;
+import quantumforge.input.validation.QEInputValidator;
+import quantumforge.input.validation.ValidationIssue;
 import quantumforge.project.Project;
 import quantumforge.run.QECommandDag;
 import quantumforge.run.RunningType;
@@ -157,6 +161,9 @@ public class ViewerActions extends ProjectActions<Node> {
 
             } else if (item == this.itemSet.getExportWorkflowItem()) {
                 this.actions.put(item, controller2 -> this.actionExportWorkflow(controller2));
+
+            } else if (item == this.itemSet.getValidateInputItem()) {
+                this.actions.put(item, controller2 -> this.actionValidateInput(controller2));
 
             } else if (item == this.itemSet.getXcrysdenItem()) {
                 this.actions.put(item, controller2 -> this.actionXcrysden(controller2));
@@ -373,6 +380,37 @@ public class ViewerActions extends ProjectActions<Node> {
             alert.setHeaderText("Export failed");
             alert.showAndWait();
         }
+    }
+
+    /** Show deterministic preflight findings without starting or modifying a run. */
+    private void actionValidateInput(QEFXProjectController controller) {
+        if (controller == null) {
+            return;
+        }
+        this.project.resolveQEInputs();
+        QEInput input = this.project.getQEInputCurrent();
+        List<ValidationIssue> issues = new QEInputValidator().validate(input);
+        boolean errors = QEInputValidator.hasErrors(issues);
+        StringBuilder message = new StringBuilder();
+        if (issues.isEmpty()) {
+            message.append("No deterministic structural/preflight issues were found. ")
+                    .append("This does not establish convergence or physical suitability.");
+        } else {
+            for (ValidationIssue issue : issues) {
+                message.append(issue).append('\n');
+                if (!issue.getDocumentationUrl().isEmpty()) {
+                    message.append("  ").append(issue.getDocumentationUrl()).append('\n');
+                }
+            }
+        }
+        Alert alert = new Alert(errors ? AlertType.ERROR : AlertType.INFORMATION);
+        alert.setTitle("Quantum ESPRESSO input validation");
+        alert.setHeaderText(errors ? "Input has blocking preflight errors"
+                : "Input preflight completed");
+        alert.setContentText(message.toString());
+        alert.getDialogPane().setPrefWidth(900.0);
+        alert.setResizable(true);
+        alert.showAndWait();
     }
 
     private void actionExportWorkflow(QEFXProjectController controller) {
