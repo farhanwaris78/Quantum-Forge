@@ -327,6 +327,12 @@ def main() -> int:
     text = (SRC / rel).read_text(encoding="utf-8")
     if "class " not in text:
         error(f"{rel} does not declare a type")
+    rel = "quantumforge/export/SvgSeriesPlotter.java"
+    text = (SRC / rel).read_text(encoding="utf-8")
+    if "class " not in text:
+        error(f"{rel} does not declare a type")
+    if "SvgSeriesPlotter" not in (SRC / "quantumforge/app/project/viewer/analysis/AnalysisAction.java").read_text(encoding="utf-8"):
+        error("AnalysisAction is not wired to SvgSeriesPlotter SVG export")
     for rel in ["quantumforge/neural/MlModelManifest.java",
                 "quantumforge/neural/MLPotentialService.java"]:
         text = (SRC / rel).read_text(encoding="utf-8")

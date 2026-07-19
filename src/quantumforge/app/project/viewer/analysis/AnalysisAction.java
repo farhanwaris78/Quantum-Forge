@@ -11,6 +11,8 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 
 import quantumforge.com.file.AtomicFileWriter;
+import quantumforge.export.SvgSeriesPlotter;
+import quantumforge.operation.OperationResult;
 import quantumforge.project.Project;
 import quantumforge.run.ResultAnalysisService;
 import quantumforge.run.ResultAnalysisService.AnalysisKind;
@@ -472,10 +474,13 @@ public final class AnalysisAction {
         ButtonType saveReport = new ButtonType("Save report ...", ButtonData.OTHER);
         dialog.getDialogPane().getButtonTypes().add(saveReport);
         ButtonType exportCsv = null;
+        ButtonType exportSvg = null;
         ButtonType saveInput = null;
         if (report.hasCsv()) {
             exportCsv = new ButtonType("Export CSV ...", ButtonData.OTHER);
             dialog.getDialogPane().getButtonTypes().add(exportCsv);
+            exportSvg = new ButtonType("Export SVG plot ...", ButtonData.OTHER);
+            dialog.getDialogPane().getButtonTypes().add(exportSvg);
         }
         if (report.getGeneratedInput() != null && !report.getGeneratedInput().isEmpty()) {
             saveInput = new ButtonType("Save input file ...", ButtonData.OTHER);
@@ -489,6 +494,16 @@ public final class AnalysisAction {
         if (exportCsv != null && answer.get() == exportCsv) {
             saveText("Export analysis CSV", "analysis.csv",
                     report.getCsvLines().stream().collect(Collectors.joining("\n")) + "\n");
+        } else if (exportSvg != null && answer.get() == exportSvg) {
+            OperationResult<String> plotted = SvgSeriesPlotter.plot(report.getCsvLines(),
+                    report.getTitle());
+            if (!plotted.isSuccess() || plotted.getValue().isEmpty()) {
+                showMessage("Export SVG plot", "Not a plottable two-column series: "
+                        + plotted.getMessage(), AlertType.WARNING);
+                showReport(report); // Return to the report so CSV export remains available.
+                return;
+            }
+            saveText("Export SVG plot", "plot.svg", plotted.getValue().orElseThrow());
         } else if (saveInput != null && answer.get() == saveInput) {
             saveText("Save generated pp.x input", "pp.in", report.getGeneratedInput());
         } else if (answer.get() == saveReport) {
