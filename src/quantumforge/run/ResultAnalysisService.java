@@ -62,6 +62,7 @@ import quantumforge.input.validation.ValidationIssue;
 import quantumforge.input.validation.ValidationSeverity;
 import quantumforge.operation.OperationResult;
 import quantumforge.project.Project;
+import quantumforge.project.WorkspaceLightIndex;
 import quantumforge.project.property.ProjectEnergies;
 import quantumforge.project.property.ProjectGeometryList;
 import quantumforge.project.property.ProjectProperty;
@@ -218,7 +219,8 @@ public final class ResultAnalysisService {
         DENSITY_DIFFERENCE("Grid density difference (compatible CUBE pair)"),
         SUPERCELL_PREVIEW("Supercell transformation preview (integer 3x3 matrix)"),
         HUBBARD_HP_DRAFT("hp.x input draft (existing DFT+U context required)"),
-        TIMING_RESOURCE("pw.x timing/resource table (CPU/WALL per routine)");
+        TIMING_RESOURCE("pw.x timing/resource table (CPU/WALL per routine)"),
+        WORKSPACE_SEARCH("Light workspace catalogue (project dir, status markers)");
 
         private final String label;
 
@@ -261,7 +263,8 @@ public final class ResultAnalysisService {
                     || this == PHONON_MODE_FRAMES || this == HYPERFINE_LOOKUP
                     || this == KEYWORD_HELP || this == ARRAY_SWEEP_PLAN
                     || this == CELL_EXTXYZ_EXPORT || this == DENSITY_DIFFERENCE
-                    || this == SUPERCELL_PREVIEW || this == HUBBARD_HP_DRAFT;
+                    || this == SUPERCELL_PREVIEW || this == HUBBARD_HP_DRAFT
+                    || this == WORKSPACE_SEARCH;
         }
 
         /** True for project-bound kinds that additionally parse a user data file. */
@@ -1093,6 +1096,8 @@ public final class ResultAnalysisService {
                 return analyzeSupercellPreview(project, params);
             case HUBBARD_HP_DRAFT:
                 return analyzeHubbardHpDraft(project, params);
+            case WORKSPACE_SEARCH:
+                return analyzeWorkspaceSearch(project);
             default:
                 return failure(kind.getLabel(), "This analysis kind is not implemented.");
         }
@@ -5331,6 +5336,49 @@ public final class ResultAnalysisService {
                 + "misread, and a log without the PWSCF total is treated as unfinished. "
                 + "Scaling/extrapolation advice (#101) is NOT derived from these "
                 + "measurements here.");
+        return new AnalysisReport(label, true, text.toString(), csv, null);
+    }
+
+    /**
+     * Roadmap #132 light seam: one-level, name-based project-dir catalogue via
+     * the tested scanner - heuristic markers are named on every row.
+     */
+    private static AnalysisReport analyzeWorkspaceSearch(Project project) {
+        String label = AnalysisKind.WORKSPACE_SEARCH.getLabel();
+        OperationResult<WorkspaceLightIndex.WorkspaceScan> scanned =
+                WorkspaceLightIndex.scan(project.getDirectory().toPath());
+        if (!scanned.isSuccess() || scanned.getValue().isEmpty()) {
+            return failure(label, "Scan refused: " + scanned.getMessage());
+        }
+        WorkspaceLightIndex.WorkspaceScan scan = scanned.getValue().get();
+        StringBuilder text = new StringBuilder();
+        text.append("Project directory: ").append(project.getDirectory().getName())
+                .append('\n');
+        text.append(scanned.getMessage()).append('\n');
+        text.append(String.format(Locale.ROOT,
+                "Skipped: %d non-artifact file(s) (untouched), %d oversized (parse bound "
+                        + "8 MiB), %d parse error(s)%n%n", scan.getOtherFiles(),
+                scan.getOversizedFiles(), scan.getParseErrors()));
+        text.append(String.format(Locale.ROOT, " %-24s %-6s %-12s %-6s %-8s %s%n",
+                "file", "kind", "composition", "atoms", "calc", "status/heuristics"));
+        List<String> csv = new ArrayList<>();
+        csv.add("file,kind,composition,atoms,calculation,status");
+        for (WorkspaceLightIndex.WorkspaceEntry entry : scan.getEntries()) {
+            text.append(String.format(Locale.ROOT, " %-24s %-6s %-12s %-6d %-8s %s%n",
+                    entry.getFileName(), entry.getKind(), entry.getComposition(),
+                    entry.getAtomCount(), entry.getCalculation(), entry.getStatus()));
+            csv.add(String.format(Locale.ROOT, "%s,%s,%s,%d,%s,%s",
+                    csvCell(entry.getFileName()), entry.getKind(),
+                    csvCell(entry.getComposition()), entry.getAtomCount(),
+                    csvCell(entry.getCalculation()), csvCell(entry.getStatus())));
+        }
+        text.append("\nHonesty boundary: ONE directory level of THIS project, matched by "
+                + "file name; statuses come from the exact markers \"JOB DONE.\", \"Error "
+                + "in routine\" and \"convergence NOT achieved\" and are named as "
+                + "heuristics - a log without a marker is \"unknown\", not failed. This is "
+                + "not the indexed, tag/provenance-aware multi-project search Roadmap #132 "
+                + "targets (that needs the database queue #105); nothing outside the "
+                + "project directory was read.");
         return new AnalysisReport(label, true, text.toString(), csv, null);
     }
 

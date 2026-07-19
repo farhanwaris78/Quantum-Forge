@@ -2703,4 +2703,36 @@ class ResultAnalysisServiceTest {
                 this.tempDir.toFile(), "si", "si.log", partial, new AnalysisParameters());
         assertFalse(refused.isSuccess(), "No PWSCF total = unfinished run = fail closed");
     }
+
+    @Test
+    void testWorkspaceSearchKindCatalogueAndRefusals() throws IOException {
+        Files.writeString(this.tempDir.resolve("si.in"),
+                "&CONTROL\n   calculation = 'scf'\n/\n"
+                + "&SYSTEM\n   ibrav = 2, nat = 2, ntyp = 1, ecutwfc = 30.0\n/\n"
+                + "&ELECTRONS\n/\n"
+                + "ATOMIC_SPECIES\n Si 28.0855 Si.pz-vbc.UPF\n"
+                + "ATOMIC_POSITIONS crystal\n Si 0.0 0.0 0.0\n Si 0.25 0.25 0.25\n"
+                + "K_POINTS automatic\n 4 4 4 0 0 0\n");
+        Files.writeString(this.tempDir.resolve("si.log"), "work\nJOB DONE.\n");
+        Files.writeString(this.tempDir.resolve("notes.txt"), "side file\n");
+
+        AnalysisReport report = ResultAnalysisService.analyze(
+                AnalysisKind.WORKSPACE_SEARCH, stubProject(this.tempDir),
+                new AnalysisParameters());
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains("Catalogued 2 artifact(s)"), report.getText());
+        assertTrue(report.getText().contains("1 non-artifact file(s)"), report.getText());
+        assertTrue(report.getText().contains("si.in"), report.getText());
+        assertTrue(report.getText().contains("completed (marker: JOB DONE.)"),
+                report.getText());
+        assertTrue(report.getText().contains("not the indexed"), report.getText());
+        assertEquals(3, report.getCsvLines().size());
+        assertTrue(report.getCsvLines().get(1).startsWith("si.in,INPUT,Si,2,scf"),
+                report.getCsvLines().get(1));
+
+        Path empty = Files.createDirectories(this.tempDir.resolve("empty-ws"));
+        AnalysisReport refused = ResultAnalysisService.analyze(
+                AnalysisKind.WORKSPACE_SEARCH, stubProject(empty), new AnalysisParameters());
+        assertFalse(refused.isSuccess(), "An empty directory must fail closed");
+    }
 }
