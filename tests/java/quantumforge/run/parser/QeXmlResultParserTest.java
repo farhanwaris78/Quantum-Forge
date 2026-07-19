@@ -31,6 +31,8 @@ class QeXmlResultParserTest {
         assertTrue(data.getAtomicForces().isPresent());
         assertEquals(2, data.getAtomicForces().get().length);
         assertEquals(0.00010, data.getAtomicForces().get()[0][0], 1e-12);
+        assertEquals(QeXmlResultParser.AtomicForceUnit.HARTREE_PER_BOHR, data.getAtomicForceUnit());
+        assertEquals(0.00020, data.getAtomicForcesRyPerBohr().orElseThrow()[0][0], 1e-12);
     }
 
     @Test

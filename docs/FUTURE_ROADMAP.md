@@ -414,3 +414,10 @@ The **fourteenth** batch hardens auxiliary-engine data boundaries without promot
 | 111 | **Stronger Experimental** | The VASP XML reader now fails closed for missing/non-finite energies, Fermi level, lattice, or positions and validates every parsed 3-vector. It remains a parser only: no POTCAR is bundled and no VASP workflow is advertised. |
 | 129 | **GUI status integration** | The Extensions menu now exposes phonopy/phono3py, thermo_pw, BoltzTraP2, and XCrySDen capability dialogs alongside VASP/CASTEP. These dialogs show the authoritative status and required work rather than presenting unusable forms as calculations. |
 | 1/16 | **Verified** | The old implementation-report/status documents and their packaging links were removed at user request; roadmap remains the sole implementation record. Static/structural checks and parser fixtures pass in this checkout; full Maven/JUnit execution still requires a JDK and Maven. |
+
+The **fifteenth** batch closes a force-unit error path between QE XML and phonopy data preparation:
+
+| # | Status after batch 15 | What landed |
+|---:|---|---|
+| 42/107 | **Stronger Partial** | QE XML atomic-force parsing now records the document-declared Hartree/bohr or Ry/bohr convention, rejects incomplete force blocks, accepts Fortran exponents, and provides an explicit normalized Ry/bohr accessor. This connects safely to the FORCE_SETS conversion boundary and prevents a silent factor-of-two error for `Units="Hartree atomic units"`. |
+| 16 | **Verified** | Static consistency, structural compile-readiness, and parser fixture checks pass after the unit-boundary change. Full Maven/JUnit remains pending a Java/Maven-enabled runner. |
