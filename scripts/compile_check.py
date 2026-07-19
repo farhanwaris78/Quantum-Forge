@@ -361,7 +361,8 @@ def main() -> int:
                   "LammpsDataReader", "LAMMPS_DATA_REVIEW",
                   "CpInputPlanner", "CP_INPUT_DRAFT",
                   "Wannier90WinPlanner", "W90_WIN_DRAFT",
-                  "CslSigmaMath", "GB_CSL_PREVIEW"]:
+                  "CslSigmaMath", "GB_CSL_PREVIEW",
+                  "QEVersionRuleCatalog", "QE_VERSION_CHECK"]:
         if token not in service:
             error(f"ResultAnalysisService is not bound to {token}")
     for rel in ["quantumforge/com/math/SymmetricEigen3.java",
@@ -388,7 +389,8 @@ def main() -> int:
                 "quantumforge/builder/LammpsDataReader.java",
                 "quantumforge/input/CpInputPlanner.java",
                 "quantumforge/input/Wannier90WinPlanner.java",
-                "quantumforge/builder/CslSigmaMath.java"]:
+                "quantumforge/builder/CslSigmaMath.java",
+                "quantumforge/input/QEVersionRuleCatalog.java"]:
         text = (SRC / rel).read_text(encoding="utf-8")
         if "class " not in text:
             error(f"{rel} does not declare a type")

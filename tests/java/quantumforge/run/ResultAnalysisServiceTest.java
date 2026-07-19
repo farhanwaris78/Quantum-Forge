@@ -3320,4 +3320,71 @@ class ResultAnalysisServiceTest {
         assertFalse(bounds.isSuccess(), "out-of-range indices must fail closed");
         assertTrue(bounds.getText().contains("[CSL_BOUNDS]"), bounds.getText());
     }
+
+
+    @Test
+    void testQeVersionCheckKindAuditVerdictsAndRefusals() {
+        Cell cell = new Cell(quantumforge.com.math.Matrix3D.unit(10.0));
+        cell.addAtom("Si", 0.0, 0.0, 0.0);
+        QESCFInput input = new QESCFInput();
+        input.getNamelist(QEInput.NAMELIST_CONTROL).setValue(
+                QEValueBase.getInstance("wf_collect", ".true."));
+        input.getNamelist(QEInput.NAMELIST_CONTROL).setValue(
+                QEValueBase.getInstance("calculation", "'cp'"));
+        input.getNamelist(QEInput.NAMELIST_SYSTEM).setValue(
+                QEValueBase.getInstance("smearing", "'cold'"));
+        input.getNamelist(QEInput.NAMELIST_SYSTEM).setValue(
+                QEValueBase.getInstance("input_dft", "'PBE'"));
+
+        AnalysisReport report = ResultAnalysisService.analyze(
+                AnalysisKind.QE_VERSION_CHECK, stubProjectWithInput(this.tempDir, input,
+                        cell), new AnalysisParameters().withSeriesKeyword("7.4"));
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains("Requested version filter: 7.4"),
+                report.getText());
+        assertTrue(report.getText().contains("REMOVED_KEYWORD"),
+                "wf_collect must be the flagged removal: " + report.getText());
+        assertTrue(report.getText().contains("VALUE_WARNING"),
+                "calculation='cp' must be the flagged value: " + report.getText());
+        assertTrue(report.getText().contains("NOT_IN_CURATED"),
+                "input_dft is outside the curated slice: " + report.getText());
+        assertTrue(report.getText().contains("delete it"), report.getText());
+        assertTrue(report.getText().contains("cp.x"), report.getText());
+        assertTrue(report.getText().contains("Audited "), report.getText());
+        assertTrue(report.getText().contains("not-in-curated."), report.getText());
+        assertTrue(report.getText().contains("QE 7.2-7.5"), report.getText());
+        assertTrue(report.getCsvLines().stream().anyMatch(line ->
+                        line.startsWith("CONTROL,calculation,'cp',VALUE_WARNING")),
+                String.join("\n", report.getCsvLines()));
+        assertTrue(report.getCsvLines().stream().anyMatch(line ->
+                        line.contains("wf_collect") && line.contains("REMOVED_KEYWORD")),
+                String.join("\n", report.getCsvLines()));
+        assertTrue(report.getCsvLines().stream().anyMatch(line ->
+                        line.startsWith("SYSTEM,smearing,'cold',OK")),
+                "cold is the marzari-vanderbilt alias - OK: "
+                        + String.join("\n", report.getCsvLines()));
+        assertTrue(report.getCsvLines().stream().anyMatch(line ->
+                        line.contains("input_dft") && line.contains("NOT_IN_CURATED")),
+                String.join("\n", report.getCsvLines()));
+
+        AnalysisReport uniform = ResultAnalysisService.analyze(
+                AnalysisKind.QE_VERSION_CHECK, stubProjectWithInput(this.tempDir, input,
+                        cell), new AnalysisParameters().withSeriesKeyword(""));
+        assertTrue(uniform.isSuccess(), uniform.getText());
+        assertTrue(uniform.getText().contains(
+                "(none - auditing against the uniform 7.2-7.5 window)"),
+                uniform.getText());
+
+        AnalysisReport unsupported = ResultAnalysisService.analyze(
+                AnalysisKind.QE_VERSION_CHECK, stubProjectWithInput(this.tempDir, input,
+                        cell), new AnalysisParameters().withSeriesKeyword("6.8"));
+        assertFalse(unsupported.isSuccess(), "outside the window must fail closed");
+        assertTrue(unsupported.getText().contains("[VERSION_UNSUPPORTED]"),
+                unsupported.getText());
+
+        AnalysisReport missing = ResultAnalysisService.analyze(
+                AnalysisKind.QE_VERSION_CHECK, stubProject(this.tempDir),
+                new AnalysisParameters());
+        assertFalse(missing.isSuccess(), "no current input must fail closed");
+    }
 }

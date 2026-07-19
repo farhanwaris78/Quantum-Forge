@@ -621,6 +621,15 @@ public final class AnalysisAction {
             parameters.withCslAxis(u, v, w).withMoireIndices(m, n);
             break;
         }
+        case QE_VERSION_CHECK: {
+            String version = askText("Target QE minor version (curated window: 7.2, 7.3, "
+                    + "7.4 or 7.5; blank audits against the uniform window)", "");
+            if (version == null) {
+                return null;
+            }
+            parameters.withSeriesKeyword(version);
+            break;
+        }
         case TEMPLATE_LIBRARY: {
             String name = askText("Template name (blank lists all; curated: scf-basic, "
                     + "relax-bfgs, vc-relax-crystal, bands-path, nscf-dos, phonon-gamma0)",

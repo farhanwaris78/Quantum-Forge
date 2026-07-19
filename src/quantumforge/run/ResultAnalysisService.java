@@ -66,6 +66,7 @@ import quantumforge.input.QEKpointMeshAdvisor;
 import quantumforge.input.QEPpChargePotentialBuilder;
 import quantumforge.input.QEPpWavefunctionBuilder;
 import quantumforge.input.QESCFInput;
+import quantumforge.input.QEVersionRuleCatalog;
 import quantumforge.input.card.QEKPoints;
 import quantumforge.input.namelist.QENamelist;
 import quantumforge.input.namelist.QEValue;
@@ -242,7 +243,8 @@ public final class ResultAnalysisService {
         LAMMPS_DATA_REVIEW("LAMMPS data-file review (explicit atom_style, no guessing)"),
         CP_INPUT_DRAFT("cp.x Car-Parrinello input draft (required-edit guarded)"),
         W90_WIN_DRAFT("Wannier90 .win draft (mesh-echoed, required-edit guarded)"),
-        GB_CSL_PREVIEW("Grain-boundary CSL rotation preview (exact Ranganathan law)");
+        GB_CSL_PREVIEW("Grain-boundary CSL rotation preview (exact Ranganathan law)"),
+        QE_VERSION_CHECK("QE version keyword audit (curated 7.2-7.5 window snapshot)");
 
         private final String label;
 
@@ -289,7 +291,7 @@ public final class ResultAnalysisService {
                     || this == WORKSPACE_SEARCH || this == TEMPLATE_LIBRARY
                     || this == SPIN_CUBE_MAGNETIZATION || this == ESM_SLAB_CHECK
                     || this == MOIRE_TWIST_PREVIEW || this == CP_INPUT_DRAFT
-                    || this == W90_WIN_DRAFT;
+                    || this == W90_WIN_DRAFT || this == QE_VERSION_CHECK;
         }
 
         /** True for project-bound kinds that additionally parse a user data file. */
@@ -1189,6 +1191,8 @@ public final class ResultAnalysisService {
                 return analyzeW90WinDraft(project);
             case GB_CSL_PREVIEW:
                 return analyzeGbCslPreview(params);
+            case QE_VERSION_CHECK:
+                return analyzeQeVersionCheck(project, params);
             default:
                 return failure(kind.getLabel(), "This analysis kind is not implemented.");
         }
@@ -5891,8 +5895,101 @@ public final class ResultAnalysisService {
     }
 
     /**
+     * Roadmap #22: version-aware keyword audit against the curated 7.2-7.5
+     * snapshot. Values stay verbatim; absence from the curated slice is
+     * reported as NOT-IN-CURATED, never judged invalid.
+     */
+    private static AnalysisReport analyzeQeVersionCheck(Project project,
+            AnalysisParameters params) {
+        String label = AnalysisKind.QE_VERSION_CHECK.getLabel();
+        QEInput input;
+        try {
+            project.resolveQEInputs();
+            input = project.getQEInputCurrent();
+        } catch (RuntimeException ex) {
+            return failure(label, "Resolving the current QE input failed: "
+                    + ex.getMessage());
+        }
+        if (input == null) {
+            return failure(label, "[VERSION_INPUT] The project has no resolvable current "
+                    + "input to audit.");
+        }
+        String version = params.getSeriesKeyword() == null
+                ? "" : params.getSeriesKeyword().trim();
+        if (!version.isEmpty() && !QEVersionRuleCatalog.isSupportedVersion(version)) {
+            return failure(label, "[VERSION_UNSUPPORTED] \"" + version + "\" is outside "
+                    + "the curated window " + QEVersionRuleCatalog.SUPPORTED_VERSIONS
+                    + "; other minor versions are not judged by this slice.");
+        }
+        StringBuilder text = new StringBuilder();
+        text.append("Requested version filter: ").append(version.isEmpty()
+                ? "(none - auditing against the uniform 7.2-7.5 window)" : version)
+                .append('\n');
+        text.append("Scope: ").append(QEVersionRuleCatalog.WINDOW_NOTE)
+                .append("; docs: ").append(QEKeywordHelp.INPUT_PW_URL).append("\n\n");
+        int ok = 0;
+        int warnings = 0;
+        int removed = 0;
+        int notCurated = 0;
+        int total = 0;
+        List<String> csv = new ArrayList<>();
+        csv.add("namelist,keyword,value,verdict,note");
+        for (String namelistName : new String[] {QEInput.NAMELIST_CONTROL,
+                QEInput.NAMELIST_SYSTEM}) {
+            QENamelist namelist = input.getNamelist(namelistName);
+            if (namelist == null || namelist.numValues() == 0) {
+                continue;
+            }
+            QEValue[] values = namelist.listQEValues();
+            for (QEValue value : values) {
+                QEVersionRuleCatalog.AuditEntry entry =
+                        QEVersionRuleCatalog.audit(namelistName, value);
+                total += 1;
+                switch (entry.getVerdict()) {
+                    case OK:
+                        ok += 1;
+                        break;
+                    case VALUE_WARNING:
+                        warnings += 1;
+                        break;
+                    case REMOVED_KEYWORD:
+                        removed += 1;
+                        break;
+                    default:
+                        notCurated += 1;
+                        break;
+                }
+                text.append(String.format(Locale.ROOT, "  %-20s %-16s = %-14s %s%n",
+                        entry.getNamelist() + ".", entry.getKeyword(),
+                        entry.getValueEcho(), entry.getVerdict()));
+                text.append(String.format(Locale.ROOT, "      -> %s%n", entry.getNote()));
+                csv.add(String.format(Locale.ROOT, "%s,%s,%s,%s,%s",
+                        csvCell(entry.getNamelist()), csvCell(entry.getKeyword()),
+                        csvCell(entry.getValueEcho()), entry.getVerdict(),
+                        csvCell(entry.getNote())));
+            }
+        }
+        if (total == 0) {
+            return failure(label, "[VERSION_EMPTY] The live input's &CONTROL and &SYSTEM "
+                    + "namelists hold no keywords to audit.");
+        }
+        text.append(String.format(Locale.ROOT,
+                "%nAudited %d keywords: %d OK, %d value-warning, %d REMOVED, "
+                        + "%d not-in-curated.%n",
+                total, ok, warnings, removed, notCurated));
+        text.append("\nHonesty boundary: this slice audits only the "
+                + QEVersionRuleCatalog.listRules().size()
+                + " curated keywords; NOT-IN-CURATED means outside the snapshot, NOT "
+                + "invalid. Machine-generated, per-minor-version full INPUT_PW schemas "
+                + "with type/range checking are the remaining #22 completeness work. "
+                + "REMOVED_KEYWORD rows are the action items - they were valid once and "
+                + "are undocumented across the audited window.\n");
+        return new AnalysisReport(label, true, text.toString(), csv, null);
+    }
+
+    /**
      * Roadmap #67: cp.x draft from the live input context. The draft is
-     * deliberately non-runnable (every CP-physics choice is REQUIRED-EDIT)
+     * deliberately NON-RUNNABLE (every CP-physics choice is REQUIRED-EDIT)
      * and it substitutes for the invalid pw.x calculation='cp' pattern.
      */
     private static AnalysisReport analyzeCpInputDraft(Project project) {
