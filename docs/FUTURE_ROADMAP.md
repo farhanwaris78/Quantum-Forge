@@ -429,3 +429,11 @@ The **sixteenth** batch makes scratch storage conservative and deletion-safe:
 | 34 | **Stronger Partial** | Scratch roots are normalized, quota must be positive, invalid estimates fail closed, full k meshes are used instead of guessed symmetry-halving, overflow is clamped, and a buffer/restart factor is included. Cleanup now refuses any path outside the configured scratch root, avoids following a broad arbitrary run directory, closes directory streams, and has a regression test proving it cannot delete an unrelated `.wfc`. |
 | 45 | **Stronger Partial** | Scratch-space verification creates/checks the requested directory, rejects unknown/non-positive estimates and quota overruns, and reports filesystem-query failures as failed verification rather than success. |
 | 16 | **Verified** | Static consistency, structural compile-readiness, parser fixtures, shell syntax, and whitespace checks pass after the scratch-policy changes. Full Maven/JUnit remains pending a Java/Maven-enabled runner. |
+
+The **seventeenth** batch improves deterministic review and resource parsing foundations:
+
+| # | Status after batch 17 | What landed |
+|---:|---|---|
+| 43 | **Stronger Partial** | Timing/resource parsing now resets all values before every parse, represents unavailable values as `NaN`/zero rather than stale previous-job data, accepts Fortran `D` notation for memory, and ignores malformed optional resource lines without losing other parsed values. |
+| 44 | **Stronger Partial** | Input diffing now uses deterministic case-insensitive ordering and treats numerically equivalent QE/Fortran spellings such as `3D1` and `30.0` as unchanged, reducing false review noise while retaining literal string/card differences. |
+| 16 | **Verified** | Added regression coverage for stale timing reset and equivalent Fortran numeric input. Static/structural checks, fixture harness, shell syntax, and whitespace checks pass; a Java/Maven-enabled runner is still required for full JUnit execution. |

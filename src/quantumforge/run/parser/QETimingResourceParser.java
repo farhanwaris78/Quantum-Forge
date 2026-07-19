@@ -38,7 +38,12 @@ public final class QETimingResourceParser extends LogParser {
 
     @Override
     public void parse(File file) throws IOException {
-        if (file == null || !file.exists()) {
+        this.cpuTimeSeconds = Double.NaN;
+        this.wallTimeSeconds = Double.NaN;
+        this.estimatedMaxMemoryMb = Double.NaN;
+        this.numProcessors = 0;
+        this.fftX = this.fftY = this.fftZ = 0;
+        if (file == null || !file.isFile()) {
             return;
         }
 
@@ -56,7 +61,7 @@ public final class QETimingResourceParser extends LogParser {
         }
 
         String trim = line.trim();
-
+        try {
         // 1. Parse MPI processors: "Parallel version (MPI), running on     4 processors"
         if (trim.contains("running on") && trim.contains("processors")) {
             Matcher m = Pattern.compile("running\\s+on\\s+(\\d+)\\s+processors", Pattern.CASE_INSENSITIVE).matcher(trim);
@@ -67,9 +72,9 @@ public final class QETimingResourceParser extends LogParser {
 
         // 2. Parse estimated memory: "Estimated max_memory     =   15.42 MB"
         if (trim.contains("Estimated max_memory") || trim.contains("estimated max_memory")) {
-            Matcher m = Pattern.compile("Estimated\\s+max_memory\\s*=\\s*([-\\d.eE+]+)\\s*([kKmMgG]?[bB])", Pattern.CASE_INSENSITIVE).matcher(trim);
+            Matcher m = Pattern.compile("Estimated\\s+max_memory\\s*=\\s*([-\\d.dDeE+]+)\\s*([kKmMgG]?[bB])", Pattern.CASE_INSENSITIVE).matcher(trim);
             if (m.find()) {
-                double val = Double.parseDouble(m.group(1));
+                double val = ScfConvergenceAnalyzer.parseFortranDouble(m.group(1));
                 String unit = m.group(2).toUpperCase(Locale.ROOT);
                 if (unit.startsWith("K")) {
                     this.estimatedMaxMemoryMb = val / 1024.0;
@@ -99,15 +104,19 @@ public final class QETimingResourceParser extends LogParser {
                 String stage = m.group(1);
                 // We focus on the total run summary name like "PWSCF", "BANDS", "PHONON", "NEB"
                 if (stage == null || stage.equalsIgnoreCase("PWSCF") || stage.equalsIgnoreCase("BANDS") || stage.equalsIgnoreCase("PHONON") || stage.equalsIgnoreCase("NEB")) {
-                    double cpuMin = m.group(2) != null ? Double.parseDouble(m.group(2)) : 0.0;
-                    double cpuSec = Double.parseDouble(m.group(3));
+                    double cpuMin = m.group(2) != null ? ScfConvergenceAnalyzer.parseFortranDouble(m.group(2)) : 0.0;
+                    double cpuSec = ScfConvergenceAnalyzer.parseFortranDouble(m.group(3));
                     this.cpuTimeSeconds = cpuMin * 60.0 + cpuSec;
 
-                    double wallMin = m.group(4) != null ? Double.parseDouble(m.group(4)) : 0.0;
-                    double wallSec = Double.parseDouble(m.group(5));
+                    double wallMin = m.group(4) != null ? ScfConvergenceAnalyzer.parseFortranDouble(m.group(4)) : 0.0;
+                    double wallSec = ScfConvergenceAnalyzer.parseFortranDouble(m.group(5));
                     this.wallTimeSeconds = wallMin * 60.0 + wallSec;
                 }
             }
+        }
+        } catch (NumberFormatException ignored) {
+            // A malformed optional resource line must not discard all valid
+            // timings parsed from the same QE output.
         }
     }
 }

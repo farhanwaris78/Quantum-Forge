@@ -5,7 +5,7 @@
 package quantumforge.input;
 
 import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.TreeMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -99,12 +99,12 @@ public final class QEInputDiffPreview {
             }
 
             // Compare key-value pairs
-            Map<String, QEValue> baseVals = new HashMap<>();
+            Map<String, QEValue> baseVals = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
             for (QEValue val : baseNml.listQEValues()) {
                 baseVals.put(val.getName().toLowerCase(), val);
             }
 
-            Map<String, QEValue> modVals = new HashMap<>();
+            Map<String, QEValue> modVals = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
             for (QEValue val : modNml.listQEValues()) {
                 modVals.put(val.getName().toLowerCase(), val);
             }
@@ -117,8 +117,9 @@ public final class QEInputDiffPreview {
 
                 if (modVal == null) {
                     diffs.add(new DiffItem(nmlKey, key, ChangeType.REMOVED, baseVal.getValueString(), null));
-                } else if (!baseVal.getValueString().trim().equalsIgnoreCase(modVal.getValueString().trim())) {
-                    diffs.add(new DiffItem(nmlKey, key, ChangeType.MODIFIED, baseVal.getValueString(), modVal.getValueString()));
+                } else if (!equivalentValue(baseVal.getValueString(), modVal.getValueString())) {
+                    diffs.add(new DiffItem(nmlKey, key, ChangeType.MODIFIED,
+                            baseVal.getValueString(), modVal.getValueString()));
                 }
             }
 
@@ -172,6 +173,27 @@ public final class QEInputDiffPreview {
             report.append(item.toString()).append('\n');
         }
         return report.toString();
+    }
+
+    /**
+     * Treat numerically equivalent Fortran spellings as unchanged while keeping
+     * quoted strings and cards byte-visible. This prevents 30, 30.0, and 3D1
+     * from becoming distracting false modifications in a pre-run review.
+     */
+    private static boolean equivalentValue(String left, String right) {
+        String a = left == null ? "" : left.trim();
+        String b = right == null ? "" : right.trim();
+        if (a.equalsIgnoreCase(b)) {
+            return true;
+        }
+        try {
+            double x = Double.parseDouble(a.replace('D', 'E').replace('d', 'e'));
+            double y = Double.parseDouble(b.replace('D', 'E').replace('d', 'e'));
+            return Double.isFinite(x) && Double.isFinite(y)
+                    && Math.abs(x - y) <= 1.0e-12 * Math.max(1.0, Math.max(Math.abs(x), Math.abs(y)));
+        } catch (NumberFormatException ignored) {
+            return false;
+        }
     }
 
     private static int getLineCount(String text) {

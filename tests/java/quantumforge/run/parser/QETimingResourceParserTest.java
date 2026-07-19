@@ -37,5 +37,10 @@ class QETimingResourceParserTest {
 
         // 5m 14.56s WALL = 5 * 60 + 14.56 = 314.56s
         assertEquals(314.56, parser.getWallTimeSeconds(), 0.01);
+
+        // A later missing/rotated output must not retain an older run's timing.
+        parser.parse(new File(tempFile.getParentFile(), "does-not-exist.out"));
+        assertTrue(Double.isNaN(parser.getCpuTimeSeconds()));
+        assertEquals(0, parser.getNumProcessors());
     }
 }
