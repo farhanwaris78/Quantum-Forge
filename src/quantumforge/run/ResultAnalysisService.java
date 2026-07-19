@@ -145,7 +145,9 @@ public final class ResultAnalysisService {
         CASTEP_LOG("CASTEP .castep log inspection (parser only)"),
         INPUT_DIFF("Input diff against reference input"),
         KMESH_QUALITY("k-point mesh quality"),
-        DEFECT_PREVIEW("Point-defect preview (vacancy/substitution)");
+        DEFECT_PREVIEW("Point-defect preview (vacancy/substitution)"),
+        CONVERGENCE_REVIEW("Convergence series review (ecut/k-mesh energies)"),
+        SERIES_PLAN("Convergence series plan (preview)");
 
         private final String label;
 
@@ -180,7 +182,8 @@ public final class ResultAnalysisService {
                     || this == GEOMETRY_MEASURE || this == MD_MSD || this == MAGNETIC_ORDER
                     || this == CITATIONS || this == BERRY_POLARIZATION
                     || this == GEOMETRY_CONVERGENCE || this == PSEUDO_FAMILY || this == SYMMETRY_KPATH
-                    || this == INPUT_DIFF || this == KMESH_QUALITY || this == DEFECT_PREVIEW;
+                    || this == INPUT_DIFF || this == KMESH_QUALITY || this == DEFECT_PREVIEW
+                    || this == SERIES_PLAN;
         }
 
         /** True for project-bound kinds that additionally parse a user data file. */
@@ -211,6 +214,11 @@ public final class ResultAnalysisService {
         private String defectType = "vacancy";
         private String defectElement = "";
         private int defectCharge = 0;
+        private String seriesKeyword = "ecutwfc";
+        private double seriesStart = 30.0;
+        private double seriesStep = 10.0;
+        private int seriesCount = 6;
+        private double energyToleranceRyPerAtom = 1.0e-3;
 
         public double getFermiEv() { return this.fermiEv; }
         public int getKpointIndex() { return this.kpointIndex; }
@@ -232,6 +240,11 @@ public final class ResultAnalysisService {
         public String getDefectType() { return this.defectType; }
         public String getDefectElement() { return this.defectElement; }
         public int getDefectCharge() { return this.defectCharge; }
+        public String getSeriesKeyword() { return this.seriesKeyword; }
+        public double getSeriesStart() { return this.seriesStart; }
+        public double getSeriesStep() { return this.seriesStep; }
+        public int getSeriesCount() { return this.seriesCount; }
+        public double getEnergyToleranceRyPerAtom() { return this.energyToleranceRyPerAtom; }
 
         public AnalysisParameters withFermiEv(double value) { this.fermiEv = value; return this; }
         public AnalysisParameters withKpointIndex(int value) { this.kpointIndex = value; return this; }
@@ -281,6 +294,26 @@ public final class ResultAnalysisService {
         }
         public AnalysisParameters withDefectCharge(int value) {
             this.defectCharge = value;
+            return this;
+        }
+        public AnalysisParameters withSeriesKeyword(String value) {
+            this.seriesKeyword = value;
+            return this;
+        }
+        public AnalysisParameters withSeriesStart(double value) {
+            this.seriesStart = value;
+            return this;
+        }
+        public AnalysisParameters withSeriesStep(double value) {
+            this.seriesStep = value;
+            return this;
+        }
+        public AnalysisParameters withSeriesCount(int value) {
+            this.seriesCount = value;
+            return this;
+        }
+        public AnalysisParameters withEnergyToleranceRyPerAtom(double value) {
+            this.energyToleranceRyPerAtom = value;
             return this;
         }
     }
@@ -404,6 +437,9 @@ public final class ResultAnalysisService {
             return name.endsWith(".castep");
         case INPUT_DIFF:
             return name.endsWith(".in") || name.endsWith(".inp") || name.contains(".in.");
+        case CONVERGENCE_REVIEW:
+            return name.contains("convergence") || name.contains("series")
+                    || (name.contains("ecut") && name.endsWith(".csv"));
         default:
             return false;
         }
@@ -490,6 +526,8 @@ public final class ResultAnalysisService {
                 return analyzeVasprun(property, source);
             case CASTEP_LOG:
                 return analyzeCastepLog(property, source);
+            case CONVERGENCE_REVIEW:
+                return analyzeConvergenceReview(source, params);
             default:
                 return failure(kind.getLabel(), "This analysis kind is not implemented.");
             }
@@ -570,6 +608,8 @@ public final class ResultAnalysisService {
                 return analyzeKmesh(project);
             case DEFECT_PREVIEW:
                 return analyzeDefectPreview(project, params);
+            case SERIES_PLAN:
+                return analyzeSeriesPlan(params);
             default:
                 return failure(kind.getLabel(), "This analysis kind is not implemented.");
             }
@@ -2801,6 +2841,152 @@ public final class ResultAnalysisService {
                 + "random aggregate; the Hill mean is an estimator, not a measurement. The "
                 + "tensor is SPD-verified before inversion. Anisotropy A^U is 0 only for an "
                 + "isotropic medium.");
+        return new AnalysisReport(label, true, text.toString(), csv, null);
+    }
+
+    /** Evidence review of an already-run series: per-step energy deltas and plateau location. */
+    private static AnalysisReport analyzeConvergenceReview(File source, AnalysisParameters params)
+            throws IOException {
+        String label = AnalysisKind.CONVERGENCE_REVIEW.getLabel();
+        int natoms = params.getAtomCount();
+        if (natoms < 1) {
+            return failure(label, "The per-atom energy criterion needs the atom count (got "
+                    + natoms + ").");
+        }
+        double tolerance = params.getEnergyToleranceRyPerAtom();
+        if (!(tolerance > 0.0) || !Double.isFinite(tolerance)) {
+            return failure(label, "The energy tolerance must be a positive finite value in "
+                    + "Ry/atom (got " + tolerance + ").");
+        }
+        List<Double> values = new ArrayList<>();
+        List<Double> energies = new ArrayList<>();
+        int rejected = 0;
+        for (String raw : Files.readAllLines(source.toPath(), StandardCharsets.UTF_8)) {
+            String line = raw.trim();
+            if (line.isEmpty() || line.startsWith("#")) {
+                continue;
+            }
+            String[] tokens = line.split("[,\\s]+");
+            if (tokens.length < 2) {
+                rejected++;
+                continue;
+            }
+            try {
+                double parameter = Double.parseDouble(normalizeExponent(tokens[0]));
+                double energy = Double.parseDouble(normalizeExponent(tokens[1]));
+                if (Double.isFinite(parameter) && Double.isFinite(energy)) {
+                    values.add(parameter);
+                    energies.add(energy);
+                } else {
+                    rejected++;
+                }
+            } catch (NumberFormatException ex) {
+                rejected++; // Tolerated header row such as "ecutwfc,total_energy_Ry".
+            }
+        }
+        if (values.size() < 3) {
+            return failure(label, "Fewer than three (parameter, total_energy_Ry) rows were "
+                    + "parsed from " + source.getName() + ". A convergence series needs at "
+                    + "least three completed calculations - none are simulated here.");
+        }
+        for (int i = 1; i < values.size(); i++) {
+            if (!(values.get(i) > values.get(i - 1))) {
+                return failure(label, "Parameter values are not strictly increasing at row "
+                        + (i + 1) + " (" + values.get(i - 1) + " then " + values.get(i)
+                        + "); the plateau search requires a sorted series.");
+            }
+        }
+        int recommendedIndex = -1;
+        double maxAbsDelta = 0.0;
+        boolean monotonic = true;
+        List<String> csv = new ArrayList<>();
+        csv.add("index,parameter,total_energy_Ry,delta_Ry,delta_Ry_per_atom");
+        StringBuilder rows = new StringBuilder();
+        for (int i = 1; i < values.size(); i++) {
+            double delta = energies.get(i) - energies.get(i - 1);
+            double perAtom = delta / natoms;
+            maxAbsDelta = Math.max(maxAbsDelta, Math.abs(delta));
+            if (i > 1 && Math.abs(delta) > Math.abs(energies.get(i - 1) - energies.get(i - 2))) {
+                monotonic = false;
+            }
+            if (recommendedIndex < 0 && Math.abs(perAtom) <= tolerance) {
+                recommendedIndex = i - 1;
+            }
+            rows.append(String.format(Locale.ROOT,
+                    "  %2d %12.6f %16.8f %+12.8f %+12.8f%n", i + 1, values.get(i),
+                    energies.get(i), delta, perAtom));
+            csv.add(String.format(Locale.ROOT, "%d,%.6f,%.8f,%.8f,%.8f", i + 1, values.get(i),
+                    energies.get(i), delta, perAtom));
+        }
+        StringBuilder text = new StringBuilder();
+        text.append("Source: ").append(source.getName()).append("; series points: ")
+                .append(values.size());
+        if (rejected > 0) {
+            text.append("; skipped non-numeric rows (incl. any header): ").append(rejected);
+        }
+        text.append('\n');
+        text.append(String.format(Locale.ROOT,
+                "Atom count: %d; energy-change tolerance: %.6g Ry/atom (%.4f meV/atom)%n",
+                natoms, tolerance, tolerance * 13605.693122994));
+        text.append(String.format(Locale.ROOT, "  %2s %12s %16s %12s %12s%n",
+                "#", "parameter", "total E (Ry)", "dE (Ry)", "dE/atom (Ry)"));
+        text.append(String.format(Locale.ROOT, "  %2d %12.6f %16.8f%n", 1, values.get(0),
+                energies.get(0)));
+        text.append(rows);
+        text.append(String.format(Locale.ROOT,
+                "Largest |dE| between neighbours: %.8f Ry; monotone decay of |dE|: %s%n",
+                maxAbsDelta, monotonic));
+        if (recommendedIndex >= 0) {
+            text.append(String.format(Locale.ROOT,
+                    "%nFirst parameter whose FOLLOWING |dE| change meets the per-atom "
+                    + "tolerance: %.6f (row %d). This is evidence at this tolerance only - "
+                    + "verify your production observable (forces/stress/properties) at the "
+                    + "chosen value before relying on it (roadmap #36/#37).%n",
+                    values.get(recommendedIndex), recommendedIndex + 1));
+        } else {
+            text.append("\nNo parameter in the series meets the per-atom energy-change "
+                    + "tolerance; extend the series rather than trusting the last point.\n");
+        }
+        text.append("Energies were read as stored in Ry from completed calculations; this "
+                + "review never extrapolates or fabricates missing points.");
+        return new AnalysisReport(label, recommendedIndex >= 0, text.toString(), csv, null);
+    }
+
+    /** Convergence-series planner preview: the variant table only, never any file. */
+    private static AnalysisReport analyzeSeriesPlan(AnalysisParameters params) {
+        String label = AnalysisKind.SERIES_PLAN.getLabel();
+        String keyword = params.getSeriesKeyword() == null ? "" : params.getSeriesKeyword().trim();
+        if (keyword.isEmpty() || !keyword.matches("[A-Za-z][A-Za-z0-9_]{0,31}")) {
+            return failure(label, "The series needs a valid QE keyword name (got '" + keyword
+                    + "').");
+        }
+        int count = params.getSeriesCount();
+        if (count < 2 || count > 20) {
+            return failure(label, "The series length must be 2..20 points (got " + count + ").");
+        }
+        double start = params.getSeriesStart();
+        double step = params.getSeriesStep();
+        if (!Double.isFinite(start) || !Double.isFinite(step) || step == 0.0) {
+            return failure(label, "Start and step must be finite numbers and step must be "
+                    + "non-zero.");
+        }
+        StringBuilder text = new StringBuilder();
+        text.append("Convergence series plan (PREVIEW ONLY - no input files are written and "
+                + "no jobs are launched by this analysis):\n\n");
+        text.append(String.format(Locale.ROOT, "Keyword: %s; start: %.8g; step: %.8g; points: %d%n%n",
+                keyword, start, step, count));
+        List<String> csv = new ArrayList<>();
+        csv.add("index," + keyword + ",suggested_job_name");
+        for (int i = 0; i < count; i++) {
+            double value = start + step * i;
+            text.append(String.format(Locale.ROOT, "  %2d  %s = %.8g%n", i + 1, keyword, value));
+            csv.add(String.format(Locale.ROOT, "%d,%.8g,%s_p%02d", i + 1, value, keyword, i + 1));
+        }
+        text.append("\nRelated keywords are NOT auto-adjusted: for an ecutwfc series, check "
+                + "your ecutrho ratio per pseudopotential family; for a k-mesh series, keep "
+                + "the spacing uniform across directions (see the k-mesh quality analysis). "
+                + "Apply these values in the input editor and launch each job explicitly, then "
+                + "review the energies with the convergence-series review analysis.");
         return new AnalysisReport(label, true, text.toString(), csv, null);
     }
 }

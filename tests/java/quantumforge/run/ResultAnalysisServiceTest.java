@@ -1104,4 +1104,80 @@ class ResultAnalysisServiceTest {
                 new AnalysisParameters().withDefectType("interstitial").withAtomIndices(1, 0, 0, 0));
         assertFalse(badType.isSuccess(), "Only vacancy/substitution are previewed here");
     }
+
+    @Test
+    void testConvergenceReviewFindsPlateauFromEvidence() throws IOException {
+        // E(ecut) series: deltas 0.1, 0.02, 0.004, 0.001 Ry -> with 2 atoms and
+        // tol 0.001 Ry/atom, first qualifying following-change is |0.004|/2 = 0.002? No:
+        // step 3->4 = 0.004/2 = 0.002 > 0.001; step 4->5 = 0.001/2 = 0.0005 <= 0.001,
+        // so the recommendation is the parameter of row 4 (ecut=70).
+        File csv = write("ecut-series.csv",
+                "ecutwfc,total_energy_Ry\n"
+                + "30.0,-30.10000000\n"
+                + "40.0,-30.20000000\n"
+                + "50.0,-30.22000000\n"
+                + "60.0,-30.22400000\n"
+                + "70.0,-30.22500000\n"
+                + "80.0,-30.22520000\n");
+        AnalysisReport report = ResultAnalysisService.analyze(AnalysisKind.CONVERGENCE_REVIEW,
+                new ProjectProperty(), this.tempDir.toFile(), "si", "si.log", csv,
+                new AnalysisParameters().withAtomCount(2).withEnergyToleranceRyPerAtom(1.0e-3));
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains("meets the per-atom tolerance: 60.000000"),
+                report.getText());
+        assertTrue(report.getText().contains("(row 4)"), report.getText());
+        assertTrue(report.getText().contains("skipped non-numeric rows (incl. any header): 1"),
+                report.getText());
+        assertEquals(6, report.getCsvLines().size(), "header plus 5 delta rows");
+
+        File shortSeries = write("ecut-short.csv", "30.0,-30.1\n40.0,-30.2\n");
+        AnalysisReport tooShort = ResultAnalysisService.analyze(AnalysisKind.CONVERGENCE_REVIEW,
+                new ProjectProperty(), this.tempDir.toFile(), "si", "si.log", shortSeries,
+                new AnalysisParameters().withAtomCount(2));
+        assertFalse(tooShort.isSuccess(), "A two-point series cannot support a plateau search");
+
+        File unsorted = write("ecut-unsorted.csv",
+                "30.0,-30.1\n40.0,-30.2\n35.0,-30.15\n50.0,-30.25\n");
+        AnalysisReport badOrder = ResultAnalysisService.analyze(AnalysisKind.CONVERGENCE_REVIEW,
+                new ProjectProperty(), this.tempDir.toFile(), "si", "si.log", unsorted,
+                new AnalysisParameters().withAtomCount(2));
+        assertFalse(badOrder.isSuccess(), "An unsorted series must fail closed");
+
+        File unconverged = write("ecut-unconverged.csv",
+                "30.0,-30.0\n40.0,-30.5\n50.0,-31.0\n60.0,-31.5\n");
+        AnalysisReport noPlateau = ResultAnalysisService.analyze(AnalysisKind.CONVERGENCE_REVIEW,
+                new ProjectProperty(), this.tempDir.toFile(), "si", "si.log", unconverged,
+                new AnalysisParameters().withAtomCount(2).withEnergyToleranceRyPerAtom(1.0e-3));
+        assertFalse(noPlateau.isSuccess(),
+                "A series that never meets the tolerance must not recommend a cutoff");
+        assertTrue(noPlateau.getText().contains("extend the series"), noPlateau.getText());
+    }
+
+    @Test
+    void testSeriesPlanPreviewValidation() {
+        AnalysisReport report = ResultAnalysisService.analyze(AnalysisKind.SERIES_PLAN,
+                stubProject(this.tempDir),
+                new AnalysisParameters().withSeriesKeyword("ecutwfc").withSeriesStart(30.0)
+                        .withSeriesStep(10.0).withSeriesCount(4));
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains("ecutwfc = 60"), report.getText());
+        assertTrue(report.getText().contains("no input files are written"), report.getText());
+        assertEquals(5, report.getCsvLines().size(), "header plus 4 plan rows");
+        assertEquals("index,ecutwfc,suggested_job_name", report.getCsvLines().get(0));
+
+        AnalysisReport badCount = ResultAnalysisService.analyze(AnalysisKind.SERIES_PLAN,
+                stubProject(this.tempDir),
+                new AnalysisParameters().withSeriesCount(1));
+        assertFalse(badCount.isSuccess(), "A single-point series must be rejected");
+
+        AnalysisReport badKeyword = ResultAnalysisService.analyze(AnalysisKind.SERIES_PLAN,
+                stubProject(this.tempDir),
+                new AnalysisParameters().withSeriesKeyword("ecut wfc!"));
+        assertFalse(badKeyword.isSuccess(), "An invalid QE keyword must be rejected");
+
+        AnalysisReport zeroStep = ResultAnalysisService.analyze(AnalysisKind.SERIES_PLAN,
+                stubProject(this.tempDir),
+                new AnalysisParameters().withSeriesStep(0.0));
+        assertFalse(zeroStep.isSuccess(), "A zero step must be rejected");
+    }
 }

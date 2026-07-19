@@ -300,6 +300,9 @@ def main() -> int:
     for token in ["QEInputDiffPreview", "QEKpointMeshAdvisor", "QEPointDefectBuilder"]:
         if token not in service:
             error(f"ResultAnalysisService is not bound to {token}")
+    for token in ["QETensorAnalyzer"]:
+        if token not in service:
+            error(f"ResultAnalysisService is not bound to {token}")
     node = (SRC / "quantumforge/run/RunningNode.java").read_text(encoding="utf-8")
     if "DryRunPreflight" not in node or "ArtifactScanner" not in node or "QECommandDag" not in node:
         error("RunningNode is not wired to dry-run/DAG/artifact scanning")

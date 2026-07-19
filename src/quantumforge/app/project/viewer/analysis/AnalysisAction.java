@@ -247,6 +247,45 @@ public final class AnalysisAction {
             }
             break;
         }
+        case CONVERGENCE_REVIEW: {
+            int defaultAtoms = 1;
+            if (this.project.getCell() != null && this.project.getCell().numAtoms() > 0) {
+                defaultAtoms = this.project.getCell().numAtoms();
+            }
+            Integer atoms = askInteger("Number of atoms in the simulation cell "
+                    + "(per-atom energy criterion)", defaultAtoms);
+            if (atoms == null) {
+                return null;
+            }
+            parameters.withAtomCount(atoms);
+            Double tolerance = askDouble("Energy-change tolerance in Ry/atom"
+                    + " (default 0.001 Ry ~ 13.6 meV/atom)", "0.001");
+            if (tolerance != null) {
+                parameters.withEnergyToleranceRyPerAtom(tolerance);
+            }
+            break;
+        }
+        case SERIES_PLAN: {
+            String keyword = askText("QE keyword to vary (e.g. ecutwfc)", "ecutwfc");
+            if (keyword == null) {
+                return null;
+            }
+            Double start = askDouble("Start value", "30.0");
+            if (start == null) {
+                return null;
+            }
+            Double step = askDouble("Step between points", "10.0");
+            if (step == null) {
+                return null;
+            }
+            Integer count = askInteger("Number of points (2-20)", 6);
+            if (count == null) {
+                return null;
+            }
+            parameters.withSeriesKeyword(keyword).withSeriesStart(start).withSeriesStep(step)
+                    .withSeriesCount(count);
+            break;
+        }
         case DEFECT_PREVIEW: {
             String type = askText("Defect type: 'vacancy' or 'substitution'", "vacancy");
             if (type == null) {
