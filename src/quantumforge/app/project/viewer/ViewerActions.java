@@ -47,6 +47,7 @@ import quantumforge.run.parser.QEErrorKnowledgeBase;
 import quantumforge.run.parser.QETimingResourceParser;
 import quantumforge.run.parser.QEPdosParser;
 import quantumforge.run.parser.QEPhononFreqParser;
+import quantumforge.run.parser.QERamanIRSpectraParser;
 import quantumforge.run.parser.ScfConvergenceAnalyzer;
 import quantumforge.run.QECommandDag;
 import quantumforge.run.RunningType;
@@ -192,6 +193,9 @@ public class ViewerActions extends ProjectActions<Node> {
 
             } else if (item == this.itemSet.getPhononItem()) {
                 this.actions.put(item, controller2 -> this.actionInspectPhonons(controller2));
+
+            } else if (item == this.itemSet.getSpectraItem()) {
+                this.actions.put(item, controller2 -> this.actionInspectSpectra(controller2));
 
             } else if (item == this.itemSet.getXcrysdenItem()) {
                 this.actions.put(item, controller2 -> this.actionXcrysden(controller2));
@@ -473,6 +477,48 @@ public class ViewerActions extends ProjectActions<Node> {
         alert.setTitle("Quantum ESPRESSO band-gap analysis");
         alert.setHeaderText(type == AlertType.WARNING ? "Band gap undetermined" : "Band-gap summary");
         alert.setContentText(message);
+        alert.showAndWait();
+    }
+
+    /** Displays parsed Raman/IR mode metadata; broadening parameters are not guessed in the GUI. */
+    private void actionInspectSpectra(QEFXProjectController controller) {
+        if (controller == null || this.project.getDirectory() == null) {
+            showSpectra("No project directory is available for Raman/IR inspection.", AlertType.WARNING);
+            return;
+        }
+        File log = new File(this.project.getDirectory(), this.project.getLogFileName());
+        QERamanIRSpectraParser parser = new QERamanIRSpectraParser(this.project.getProperty());
+        try {
+            parser.parse(log);
+        } catch (IOException ex) {
+            showSpectra("Could not parse Raman/IR modes: " + ex.getMessage(), AlertType.ERROR);
+            return;
+        }
+        List<QERamanIRSpectraParser.SpectroMode> modes = parser.getModes();
+        if (modes.isEmpty()) {
+            showSpectra("No supported Raman/IR mode table was found in " + log.getName()
+                    + ". Raman/IR intensities require an engine route that emits those tensors.", AlertType.WARNING);
+            return;
+        }
+        StringBuilder message = new StringBuilder("Parsed modes: ").append(modes.size()).append('\n');
+        int limit = Math.min(modes.size(), 100);
+        for (int i = 0; i < limit; i++) {
+            QERamanIRSpectraParser.SpectroMode mode = modes.get(i);
+            message.append(String.format(java.util.Locale.ROOT,
+                    "mode %d: %.5f cm-1; IR=%g; Raman=%g%n", mode.getModeIndex(),
+                    mode.getFrequencyCm1(), mode.getIrIntensity(), mode.getRamanActivity()));
+        }
+        message.append("\nRaw engine activities are shown. Powder broadening/orientation assumptions are not applied automatically.");
+        showSpectra(message.toString(), AlertType.INFORMATION);
+    }
+
+    private void showSpectra(String message, AlertType type) {
+        Alert alert = new Alert(type);
+        alert.setTitle("Raman / IR mode inspection");
+        alert.setHeaderText(type == AlertType.WARNING ? "Raman/IR data unavailable" : "Parsed vibrational mode activities");
+        alert.setContentText(message);
+        alert.getDialogPane().setPrefWidth(850.0);
+        alert.setResizable(true);
         alert.showAndWait();
     }
 

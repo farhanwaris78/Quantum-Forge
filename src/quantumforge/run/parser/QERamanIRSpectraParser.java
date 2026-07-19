@@ -61,18 +61,17 @@ public final class QERamanIRSpectraParser extends LogParser {
 
     @Override
     public void parse(File file) throws IOException {
-        if (file == null || !file.exists()) {
+        this.modes.clear();
+        if (file == null || !file.isFile()) {
             return;
         }
-
-        this.modes.clear();
 
         // Regex to parse dynmat.x/ph.x Raman/IR table rows, e.g.:
         //   1      120.45  (cm-1)     0.0000 (D2/A2-amu)      1.2412 (A4/amu)
         // or standard ph.x columns:
         //      mode   1   freq    120.45 cm-1   IR intensity    0.0000   Raman activity    1.2412
-        Pattern p1 = Pattern.compile("^\\s*(\\d+)\\s+([-\\d.]+)\\s+.*\\s+([-\\d.]+)\\s+([-\\d.]+)$");
-        Pattern p2 = Pattern.compile("mode\\s+(\\d+)\\s+freq\\s+([-\\d.]+)\\s*cm-1\\s+IR\\s+intensity\\s+([-\\d.]+)\\s+Raman\\s+activity\\s+([-\\d.]+)", Pattern.CASE_INSENSITIVE);
+        Pattern p1 = Pattern.compile("^\\s*(\\d+)\\s+([-\\d.DdEe+]+)\\s+.*\\s+([-\\d.DdEe+]+)\\s+([-\\d.DdEe+]+)$");
+        Pattern p2 = Pattern.compile("mode\\s+(\\d+)\\s+freq\\s+([-\\d.DdEe+]+)\\s*cm-1\\s+IR\\s+intensity\\s+([-\\d.DdEe+]+)\\s+Raman\\s+activity\\s+([-\\d.DdEe+]+)", Pattern.CASE_INSENSITIVE);
 
         try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
             String line;
@@ -95,9 +94,9 @@ public final class QERamanIRSpectraParser extends LogParser {
                     if (m.find()) {
                         try {
                             int idx = Integer.parseInt(m.group(1));
-                            double freq = Double.parseDouble(m.group(2));
-                            double ir = Double.parseDouble(m.group(3));
-                            double raman = Double.parseDouble(m.group(4));
+                            double freq = ScfConvergenceAnalyzer.parseFortranDouble(m.group(2));
+                            double ir = ScfConvergenceAnalyzer.parseFortranDouble(m.group(3));
+                            double raman = ScfConvergenceAnalyzer.parseFortranDouble(m.group(4));
                             this.modes.add(new SpectroMode(idx, freq, ir, raman));
                         } catch (NumberFormatException e) {
                             // Ignored
@@ -108,9 +107,9 @@ public final class QERamanIRSpectraParser extends LogParser {
                     if (m.find()) {
                         try {
                             int idx = Integer.parseInt(m.group(1));
-                            double freq = Double.parseDouble(m.group(2));
-                            double ir = Double.parseDouble(m.group(3));
-                            double raman = Double.parseDouble(m.group(4));
+                            double freq = ScfConvergenceAnalyzer.parseFortranDouble(m.group(2));
+                            double ir = ScfConvergenceAnalyzer.parseFortranDouble(m.group(3));
+                            double raman = ScfConvergenceAnalyzer.parseFortranDouble(m.group(4));
                             this.modes.add(new SpectroMode(idx, freq, ir, raman));
                         } catch (NumberFormatException e) {
                             // Ignored
@@ -128,7 +127,9 @@ public final class QERamanIRSpectraParser extends LogParser {
      */
     public List<SpectrumPoint> computePowderSpectra(double minFreq, double maxFreq, double step, double fwhm, boolean isRaman) {
         List<SpectrumPoint> spectrum = new ArrayList<>();
-        if (this.modes.isEmpty() || minFreq >= maxFreq || step <= 0.0 || fwhm <= 0.0) {
+        if (this.modes.isEmpty() || !Double.isFinite(minFreq) || !Double.isFinite(maxFreq)
+                || !Double.isFinite(step) || !Double.isFinite(fwhm) || minFreq >= maxFreq
+                || step <= 0.0 || fwhm <= 0.0 || (maxFreq - minFreq) / step > 1_000_000) {
             return spectrum;
         }
 

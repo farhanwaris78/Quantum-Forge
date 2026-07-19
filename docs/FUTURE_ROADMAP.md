@@ -485,3 +485,11 @@ The **twenty-third** batch connects conservative phonon q-path inspection to the
 | 51 | **GUI wired Partial** | **Inspect phonon frequencies** discovers an explicit `matdyn.freq`/`*.freq.gp` file, parses branches, reports sampled range/branch count, and surfaces significant negative sampled frequencies with convergence/ASR/q-grid caveats. It explicitly does not call a sampled path a full-Brillouin-zone stability proof. |
 | 51/16 | **Stronger** | Phonon parsing now resets stale state, fails closed on missing data, accepts Fortran `D` exponents, rejects inconsistent branch-row widths, and has regression coverage for state reset and D notation. |
 | 16 | **Verified** | GUI action wiring, parser tests, static/structural checks, and fixtures pass. Full Maven/JUnit remains pending a Java/Maven-enabled runner. |
+
+The **twenty-fourth** batch integrates Raman/IR mode inspection without fabricated spectra:
+
+| # | Status after batch 24 | What landed |
+|---:|---|---|
+| 53 | **GUI wired Partial** | **Inspect Raman / IR modes** reads supported engine-mode rows from the project log and displays raw mode frequency, IR intensity, and Raman activity. It does not silently choose broadening, powder/orientation, tensor, or experimental comparison assumptions. |
+| 53/16 | **Stronger** | The Raman/IR parser clears stale data, fails closed for missing files, accepts Fortran `D` notation, and bounds invalid spectrum-grid requests. Regression coverage checks D notation and stale-state reset. |
+| 16 | **Verified** | GUI action wiring, parser regression checks, static/structural checks, and fixtures pass. Full Maven/JUnit remains pending a Java/Maven-enabled runner. |

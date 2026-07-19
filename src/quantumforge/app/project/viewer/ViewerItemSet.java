@@ -33,6 +33,7 @@ public class ViewerItemSet {
     private ViewerItem finalGeometryItem;
     private ViewerItem pdosItem;
     private ViewerItem phononItem;
+    private ViewerItem spectraItem;
 
     public ViewerItemSet() {
         this.atomsViewerItem = new ViewerItem(SVGData.ATOMS, "Show atoms");
@@ -53,6 +54,7 @@ public class ViewerItemSet {
         this.finalGeometryItem = new ViewerItem(SVGData.ATOMS, "Preview final geometry");
         this.pdosItem = new ViewerItem(SVGData.RESULT, "Inspect projected DOS");
         this.phononItem = new ViewerItem(SVGData.RESULT, "Inspect phonon frequencies");
+        this.spectraItem = new ViewerItem(SVGData.RESULT, "Inspect Raman / IR modes");
         this.xcrysdenItem = new ViewerItem(SVGData.CRYSTAL, "Open in XCrySDen");
     }
 
@@ -75,6 +77,7 @@ public class ViewerItemSet {
                 this.finalGeometryItem,
                 this.pdosItem,
                 this.phononItem,
+                this.spectraItem,
                 this.exportWorkflowItem,
                 this.xcrysdenItem
         };
@@ -150,6 +153,10 @@ public ViewerItem getSaveAsFileItem() {
 
     public ViewerItem getPhononItem() {
         return this.phononItem;
+    }
+
+    public ViewerItem getSpectraItem() {
+        return this.spectraItem;
     }
 
     public ViewerItem getXcrysdenItem() {
