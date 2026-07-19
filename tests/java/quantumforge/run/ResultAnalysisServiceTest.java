@@ -1356,4 +1356,44 @@ class ResultAnalysisServiceTest {
         assertSame(legacy, legacy.withProvenance(List.of()),
                 "Appending nothing keeps the immutable instance");
     }
+
+    @Test
+    void testSiteProfileCheckKind() throws IOException {
+        File clean = write("cluster.yaml",
+                "id: test-cluster\nscheduler: slurm\nstaging_root: /scratch/qf\n"
+                        + "scratch_root: /scratch/qf\nmpi_launcher: srun\nmodule: qe/7.5\n");
+        AnalysisReport report = ResultAnalysisService.analyze(AnalysisKind.SITE_PROFILE_CHECK,
+                new ProjectProperty(), this.tempDir.toFile(), "si", "si.log", clean,
+                new AnalysisParameters());
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains("Site id: test-cluster"), report.getText());
+        assertTrue(report.getText().contains("Scheduler: slurm"), report.getText());
+        assertTrue(report.getText().contains("static: no SSH connection"), report.getText());
+        assertEquals(1, report.getCsvLines().size(), "header only: a clean profile has no rows");
+
+        assertTrue(ResultAnalysisService.discover(AnalysisKind.SITE_PROFILE_CHECK,
+                        this.tempDir.toFile(), "si.log").contains(clean),
+                "Yaml discovery must find the profile");
+
+        File container = write("container-site.yaml",
+                "id: c\nscheduler: slurm\nstaging_root: /s\nscratch_root: /s\n"
+                        + "module: qe/7.5\ncontainer_image: qe.sif\n");
+        AnalysisReport containerReport = ResultAnalysisService.analyze(
+                AnalysisKind.SITE_PROFILE_CHECK, new ProjectProperty(),
+                this.tempDir.toFile(), "si", "si.log", container, new AnalysisParameters());
+        assertTrue(containerReport.isSuccess(), "Warnings do not fail the report");
+        assertTrue(containerReport.getText().contains("SITE_CONTAINER_DIGEST_MISSING"),
+                containerReport.getText());
+        assertTrue(containerReport.getText().contains("SITE_CONTAINER_MPI_ABI"),
+                containerReport.getText());
+        assertTrue(containerReport.getText().contains("Container image declared: qe.sif"),
+                containerReport.getText());
+
+        File bad = write("bad-site.yaml", "id: x\nscheduler: lsf\n");
+        AnalysisReport fail = ResultAnalysisService.analyze(AnalysisKind.SITE_PROFILE_CHECK,
+                new ProjectProperty(), this.tempDir.toFile(), "si", "si.log", bad,
+                new AnalysisParameters());
+        assertFalse(fail.isSuccess(), "An unknown scheduler must block");
+        assertTrue(fail.getText().contains("SITE_SCHEDULER_UNKNOWN"), fail.getText());
+    }
 }

@@ -28,6 +28,8 @@ import quantumforge.builder.QECitationManager;
 import quantumforge.builder.adsorption.MoleculeAdsorber;
 import quantumforge.builder.QEHullThermodynamics;
 import quantumforge.builder.QEPointDefectBuilder;
+import quantumforge.hpc.SiteProfile;
+import quantumforge.hpc.SiteProfileValidator;
 import quantumforge.input.QEInput;
 import quantumforge.input.QEInputDiffPreview;
 import quantumforge.input.QEKpointMeshAdvisor;
@@ -153,7 +155,8 @@ public final class ResultAnalysisService {
         SERIES_PLAN("Convergence series plan (preview)"),
         PHONON_MODES("Phonon eigenvector audit (dynmat.x)"),
         VOLTAGE_PROFILE("Battery voltage profile from hull CSV"),
-        ADSORPTION_PREVIEW("Molecule adsorption preview (site/collision check)");
+        ADSORPTION_PREVIEW("Molecule adsorption preview (site/collision check)"),
+        SITE_PROFILE_CHECK("HPC site profile validation (scheduler/container)");
 
         private final String label;
 
@@ -548,6 +551,8 @@ public final class ResultAnalysisService {
                     || (name.contains("ecut") && name.endsWith(".csv"));
         case PHONON_MODES:
             return name.contains("dynmat") || name.contains("modes");
+        case SITE_PROFILE_CHECK:
+            return name.endsWith(".yaml") || name.endsWith(".yml");
         default:
             return false;
         }
@@ -659,6 +664,8 @@ public final class ResultAnalysisService {
                 return analyzePhononModes(property, source);
             case VOLTAGE_PROFILE:
                 return analyzeVoltageProfile(source, params);
+            case SITE_PROFILE_CHECK:
+                return analyzeSiteProfile(source);
             default:
                 return failure(kind.getLabel(), "This analysis kind is not implemented.");
             }
@@ -3330,5 +3337,60 @@ public final class ResultAnalysisService {
                 + "calculations. Nothing in the project cell was modified.");
         boolean success = !adsorber.isCollisionDetected();
         return new AnalysisReport(label, success, text.toString(), List.of(), null);
+    }
+
+    /** Static site-profile validation (Roadmap #94/#103); connects/probes nothing. */
+    private static AnalysisReport analyzeSiteProfile(File source) {
+        String label = AnalysisKind.SITE_PROFILE_CHECK.getLabel();
+        SiteProfileValidator.SiteProfileReport check = SiteProfileValidator.validate(
+                source.toPath());
+        StringBuilder text = new StringBuilder();
+        text.append("Source: ").append(source.getName()).append('\n');
+        if (check.getProfile() != null) {
+            SiteProfile profile = check.getProfile();
+            text.append("Site id: ").append(profile.getId()).append('\n');
+            text.append("Scheduler: ").append(profile.getScheduler()).append("; launcher: ")
+                    .append(profile.getMpiLauncher()).append('\n');
+            text.append("Staging root: ").append(profile.getStagingRoot().isEmpty()
+                    ? "(not set)" : profile.getStagingRoot()).append('\n');
+            text.append("Scratch root: ").append(profile.getScratchRoot().isEmpty()
+                    ? "(not set)" : profile.getScratchRoot()).append('\n');
+            text.append("Default partition: ").append(
+                    profile.getDefaultPartition().isEmpty()
+                            ? "(not set)" : profile.getDefaultPartition());
+            text.append("; modules: ").append(profile.getModules().size()).append('\n');
+        }
+        text.append('\n');
+        long errors = check.errorCount();
+        text.append("Blocking errors: ").append(errors).append("; findings total: ")
+                .append(check.getIssues().size()).append('\n');
+        List<String> csv = new ArrayList<>();
+        csv.add("severity,code,message,documentation");
+        for (ValidationIssue issue : check.getIssues()) {
+            text.append(issue).append('\n');
+            if (!issue.getDocumentationUrl().isEmpty()) {
+                text.append("  ").append(issue.getDocumentationUrl()).append('\n');
+            }
+            csv.add(csvCell(issue.getSeverity().name()) + "," + csvCell(issue.getCode())
+                    + "," + csvCell(issue.getMessage())
+                    + "," + csvCell(issue.getDocumentationUrl()));
+        }
+        if (!check.containerValues("image").isEmpty()) {
+            text.append("\nContainer image declared: ")
+                    .append(check.containerValues("image").get(0)).append('\n');
+        }
+        text.append("\nValidation is static: no SSH connection, scheduler probe, or module "
+                + "check was attempted; approved here means only internally consistent.");
+        return new AnalysisReport(label, errors == 0L && check.getProfile() != null,
+                text.toString(), csv, null);
+    }
+
+    /** Quotes a CSV cell that may contain separators. */
+    static String csvCell(String value) {
+        String cell = value == null ? "" : value;
+        if (cell.contains(",") || cell.contains("\"") || cell.contains("\n")) {
+            return '"' + cell.replace("\"", "\"\"") + '"';
+        }
+        return cell;
     }
 }
