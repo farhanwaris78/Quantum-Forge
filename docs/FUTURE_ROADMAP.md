@@ -469,3 +469,11 @@ The **twenty-first** batch corrects electronic-output parser semantics before fu
 | 46 | **Stronger Partial** | `bands.x` gnu-data parsing now resets stale state, rejects a missing/non-finite Fermi reference, accepts Fortran `D` exponents, records malformed/non-monotonic rows, and never retains bands from a previous file after a failed parse. |
 | 48 | **Stronger Partial** | PDOS parsing now requires a header identifying PDOS, reads projection columns after LDOS, sums resolved orbital components, enforces increasing finite energy grids, and refuses ambiguous two-column/headerless data rather than plotting LDOS as PDOS. |
 | 16 | **Verified** | Added parser regression tests for D-exponent bands, stale-state reset, summed p components, and ambiguous PDOS rejection. Static/structural checks and fixtures pass; full Maven/JUnit remains pending a Java/Maven-enabled runner. |
+
+The **twenty-second** batch fully connects validated PDOS parsing to a read-only project GUI workflow:
+
+| # | Status after batch 22 | What landed |
+|---:|---|---|
+| 48/49 | **GUI wired Partial** | **Inspect projected DOS** discovers validated `projwfc.x` component files, displays atom/orbital/spin-label metadata, raw emitted energy range, and nonuniform trapezoidal ∫PDOS dE per component. It rejects headerless/ambiguous files and explicitly says the integral is not an electron count without Fermi/occupation convention. |
+| 49 | **Stronger** | `QEPdosParser.integratePdos` validates equal nonuniform grids, finite non-negative density, and strictly increasing energies before integration; a regression test covers a nonuniform grid. |
+| 16 | **Verified** | PDOS viewer wiring and integration have structural/regression checks; static/structural checks and fixtures pass. Full Maven/JUnit remains pending a Java/Maven-enabled runner. |

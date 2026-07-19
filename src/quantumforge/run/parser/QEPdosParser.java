@@ -62,6 +62,34 @@ public final class QEPdosParser extends LogParser {
 
     public List<PdosComponent> getComponents() { return List.copyOf(this.components); }
 
+    /**
+     * Nonuniform-grid trapezoidal integral of a projected DOS curve. The
+     * result is a number of projected states only when the input is an
+     * unbroadened DOS on an energy axis in eV; it is not an electron count
+     * without an occupation/Fermi convention.
+     */
+    public static double integratePdos(double[] energiesEv, double[] projectedDosPerEv) {
+        if (energiesEv == null || projectedDosPerEv == null || energiesEv.length != projectedDosPerEv.length
+                || energiesEv.length < 2) {
+            throw new IllegalArgumentException("PDOS energy and density arrays must have equal length >= 2");
+        }
+        double integral = 0.0;
+        for (int i = 0; i < energiesEv.length; i++) {
+            if (!Double.isFinite(energiesEv[i]) || !Double.isFinite(projectedDosPerEv[i])
+                    || projectedDosPerEv[i] < 0.0) {
+                throw new IllegalArgumentException("PDOS arrays contain an invalid value at index " + i);
+            }
+            if (i > 0) {
+                double width = energiesEv[i] - energiesEv[i - 1];
+                if (!(width > 0.0)) {
+                    throw new IllegalArgumentException("PDOS energy grid must be strictly increasing");
+                }
+                integral += 0.5 * width * (projectedDosPerEv[i - 1] + projectedDosPerEv[i]);
+            }
+        }
+        return integral;
+    }
+
     @Override
     public void parse(File file) throws IOException {
         // Full directory scan is managed by parseDirectory

@@ -45,6 +45,7 @@ import quantumforge.run.parser.BandGapParser;
 import quantumforge.run.parser.FinalGeometryUpdater;
 import quantumforge.run.parser.QEErrorKnowledgeBase;
 import quantumforge.run.parser.QETimingResourceParser;
+import quantumforge.run.parser.QEPdosParser;
 import quantumforge.run.parser.ScfConvergenceAnalyzer;
 import quantumforge.run.QECommandDag;
 import quantumforge.run.RunningType;
@@ -184,6 +185,9 @@ public class ViewerActions extends ProjectActions<Node> {
 
             } else if (item == this.itemSet.getFinalGeometryItem()) {
                 this.actions.put(item, controller2 -> this.actionPreviewFinalGeometry(controller2));
+
+            } else if (item == this.itemSet.getPdosItem()) {
+                this.actions.put(item, controller2 -> this.actionInspectPdos(controller2));
 
             } else if (item == this.itemSet.getXcrysdenItem()) {
                 this.actions.put(item, controller2 -> this.actionXcrysden(controller2));
@@ -465,6 +469,51 @@ public class ViewerActions extends ProjectActions<Node> {
         alert.setTitle("Quantum ESPRESSO band-gap analysis");
         alert.setHeaderText(type == AlertType.WARNING ? "Band gap undetermined" : "Band-gap summary");
         alert.setContentText(message);
+        alert.showAndWait();
+    }
+
+    /** Inspects parsed projwfc.x components without fabricating a total-DOS electron count. */
+    private void actionInspectPdos(QEFXProjectController controller) {
+        if (controller == null || this.project.getDirectory() == null) {
+            showPdos("No project directory is available for projected-DOS inspection.", AlertType.WARNING);
+            return;
+        }
+        QEPdosParser parser = new QEPdosParser(this.project.getProperty());
+        parser.parseDirectory(this.project.getDirectory(), this.project.getPrefixName());
+        List<QEPdosParser.PdosComponent> components = parser.getComponents();
+        if (components.isEmpty()) {
+            showPdos("No validated projwfc.x .pdos_atm# files were found. "
+                    + "Files without a PDOS header are intentionally rejected.", AlertType.WARNING);
+            return;
+        }
+        StringBuilder message = new StringBuilder();
+        message.append("Validated PDOS components: ").append(components.size()).append('\n');
+        int limit = Math.min(components.size(), 100);
+        for (int i = 0; i < limit; i++) {
+            QEPdosParser.PdosComponent component = components.get(i);
+            double[] energy = component.getEnergies();
+            double[] density = component.getPdos();
+            double area = QEPdosParser.integratePdos(energy, density);
+            message.append(String.format(java.util.Locale.ROOT,
+                    "atom %d %s wfc %d (%s), spin label %d: E=[%.5f, %.5f] eV, ∫PDOS dE=%.6g states%n",
+                    component.getAtomIndex(), component.getElement(), component.getWfcIndex(),
+                    component.getOrbitalL(), component.getSpinChannel(), energy[0], energy[energy.length - 1], area));
+        }
+        if (components.size() > limit) {
+            message.append("Only the first ").append(limit).append(" components are shown.\n");
+        }
+        message.append("\nEnergy is exactly as emitted by projwfc.x. The integral is not an electron count "
+                + "without an explicit Fermi/occupation convention.");
+        showPdos(message.toString(), AlertType.INFORMATION);
+    }
+
+    private void showPdos(String message, AlertType type) {
+        Alert alert = new Alert(type);
+        alert.setTitle("Projected DOS inspection");
+        alert.setHeaderText(type == AlertType.WARNING ? "Projected DOS unavailable" : "Validated projwfc.x components");
+        alert.setContentText(message);
+        alert.getDialogPane().setPrefWidth(900.0);
+        alert.setResizable(true);
         alert.showAndWait();
     }
 

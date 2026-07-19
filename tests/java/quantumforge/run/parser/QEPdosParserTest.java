@@ -82,6 +82,12 @@ class QEPdosParserTest {
     }
 
     @Test
+    void integratesNonuniformProjectedDosWithoutCallingItAnElectronCount() {
+        assertEquals(3.0, QEPdosParser.integratePdos(
+                new double[] {-1.0, 0.0, 2.0}, new double[] {1.0, 1.0, 1.0}), 1e-12);
+    }
+
+    @Test
     void refusesColumnAmbiguousPdosWithoutHeader() throws IOException {
         Path tempDir = Files.createTempDirectory("qe-pdos-ambiguous");
         File file = tempDir.resolve("x.pdos_atm#1(Si)_wfc#1(s)").toFile();
