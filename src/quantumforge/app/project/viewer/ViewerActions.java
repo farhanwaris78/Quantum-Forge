@@ -12,6 +12,12 @@ package quantumforge.app.project.viewer;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.Optional;
 import java.util.List;
 
@@ -35,6 +41,9 @@ import quantumforge.input.QEInput;
 import quantumforge.input.validation.QEInputValidator;
 import quantumforge.input.validation.ValidationIssue;
 import quantumforge.project.Project;
+import quantumforge.run.parser.QEErrorKnowledgeBase;
+import quantumforge.run.parser.QETimingResourceParser;
+import quantumforge.run.parser.ScfConvergenceAnalyzer;
 import quantumforge.run.QECommandDag;
 import quantumforge.run.RunningType;
 import quantumforge.run.WorkflowExporter;
@@ -164,6 +173,9 @@ public class ViewerActions extends ProjectActions<Node> {
 
             } else if (item == this.itemSet.getValidateInputItem()) {
                 this.actions.put(item, controller2 -> this.actionValidateInput(controller2));
+
+            } else if (item == this.itemSet.getDiagnoseLogItem()) {
+                this.actions.put(item, controller2 -> this.actionDiagnoseLog(controller2));
 
             } else if (item == this.itemSet.getXcrysdenItem()) {
                 this.actions.put(item, controller2 -> this.actionXcrysden(controller2));
@@ -411,6 +423,80 @@ public class ViewerActions extends ProjectActions<Node> {
         alert.getDialogPane().setPrefWidth(900.0);
         alert.setResizable(true);
         alert.showAndWait();
+    }
+
+    /**
+     * Diagnose the tail of the current QE log without executing a command or
+     * loading an unbounded cluster output into the JavaFX process.
+     */
+    private void actionDiagnoseLog(QEFXProjectController controller) {
+        if (controller == null || this.project.getDirectory() == null) {
+            showLogDiagnosis("No project directory is available for log diagnosis.", AlertType.WARNING);
+            return;
+        }
+        Path log = this.project.getDirectory().toPath().resolve(this.project.getLogFileName());
+        if (!Files.isRegularFile(log)) {
+            showLogDiagnosis("QE log file was not found: " + log, AlertType.WARNING);
+            return;
+        }
+        try {
+            String text = readLogTail(log, 2L * 1024L * 1024L);
+            ScfConvergenceAnalyzer.Report scf = ScfConvergenceAnalyzer.analyze(text);
+            List<QEErrorKnowledgeBase.Diagnosis> diagnoses = QEErrorKnowledgeBase.diagnose(text);
+            QETimingResourceParser timing = new QETimingResourceParser(this.project.getProperty());
+            timing.parse(log.toFile());
+
+            StringBuilder message = new StringBuilder();
+            message.append(ScfConvergenceAnalyzer.formatSummary(scf)).append('\n');
+            if (Double.isFinite(timing.getWallTimeSeconds())) {
+                message.append(String.format(java.util.Locale.ROOT,
+                        "wall=%.2f s cpu=%.2f s ranks=%d memory=%.2f MB fft=%s%n",
+                        timing.getWallTimeSeconds(), timing.getCpuTimeSeconds(), timing.getNumProcessors(),
+                        timing.getEstimatedMaxMemoryMb(), timing.getFftGrid()));
+            }
+            if (diagnoses.isEmpty()) {
+                message.append("No deterministic QE error signature matched this log tail.");
+            } else {
+                message.append("\nDiagnoses (review the raw log before changing input):\n");
+                for (QEErrorKnowledgeBase.Diagnosis diagnosis : diagnoses) {
+                    message.append(diagnosis).append('\n');
+                    message.append("  ").append(diagnosis.getSignature().getDocumentationUrl()).append('\n');
+                }
+            }
+            showLogDiagnosis(message.toString(), diagnoses.isEmpty() ? AlertType.INFORMATION : AlertType.WARNING);
+        } catch (IOException | RuntimeException ex) {
+            showLogDiagnosis("Could not diagnose QE log: " + ex.getMessage(), AlertType.ERROR);
+        }
+    }
+
+    private void showLogDiagnosis(String message, AlertType type) {
+        Alert alert = new Alert(type);
+        alert.setTitle("Quantum ESPRESSO log diagnosis");
+        alert.setHeaderText(type == AlertType.ERROR ? "Log diagnosis failed" : "Deterministic log analysis");
+        alert.setContentText(message);
+        alert.getDialogPane().setPrefWidth(900.0);
+        alert.setResizable(true);
+        alert.showAndWait();
+    }
+
+    private static String readLogTail(Path path, long maximumBytes) throws IOException {
+        long size = Files.size(path);
+        long start = Math.max(0L, size - maximumBytes);
+        int count = (int) (size - start);
+        ByteBuffer bytes = ByteBuffer.allocate(count);
+        try (FileChannel channel = FileChannel.open(path, StandardOpenOption.READ)) {
+            channel.position(start);
+            while (bytes.hasRemaining() && channel.read(bytes) >= 0) {
+                // Read until EOF or requested bounded tail.
+            }
+        }
+        String text = StandardCharsets.UTF_8.decode((ByteBuffer) bytes.flip()).toString();
+        if (start > 0L) {
+            int firstNewline = text.indexOf('\n');
+            text = firstNewline >= 0 ? text.substring(firstNewline + 1) : "";
+            text = "[Earlier log content omitted; last " + maximumBytes + " bytes analyzed.]\n" + text;
+        }
+        return text;
     }
 
     private void actionExportWorkflow(QEFXProjectController controller) {

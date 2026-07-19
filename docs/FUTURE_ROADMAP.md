@@ -445,3 +445,11 @@ The **eighteenth** batch connects deterministic preflight to the project GUI and
 | 25/45 | **GUI wired** | Each project viewer now has **Validate QE input**. It resolves the current input, runs the existing deterministic validator without launching/modifying a calculation, and presents blocking errors/warnings with QE documentation links. A clean report explicitly says it is not convergence or physical-validation evidence. |
 | 35 | **Stronger Partial** | Pseudopotential validation no longer silently accepts a filename with unavailable library metadata. It emits `PSEUDO_METADATA_UNAVAILABLE` with the affected species/file names and requires a verified manifest or manual UPF inspection before family/XC/relativity compatibility can be claimed. |
 | 16 | **Verified** | The project-viewer action is structurally checked; pseudo uncertainty has a regression test; static/structural checks and fixtures pass. Full Maven/JUnit remains pending a Java/Maven-enabled runner. |
+
+The **nineteenth** batch wires bounded, deterministic result diagnosis into the project GUI:
+
+| # | Status after batch 19 | What landed |
+|---:|---|---|
+| 31/32/43 | **GUI wired** | Each project viewer now exposes **Diagnose QE log**. It reads only a bounded 2 MiB log tail, summarizes SCF convergence, parses resource/timing data, and renders deterministic QE error-KB matches with their documentation URLs. It never executes a command, modifies input, or presents suggestions as automatic fixes. |
+| 30 | **Stronger Partial** | Large-log diagnosis is bounded and begins on a complete line after truncation, preventing GUI heap exhaustion and partial-line analysis. Existing incremental live-tailing remains the runner-side mechanism. |
+| 16 | **Verified** | Viewer action wiring is covered by the structural gate; static/structural checks and parser fixtures pass. Full Maven/JUnit remains pending a Java/Maven-enabled runner. |

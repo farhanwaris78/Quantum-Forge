@@ -28,6 +28,7 @@ public class ViewerItemSet {
     private ViewerItem xcrysdenItem;
     private ViewerItem exportWorkflowItem;
     private ViewerItem validateInputItem;
+    private ViewerItem diagnoseLogItem;
 
     public ViewerItemSet() {
         this.atomsViewerItem = new ViewerItem(SVGData.ATOMS, "Show atoms");
@@ -43,6 +44,7 @@ public class ViewerItemSet {
         this.exportItem = new ViewerItem(SVGData.EXPORT, "Export structure");
         this.exportWorkflowItem = new ViewerItem(SVGData.FILE, "Export workflow script");
         this.validateInputItem = new ViewerItem(SVGData.TOOL, "Validate QE input");
+        this.diagnoseLogItem = new ViewerItem(SVGData.RESULT, "Diagnose QE log");
         this.xcrysdenItem = new ViewerItem(SVGData.CRYSTAL, "Open in XCrySDen");
     }
 
@@ -60,6 +62,7 @@ public class ViewerItemSet {
                 this.resultItem,
                 this.exportItem,
                 this.validateInputItem,
+                this.diagnoseLogItem,
                 this.exportWorkflowItem,
                 this.xcrysdenItem
         };
@@ -115,6 +118,10 @@ public ViewerItem getSaveAsFileItem() {
 
     public ViewerItem getValidateInputItem() {
         return this.validateInputItem;
+    }
+
+    public ViewerItem getDiagnoseLogItem() {
+        return this.diagnoseLogItem;
     }
 
     public ViewerItem getXcrysdenItem() {
