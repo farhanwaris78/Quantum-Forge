@@ -2387,4 +2387,55 @@ class ResultAnalysisServiceTest {
                 new AnalysisParameters().withSpectrumChannel("ir"));
         assertFalse(none.isSuccess(), "Zero-activity files must fail closed, not plot zeros");
     }
+
+    @Test
+    void testTrajectoryWindowScanKindSampledStatsAndRefusals() throws IOException {
+        File traj = write("scan.xyz",
+                "2\nframe 1\nSi 0.0 0.0 0.0\nSi 1.0 0.0 0.0\n"
+                + "2\nframe 2\nSi 0.0 1.0 0.0\nSi 2.0 1.0 0.0\n"
+                + "2\nframe 3\nSi 0.0 0.0 2.0\nSi 4.0 0.0 2.0\n");
+
+        AnalysisReport report = ResultAnalysisService.analyze(
+                AnalysisKind.TRAJECTORY_WINDOW_SCAN, new ProjectProperty(),
+                this.tempDir.toFile(), "si", "si.log", traj,
+                new AnalysisParameters().withWindowStartFrame(1).withWindowStride(2));
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains("Complete frames indexed: 3"), report.getText());
+        assertTrue(report.getText().contains("Sampled 2 frame(s) at stride 2"),
+                report.getText());
+        // Centroid drift frame 1 -> 3: (0.5,0,0) -> (2,0,2) = sqrt(2.25+4) = 2.5
+        assertTrue(report.getText().contains("mean 2.500000 A"), report.getText());
+        assertTrue(report.getText().contains("max 2.500000 A"), report.getText());
+        assertEquals(3, report.getCsvLines().size(), "header plus 2 sampled frames");
+        assertTrue(report.getCsvLines().get(1)
+                .startsWith("1,0.50000000,0.00000000,0.00000000,"), report.getCsvLines().get(1));
+        assertTrue(report.getCsvLines().get(2)
+                .startsWith("3,2.00000000,0.00000000,2.00000000,"), report.getCsvLines().get(2));
+        assertTrue(report.getText().contains("NO periodic unwrapping"), report.getText());
+
+        File withTail = write("tail.xyz",
+                "2\nframe 1\nSi 0.0 0.0 0.0\nSi 1.0 0.0 0.0\n"
+                + "2\nframe 2\nSi 0.0 1.0 0.0\nSi 2.0 1.0 0.0\n"
+                + "2\npartial\nSi 0.0 0.0 2.0\n");
+        AnalysisReport tail = ResultAnalysisService.analyze(
+                AnalysisKind.TRAJECTORY_WINDOW_SCAN, new ProjectProperty(),
+                this.tempDir.toFile(), "si", "si.log", withTail,
+                new AnalysisParameters());
+        assertTrue(tail.isSuccess(), tail.getText());
+        assertTrue(tail.getText().contains("truncated tail: yes (excluded from sampling)"),
+                tail.getText());
+        assertTrue(tail.getText().contains("Complete frames indexed: 2"), tail.getText());
+
+        AnalysisReport badStride = ResultAnalysisService.analyze(
+                AnalysisKind.TRAJECTORY_WINDOW_SCAN, new ProjectProperty(),
+                this.tempDir.toFile(), "si", "si.log", traj,
+                new AnalysisParameters().withWindowStride(0));
+        assertFalse(badStride.isSuccess(), "A zero stride must fail closed");
+
+        AnalysisReport badStart = ResultAnalysisService.analyze(
+                AnalysisKind.TRAJECTORY_WINDOW_SCAN, new ProjectProperty(),
+                this.tempDir.toFile(), "si", "si.log", traj,
+                new AnalysisParameters().withWindowStartFrame(9));
+        assertFalse(badStart.isSuccess(), "A start past the last frame must fail closed");
+    }
 }

@@ -432,6 +432,18 @@ public final class AnalysisAction {
             parameters.withConstraintSpec(spec).withConstraintMode(mode);
             break;
         }
+        case TRAJECTORY_WINDOW_SCAN: {
+            Integer start = askInteger("Start frame (1-based)", 1);
+            if (start == null) {
+                return null;
+            }
+            Integer stride = askInteger("Stride between sampled frames (>= 1)", 1);
+            if (stride == null) {
+                return null;
+            }
+            parameters.withWindowStartFrame(start).withWindowStride(stride);
+            break;
+        }
         case RAMAN_IR_SPECTRUM: {
             String channel = askText("Spectrum channel (ir or raman)", "ir");
             if (channel == null) {

@@ -344,7 +344,8 @@ def main() -> int:
                   "QEKeywordHelp", "KEYWORD_HELP",
                   "ArraySweepPlanner", "ARRAY_SWEEP_PLAN",
                   "ExtXyzCellExporter", "CELL_EXTXYZ_EXPORT",
-                  "QERamanIRSpectraParser", "RAMAN_IR_SPECTRUM"]:
+                  "QERamanIRSpectraParser", "RAMAN_IR_SPECTRUM",
+                  "TrajectoryWindowReader", "TRAJECTORY_WINDOW_SCAN"]:
         if token not in service:
             error(f"ResultAnalysisService is not bound to {token}")
     for rel in ["quantumforge/com/math/SymmetricEigen3.java",
@@ -356,7 +357,8 @@ def main() -> int:
                 "quantumforge/run/parser/PhononFrameSynthesis.java",
                 "quantumforge/input/QEKeywordHelp.java",
                 "quantumforge/hpc/ArraySweepPlanner.java",
-                "quantumforge/builder/ExtXyzCellExporter.java"]:
+                "quantumforge/builder/ExtXyzCellExporter.java",
+                "quantumforge/run/parser/TrajectoryWindowReader.java"]:
         text = (SRC / rel).read_text(encoding="utf-8")
         if "class " not in text:
             error(f"{rel} does not declare a type")

@@ -95,6 +95,7 @@ import quantumforge.run.parser.QESmearingConvergenceAnalyzer;
 import quantumforge.run.parser.QETimingResourceParser;
 import quantumforge.run.parser.QETensorAnalyzer;
 import quantumforge.run.parser.TrajectoryIndexReader;
+import quantumforge.run.parser.TrajectoryWindowReader;
 import quantumforge.run.parser.EnergySeriesComparer;
 import quantumforge.neural.ExtXyzDatasetValidator;
 import quantumforge.run.parser.ScfConvergenceAnalyzer;
@@ -208,7 +209,8 @@ public final class ResultAnalysisService {
         KEYWORD_HELP("pw.x keyword reference (offline curated subset)"),
         ARRAY_SWEEP_PLAN("Scheduler array sweep manifest (JSONL + sbatch preview)"),
         CELL_EXTXYZ_EXPORT("Extended-XYZ export of the live cell (geometry only)"),
-        RAMAN_IR_SPECTRUM("Powder IR/Raman spectrum (Lorentzian broadening)");
+        RAMAN_IR_SPECTRUM("Powder IR/Raman spectrum (Lorentzian broadening)"),
+        TRAJECTORY_WINDOW_SCAN("Trajectory window scan (bbox/centroid per sampled frame)");
 
         private final String label;
 
@@ -313,6 +315,8 @@ public final class ResultAnalysisService {
         private String jobBaseName = "sweep";    // scheduler-array job base name
         private double fwhmCm1 = 5.0;            // Lorentzian full width at half maximum
         private String spectrumChannel = "ir";   // "ir" or "raman"
+        private int windowStartFrame = 1;        // 1-based trajectory window start
+        private int windowStride = 1;            // frames between samples
         private String constraintSpec = "";      // empty means "must be supplied"
         private String constraintMode = "relax"; // relax, vc-relax, or md
 
@@ -367,6 +371,8 @@ public final class ResultAnalysisService {
         public String getJobBaseName() { return this.jobBaseName; }
         public double getFwhmCm1() { return this.fwhmCm1; }
         public String getSpectrumChannel() { return this.spectrumChannel; }
+        public int getWindowStartFrame() { return this.windowStartFrame; }
+        public int getWindowStride() { return this.windowStride; }
         public String getConstraintSpec() { return this.constraintSpec; }
         public String getConstraintMode() { return this.constraintMode; }
 
@@ -531,6 +537,16 @@ public final class ResultAnalysisService {
 
         public AnalysisParameters withFwhmCm1(double value) {
             this.fwhmCm1 = value;
+            return this;
+        }
+
+        public AnalysisParameters withWindowStartFrame(int value) {
+            this.windowStartFrame = value;
+            return this;
+        }
+
+        public AnalysisParameters withWindowStride(int value) {
+            this.windowStride = value;
             return this;
         }
 
@@ -774,6 +790,9 @@ public final class ResultAnalysisService {
         case RAMAN_IR_SPECTRUM:
             return name.contains("dynmat") || name.contains("raman")
                     || name.contains("spectr");
+        case TRAJECTORY_WINDOW_SCAN:
+            return (name.endsWith(".xyz") || name.contains("extxyz"))
+                    && !name.contains("force");
         case PHONON_MODE_FRAMES:
             return name.contains("dynmat") || name.contains("modes");
         default:
@@ -905,6 +924,8 @@ public final class ResultAnalysisService {
                 return analyzeTensorEigen(source);
             case RAMAN_IR_SPECTRUM:
                 return analyzeRamanIrSpectrum(property, source, params);
+            case TRAJECTORY_WINDOW_SCAN:
+                return analyzeTrajectoryWindowScan(source, params);
             case SITE_PROFILE_CHECK:
                 return analyzeSiteProfile(source);
             default:
@@ -4458,6 +4479,97 @@ public final class ResultAnalysisService {
                 + "grounds for large-trajectory work (Roadmap #127). Coordinates were not "
                 + "parsed or validated here; windowed, decimated reads and the bounded "
                 + "MD_MSD analysis remain the consuming layers.");
+        return new AnalysisReport(label, true, text.toString(), csv, null);
+    }
+
+    /**
+     * Roadmap #127 consumption: windowed/decimated per-frame bounding-box and
+     * centroid statistics on top of the tested streaming index - seeks instead of
+     * scans, samples instead of materializing.
+     */
+    private static AnalysisReport analyzeTrajectoryWindowScan(File source,
+            AnalysisParameters params) throws IOException {
+        String label = AnalysisKind.TRAJECTORY_WINDOW_SCAN.getLabel();
+        OperationResult<TrajectoryIndexReader.TrajectoryIndex> indexed =
+                TrajectoryIndexReader.index(source.toPath());
+        if (!indexed.isSuccess() || indexed.getValue().isEmpty()) {
+            return failure(label, "Indexing refused: " + indexed.getMessage());
+        }
+        TrajectoryIndexReader.TrajectoryIndex index = indexed.getValue().get();
+        if (!index.isOffsetsComplete()) {
+            return failure(label, "The index stored only the first "
+                    + TrajectoryIndexReader.MAX_STORED_OFFSETS
+                    + " frame offsets for this file; the window reader requires a complete "
+                    + "offset table and refuses to sample from a partial one (decimate the "
+                    + "file upstream if you need this many frames).");
+        }
+        OperationResult<TrajectoryWindowReader.WindowStats> sampled =
+                TrajectoryWindowReader.sample(source, index.getOffsets(),
+                        index.getAtomsPerFrame(), params.getWindowStartFrame(),
+                        params.getWindowStride());
+        if (!sampled.isSuccess() || sampled.getValue().isEmpty()) {
+            return failure(label, "Window sampling refused: " + sampled.getMessage());
+        }
+        TrajectoryWindowReader.WindowStats stats = sampled.getValue().get();
+        StringBuilder text = new StringBuilder();
+        text.append("Source: ").append(source.getName()).append('\n');
+        text.append(String.format(Locale.ROOT,
+                "Complete frames indexed: %d (atoms/frame %d); truncated tail: %s%n",
+                index.getFrameCount(), index.getAtomsPerFrame(),
+                index.isTruncatedTail() ? "yes (excluded from sampling)" : "no"));
+        text.append(String.format(Locale.ROOT,
+                "%s; start frame %d; sampled frames capped at %d%n", sampled.getMessage(),
+                params.getWindowStartFrame(), TrajectoryWindowReader.MAX_SAMPLED_FRAMES));
+        double[] globalMin = stats.getGlobalMin();
+        double[] globalMax = stats.getGlobalMax();
+        text.append(String.format(Locale.ROOT,
+                "Global sampled bounding box (Angstrom, as printed):%n"
+                        + "  x: %.6f .. %.6f%n  y: %.6f .. %.6f%n  z: %.6f .. %.6f%n",
+                globalMin[0], globalMax[0], globalMin[1], globalMax[1],
+                globalMin[2], globalMax[2]));
+        // Consecutive-centroid drift across the sampled window.
+        double meanDrift = 0.0;
+        double maxDrift = 0.0;
+        int driftPairs = 0;
+        int maxPairFrom = 0;
+        List<TrajectoryWindowReader.FrameStats> rows = stats.getFrames();
+        for (int i = 1; i < rows.size(); i++) {
+            double[] a = rows.get(i - 1).getCentroid();
+            double[] b = rows.get(i).getCentroid();
+            double drift = Math.sqrt((b[0] - a[0]) * (b[0] - a[0])
+                    + (b[1] - a[1]) * (b[1] - a[1]) + (b[2] - a[2]) * (b[2] - a[2]));
+            meanDrift += drift;
+            driftPairs++;
+            if (drift > maxDrift) {
+                maxDrift = drift;
+                maxPairFrom = rows.get(i - 1).getFrameIndex();
+            }
+        }
+        if (driftPairs > 0) {
+            meanDrift /= driftPairs;
+            text.append(String.format(Locale.ROOT,
+                    "Centroid drift between consecutive SAMPLED frames: mean %.6f A, "
+                            + "max %.6f A (from frame %d)%n", meanDrift, maxDrift,
+                    maxPairFrom));
+        }
+        List<String> csv = new ArrayList<>();
+        csv.add("frame_index,centroid_x,centroid_y,centroid_z,"
+                + "min_x,min_y,min_z,max_x,max_y,max_z");
+        for (TrajectoryWindowReader.FrameStats row : rows) {
+            double[] min = row.getMin();
+            double[] max = row.getMax();
+            double[] centroid = row.getCentroid();
+            csv.add(String.format(Locale.ROOT, "%d,%.8f,%.8f,%.8f,%.8f,%.8f,%.8f,%.8f,%.8f,%.8f",
+                    row.getFrameIndex(), centroid[0], centroid[1], centroid[2],
+                    min[0], min[1], min[2], max[0], max[1], max[2]));
+        }
+        text.append("\nHonesty boundary: reads land on byte offsets from the batch-56 "
+                + "index (seek, not scan); statistics cover the SAMPLED window only - with "
+                + "stride > 1 they do not describe skipped frames. Coordinates are used as "
+                + "printed (XYZ Angstrom convention, unvalidated; extXYZ columns beyond "
+                + "species/x/y/z are not interpreted), and NO periodic unwrapping is "
+                + "applied - MSD/diffusion consumers must unwrap against the cell first "
+                + "(#156). Partial files fail closed rather than reporting partial rows.");
         return new AnalysisReport(label, true, text.toString(), csv, null);
     }
 
