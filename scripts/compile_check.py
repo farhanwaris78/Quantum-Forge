@@ -280,7 +280,8 @@ def main() -> int:
         if token not in service:
             error(f"ResultAnalysisService is not bound to {token}")
     for token in ["DryRunPreflight", "RestartManager", "QEScratchStoragePolicy",
-                  "QEResourceEstimator", "QEMpiTopologyAdvisor", "RunManifest"]:
+                  "QEResourceEstimator", "QEMpiTopologyAdvisor", "RunManifest",
+                  "GeometryMeasurer", "QEMdDiffusionMsdParser", "QEHullThermodynamics"]:
         if token not in service:
             error(f"ResultAnalysisService is not bound to {token}")
     node = (SRC / "quantumforge/run/RunningNode.java").read_text(encoding="utf-8")

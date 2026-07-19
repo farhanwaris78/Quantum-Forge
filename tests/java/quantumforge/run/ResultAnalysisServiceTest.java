@@ -30,6 +30,10 @@ class ResultAnalysisServiceTest {
 
     /** Minimal backend project stub mirroring DryRunPreflightTest's anonymous override set. */
     private Project stubProject(Path dir) {
+        return stubProject(dir, null);
+    }
+
+    private Project stubProject(Path dir, Cell cellOverride) {
         return new Project(null, dir.toString()) {
             @Override public void setNetProject(Project project) { }
             @Override public boolean isValid() { return true; }
@@ -54,7 +58,7 @@ class ResultAnalysisServiceTest {
             @Override public QEInput getQEInputMd() { return null; }
             @Override public QEInput getQEInputDos() { return null; }
             @Override public QEInput getQEInputBand() { return null; }
-            @Override public Cell getCell() { return null; }
+            @Override public Cell getCell() { return cellOverride; }
             @Override protected void loadQEInputs() { }
             @Override public void resolveQEInputs() { }
             @Override public void markQEInputs() { }
@@ -284,6 +288,96 @@ class ResultAnalysisServiceTest {
                 stubProject(this.tempDir), new AnalysisParameters().withFermiEv(0.5));
         assertTrue(report.isSuccess(), report.getText());
         assertTrue(report.getText().contains("0.500000 eV (explicitly provided"));
+    }
+
+    @Test
+    void testGeometryMeasureBondAngleDihedral() throws Exception {
+        Cell cell = new Cell(quantumforge.com.math.Matrix3D.unit(10.0));
+        cell.addAtom("Si", 0.0, 0.0, 0.0);
+        cell.addAtom("Si", 0.15, 0.0, 0.0);
+        cell.addAtom("Si", 0.15, 0.20, 0.0);
+        cell.addAtom("Si", 0.15, 0.20, 0.30);
+
+        AnalysisReport bond = ResultAnalysisService.analyze(AnalysisKind.GEOMETRY_MEASURE,
+                stubProject(this.tempDir, cell),
+                new AnalysisParameters().withAtomIndices(1, 2, 0, 0));
+        assertTrue(bond.isSuccess(), bond.getText());
+        assertTrue(bond.getText().contains("d(A1-B2)      = 1.5"), bond.getText());
+
+        AnalysisReport dihedral = ResultAnalysisService.analyze(AnalysisKind.GEOMETRY_MEASURE,
+                stubProject(this.tempDir, cell),
+                new AnalysisParameters().withAtomIndices(1, 2, 3, 4));
+        assertTrue(dihedral.getText().contains("dihedral(A1-B2-C3-D4)"), dihedral.getText());
+        assertTrue(dihedral.getText().contains("minimum-image"), dihedral.getText());
+
+        AnalysisReport badIndex = ResultAnalysisService.analyze(AnalysisKind.GEOMETRY_MEASURE,
+                stubProject(this.tempDir, cell),
+                new AnalysisParameters().withAtomIndices(2, 2, 0, 0));
+        assertFalse(badIndex.isSuccess(), "Duplicate indices must fail closed");
+
+        AnalysisReport outOfRange = ResultAnalysisService.analyze(AnalysisKind.GEOMETRY_MEASURE,
+                stubProject(this.tempDir, cell),
+                new AnalysisParameters().withAtomIndices(1, 99, 0, 0));
+        assertFalse(outOfRange.isSuccess());
+    }
+
+    @Test
+    void testXyzTrajectoryUnwrapAndDiffusion() throws Exception {
+        Cell cell = new Cell(quantumforge.com.math.Matrix3D.unit(10.0));
+        StringBuilder xyz = new StringBuilder();
+        double[][] positions = {
+                {1.0, 0.0, 0.0}, {3.0, 0.0, 0.0}, {5.0, 0.0, 0.0},
+                {7.0, 0.0, 0.0}, {9.0, 0.0, 0.0}, {3.0, 0.0, 0.0},
+        };
+        for (double[] position : positions) {
+            xyz.append("1\ncomment\nSi ");
+            xyz.append(String.format(java.util.Locale.ROOT, "%.3f %.3f %.3f%n",
+                    position[0], position[1], position[2]));
+        }
+        File trajectory = write("md_run.xyz", xyz.toString());
+        AnalysisReport report = ResultAnalysisService.analyze(AnalysisKind.MD_MSD,
+                stubProject(this.tempDir, cell), trajectory,
+                new AnalysisParameters().withFrameTimeStepPs(0.5));
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains("Self-diffusion coefficient D:"), report.getText());
+        assertTrue(report.getText().contains("Frames: 6")); 
+
+        AnalysisReport shortRun = ResultAnalysisService.analyze(AnalysisKind.MD_MSD,
+                stubProject(this.tempDir, cell), trajectory,
+                new AnalysisParameters().withFrameTimeStepPs(-1.0));
+        assertFalse(shortRun.isSuccess(), "Non-positive time step must fail closed");
+    }
+
+    @Test
+    void testXyzTruncatedFailsClosed() throws Exception {
+        Cell cell = new Cell(quantumforge.com.math.Matrix3D.unit(10.0));
+        File broken = write("broken.xyz", "2\ncomment\nSi 0 0 0\n");
+        AnalysisReport report = ResultAnalysisService.analyze(AnalysisKind.MD_MSD,
+                stubProject(this.tempDir, cell), broken, new AnalysisParameters());
+        assertFalse(report.isSuccess());
+        assertTrue(report.getText().contains("Truncated XYZ"), report.getText());
+    }
+
+    @Test
+    void testHullStabilityFromCsv() throws IOException {
+        File csv = write("phases.csv",
+                "formula,fraction_B,formation_energy_eV_per_atom\n"
+                + "AB2_meta,0.6667,-0.05\n"
+                + "A,0.0,0.0\n"
+                + "AB2_stable,0.6667,-0.30\n"
+                + "B,1.0,0.0\n");
+        AnalysisReport report = ResultAnalysisService.analyze(AnalysisKind.HULL_STABILITY,
+                new ProjectProperty(), this.tempDir.toFile(), "ab", "ab.log", csv,
+                new AnalysisParameters());
+        assertFalse(report.isSuccess(), "A candidate 0.25 eV/atom above hull is not stable");
+        assertTrue(report.getText().contains("metastable"), report.getText());
+        assertTrue(report.getText().contains("0.2500 eV/atom"), report.getText());
+
+        File onlyTarget = write("single.csv", "AB,0.5,-0.4\n");
+        AnalysisReport sparse = ResultAnalysisService.analyze(AnalysisKind.HULL_STABILITY,
+                new ProjectProperty(), this.tempDir.toFile(), "ab", "ab.log", onlyTarget,
+                new AnalysisParameters());
+        assertFalse(sparse.isSuccess(), "A hull needs at least one competing phase");
     }
 
     @Test

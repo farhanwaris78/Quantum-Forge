@@ -76,7 +76,14 @@ public final class AnalysisAction {
                 return; // User cancelled parameter entry.
             }
             if (kind.isProjectBound()) {
-                showReport(ResultAnalysisService.analyze(kind, this.project, parameters));
+                File file = null;
+                if (kind.needsDataFile()) {
+                    file = resolveFile(kind);
+                    if (file == null) {
+                        return; // User cancelled the trajectory/phase file choice.
+                    }
+                }
+                showReport(ResultAnalysisService.analyze(kind, this.project, file, parameters));
                 return;
             }
             File file = resolveFile(kind);
@@ -175,10 +182,59 @@ public final class AnalysisAction {
             parameters.withTotalRanks(ranks);
             break;
         }
+        case GEOMETRY_MEASURE: {
+            int[] indices = askAtomIndices();
+            if (indices == null) {
+                return null;
+            }
+            parameters.withAtomIndices(indices[0], indices[1], indices[2], indices[3]);
+            break;
+        }
+        case MD_MSD: {
+            Double dt = askDouble("Time between stored trajectory frames (ps)", "1.0");
+            if (dt == null) {
+                return null;
+            }
+            parameters.withFrameTimeStepPs(dt);
+            break;
+        }
         default:
             break;
         }
         return parameters;
+    }
+
+    /** Parses "A,B[,C[,D]]" 1-based atom indices; absent C/D become 0. */
+    private int[] askAtomIndices() {
+        TextInputDialog dialog = new TextInputDialog("1,2,3,4");
+        dialog.setTitle("Geometry measurement");
+        dialog.setHeaderText("Atom indices A,B,C,D (1-based); omit C/D for a bond measurement");
+        dialog.setContentText("Indices:");
+        Optional<String> result = dialog.showAndWait();
+        if (result.isEmpty()) {
+            return null;
+        }
+        String[] parts = result.get().split(",");
+        if (parts.length < 2 || parts.length > 4) {
+            showMessage("Geometry measurement", "Provide 2 to 4 comma-separated indices.",
+                    AlertType.ERROR);
+            return null;
+        }
+        int[] indices = {0, 0, 0, 0};
+        for (int i = 0; i < parts.length; i++) {
+            String token = parts[i].trim();
+            if (token.isEmpty() && i >= 2) {
+                continue; // trailing ", ," means absent C/D
+            }
+            try {
+                indices[i] = Integer.parseInt(token);
+            } catch (NumberFormatException ex) {
+                showMessage("Geometry measurement", "Not an integer index: '" + token + "'",
+                        AlertType.ERROR);
+                return null;
+            }
+        }
+        return indices;
     }
 
     private Integer askInteger(String prompt, int defaultValue) {

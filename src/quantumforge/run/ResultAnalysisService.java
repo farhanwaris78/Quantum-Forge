@@ -20,7 +20,10 @@ import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import quantumforge.app.project.editor.result.geometry.GeometryMeasurer;
+import quantumforge.atoms.model.Atom;
 import quantumforge.atoms.model.Cell;
+import quantumforge.builder.QEHullThermodynamics;
 import quantumforge.input.QEInput;
 import quantumforge.input.QEPpChargePotentialBuilder;
 import quantumforge.input.QEPpWavefunctionBuilder;
@@ -37,6 +40,7 @@ import quantumforge.run.parser.QEEliashbergTcCalculator;
 import quantumforge.run.parser.QEGipawNmrParser;
 import quantumforge.run.parser.QEHubbardHpParser;
 import quantumforge.run.parser.QEMagneticMomentParser;
+import quantumforge.run.parser.QEMdDiffusionMsdParser;
 import quantumforge.run.parser.QEPhono3pyKappaParser;
 import quantumforge.run.parser.QEPwcondConductanceParser;
 import quantumforge.run.parser.QEThermoPwEosParser;
@@ -84,7 +88,10 @@ public final class ResultAnalysisService {
         RESTART_ASSESSMENT("Restart safety assessment"),
         SCRATCH_ESTIMATE("Scratch storage check"),
         RESOURCE_ESTIMATE("Resource and MPI layout estimate"),
-        RUN_MANIFEST("Run manifest history");
+        RUN_MANIFEST("Run manifest history"),
+        GEOMETRY_MEASURE("Geometry measurement (bond/angle/dihedral)"),
+        MD_MSD("MD diffusion from XYZ trajectory"),
+        HULL_STABILITY("Convex-hull stability from phase CSV");
 
         private final String label;
 
@@ -115,7 +122,13 @@ public final class ResultAnalysisService {
         /** True when the kind needs the whole open project rather than a parsed file. */
         public boolean isProjectBound() {
             return this == DRY_RUN_PREFLIGHT || this == RESTART_ASSESSMENT
-                    || this == SCRATCH_ESTIMATE || this == RESOURCE_ESTIMATE || this == RUN_MANIFEST;
+                    || this == SCRATCH_ESTIMATE || this == RESOURCE_ESTIMATE || this == RUN_MANIFEST
+                    || this == GEOMETRY_MEASURE || this == MD_MSD;
+        }
+
+        /** True for project-bound kinds that additionally parse a user data file. */
+        public boolean needsDataFile() {
+            return this == MD_MSD;
         }
     }
 
@@ -128,6 +141,11 @@ public final class ResultAnalysisService {
         private boolean lsign = false;
         private double muStar = 0.10;
         private int totalRanks = 1;
+        private int atomIndexA = 1;
+        private int atomIndexB = 2;
+        private int atomIndexC = 0; // 0 means "not supplied"
+        private int atomIndexD = 0;
+        private double frameTimeStepPs = 1.0;
 
         public double getFermiEv() { return this.fermiEv; }
         public int getKpointIndex() { return this.kpointIndex; }
@@ -136,6 +154,11 @@ public final class ResultAnalysisService {
         public boolean isLsign() { return this.lsign; }
         public double getMuStar() { return this.muStar; }
         public int getTotalRanks() { return this.totalRanks; }
+        public int getAtomIndexA() { return this.atomIndexA; }
+        public int getAtomIndexB() { return this.atomIndexB; }
+        public int getAtomIndexC() { return this.atomIndexC; }
+        public int getAtomIndexD() { return this.atomIndexD; }
+        public double getFrameTimeStepPs() { return this.frameTimeStepPs; }
 
         public AnalysisParameters withFermiEv(double value) { this.fermiEv = value; return this; }
         public AnalysisParameters withKpointIndex(int value) { this.kpointIndex = value; return this; }
@@ -144,6 +167,17 @@ public final class ResultAnalysisService {
         public AnalysisParameters withLsign(boolean value) { this.lsign = value; return this; }
         public AnalysisParameters withMuStar(double value) { this.muStar = value; return this; }
         public AnalysisParameters withTotalRanks(int value) { this.totalRanks = value; return this; }
+        public AnalysisParameters withAtomIndices(int a, int b, int c, int d) {
+            this.atomIndexA = a;
+            this.atomIndexB = b;
+            this.atomIndexC = c;
+            this.atomIndexD = d;
+            return this;
+        }
+        public AnalysisParameters withFrameTimeStepPs(double value) {
+            this.frameTimeStepPs = value;
+            return this;
+        }
     }
 
     /** A completed, self-describing analysis result. */
@@ -233,6 +267,10 @@ public final class ResultAnalysisService {
             return name.startsWith("kappa") || name.contains("thermal_conductivity");
         case ELIASHBERG_TC:
             return name.endsWith(".a2f") || name.contains("alpha2f") || name.contains("a2f");
+        case MD_MSD:
+            return name.endsWith(".xyz");
+        case HULL_STABILITY:
+            return name.endsWith(".csv");
         default:
             return false;
         }
@@ -291,6 +329,8 @@ public final class ResultAnalysisService {
                 return analyzeKappa(property, source);
             case ELIASHBERG_TC:
                 return analyzeTc(property, source, params);
+            case HULL_STABILITY:
+                return analyzeHull(source);
             default:
                 return failure(kind.getLabel(), "This analysis kind is not implemented.");
             }
@@ -313,6 +353,16 @@ public final class ResultAnalysisService {
      */
     public static AnalysisReport analyze(AnalysisKind kind, Project project,
             AnalysisParameters parameters) {
+        return analyze(kind, project, null, parameters);
+    }
+
+    /**
+     * Project-bound analysis entry with an optional user data file (used by the MD
+     * trajectory analysis). File-based kinds ignore the file when it is null and fall
+     * back to project-directory discovery.
+     */
+    public static AnalysisReport analyze(AnalysisKind kind, Project project, File file,
+            AnalysisParameters parameters) {
         if (kind == null) {
             return failure("Result analysis", "No analysis type was selected.");
         }
@@ -322,7 +372,7 @@ public final class ResultAnalysisService {
                 return failure(kind.getLabel(), "No project is open.");
             }
             return analyze(kind, project.getProperty(), project.getDirectory(),
-                    project.getPrefixName(), project.getLogFileName(), null, params);
+                    project.getPrefixName(), project.getLogFileName(), file, params);
         }
         if (project == null) {
             return failure(kind.getLabel(), "No project is open.");
@@ -339,6 +389,10 @@ public final class ResultAnalysisService {
                 return analyzeResources(project, params);
             case RUN_MANIFEST:
                 return analyzeRunManifest(project);
+            case GEOMETRY_MEASURE:
+                return analyzeGeometryMeasure(project, params);
+            case MD_MSD:
+                return analyzeMdMsd(project, file, params);
             default:
                 return failure(kind.getLabel(), "This analysis kind is not implemented.");
             }
@@ -574,6 +628,281 @@ public final class ResultAnalysisService {
             return "?";
         }
         return value.length() <= width ? value : value.substring(0, Math.max(1, width - 1)) + "~";
+    }
+
+    /** Minimum-image bond/angle/dihedral on indices the user supplied (1-based). */
+    private static AnalysisReport analyzeGeometryMeasure(Project project, AnalysisParameters params) {
+        String label = AnalysisKind.GEOMETRY_MEASURE.getLabel();
+        Cell cell = project.getCell();
+        if (cell == null) {
+            return failure(label, "The project has no atomic cell to measure.");
+        }
+        Atom[] atoms = cell.listAtoms();
+        int natoms = atoms == null ? 0 : atoms.length;
+        if (natoms < 2) {
+            return failure(label, "At least two atoms are required; found " + natoms + ".");
+        }
+        int a = params.getAtomIndexA();
+        int b = params.getAtomIndexB();
+        int c = params.getAtomIndexC();
+        int d = params.getAtomIndexD();
+        if (a < 1 || a > natoms || b < 1 || b > natoms) {
+            return failure(label, "Atom indices A and B must be 1-based within [1, " + natoms
+                    + "]; received A=" + a + ", B=" + b + ".");
+        }
+        if ((c < 0 || c > natoms) || (d < 0 || d > natoms)) {
+            return failure(label, "Optional indices C/D must be 0 (absent) or within [1, "
+                    + natoms + "]; received C=" + c + ", D=" + d + ".");
+        }
+        if (d >= 1 && c < 1) {
+            return failure(label, "A dihedral needs indices C and D; D was given without C.");
+        }
+        if (a == b || (c >= 1 && (c == a || c == b)) || (d >= 1 && (d == a || d == b || d == c))) {
+            return failure(label, "Measurement indices must be distinct atoms.");
+        }
+
+        GeometryMeasurer measurer = new GeometryMeasurer();
+        measurer.setCell(cell);
+        measurer.setAtomA(atoms[a - 1]);
+        measurer.setAtomB(atoms[b - 1]);
+        if (c >= 1) {
+            measurer.setAtomC(atoms[c - 1]);
+        }
+        if (d >= 1) {
+            measurer.setAtomD(atoms[d - 1]);
+        }
+        if (!measurer.calculate()) {
+            return failure(label, "The measurement could not be computed from these indices.");
+        }
+
+        StringBuilder text = new StringBuilder();
+        text.append("Atoms are numbered 1-based in the project's current cell (")
+                .append(natoms).append(" atoms).\n");
+        text.append(String.format(Locale.ROOT, "d(A%d-B%d)      = %.6f Ang%n", a, b,
+                measurer.getBondLengthAB()));
+        if (c >= 1) {
+            text.append(String.format(Locale.ROOT, "d(B%d-C%d)      = %.6f Ang%n", b, c,
+                    measurer.getBondLengthBC()));
+            text.append(String.format(Locale.ROOT, "angle(A%d-B%d-C%d) = %.4f deg%n", a, b, c,
+                    measurer.getBondAngleABC()));
+        }
+        if (d >= 1) {
+            text.append(String.format(Locale.ROOT, "d(C%d-D%d)      = %.6f Ang%n", c, d,
+                    measurer.getBondLengthCD()));
+            text.append(String.format(Locale.ROOT, "angle(B%d-C%d-D%d) = %.4f deg%n", b, c, d,
+                    measurer.getBondAngleBCD()));
+            text.append(String.format(Locale.ROOT, "dihedral(A%d-B%d-C%d-D%d) = %.4f deg%n",
+                    a, b, c, d, measurer.getDihedralAngle()));
+        }
+        if (cell.copyLattice() != null) {
+            text.append("\nDistances use the minimum-image convention of the periodic cell; "
+                    + "angles follow the same periodic vectors. Coordinates are the project's "
+                    + "Angstrom Cartesian convention.");
+        } else {
+            text.append("\nNo periodic lattice is set; distances are plain Cartesian "
+                    + "differences in the project's Angstrom convention.");
+        }
+        return new AnalysisReport(label, true, text.toString(), List.of(), null);
+    }
+
+    /** Unwrapped multi-frame XYZ trajectory -> multi-origin MSD -> D from the diffusive fit. */
+    private static AnalysisReport analyzeMdMsd(Project project, File file,
+            AnalysisParameters params) {
+        String label = AnalysisKind.MD_MSD.getLabel();
+        Cell cell = project.getCell();
+        double[][] lattice = cell == null ? null : cell.copyLattice();
+        if (lattice == null) {
+            return failure(label, "Trajectory unwrapping needs the project's periodic cell; "
+                    + "no lattice is set.");
+        }
+        if (file == null || !file.isFile()) {
+            return failure(label, "Select an XYZ trajectory file (.xyz) inside or outside "
+                    + "the project directory.");
+        }
+        double dtPs = params.getFrameTimeStepPs();
+        if (!Double.isFinite(dtPs) || dtPs <= 0.0) {
+            return failure(label, "Frame time step must be a positive number of picoseconds; "
+                    + "received " + dtPs + ".");
+        }
+
+        List<double[][]> frames;
+        try {
+            frames = readXyzFrames(file);
+        } catch (IOException ex) {
+            return failure(label, "Could not read XYZ trajectory: " + ex.getMessage());
+        }
+        if (frames.size() < 2) {
+            return failure(label, "Fewer than two complete frames were parsed from "
+                    + file.getName() + ".");
+        }
+
+        QEMdDiffusionMsdParser parser = new QEMdDiffusionMsdParser(project.getProperty(), lattice);
+        for (double[][] frame : frames) {
+            parser.addFrame(frame);
+        }
+        parser.unwrapTrajectory();
+        double[] msd = parser.computeMsd();
+
+        StringBuilder text = new StringBuilder();
+        text.append("Source: ").append(file.getName()).append('\n');
+        text.append("Frames: ").append(frames.size()).append("; atoms per frame: ")
+                .append(frames.get(0).length).append('\n');
+        text.append("Coordinates assumed Angstrom; box from the project lattice diagonal.\n");
+        text.append(String.format(Locale.ROOT, "Frame time step: %.6f ps%n", dtPs));
+        if (msd.length >= 2) {
+            text.append(String.format(Locale.ROOT,
+                    "MSD at last stored frame: %.6f Ang^2 (single-origin baseline)%n", msd[msd.length - 1]));
+        }
+        double diffusion = Double.NaN;
+        if (frames.size() >= 5) {
+            diffusion = parser.calculateDiffusionCoefficientSI(dtPs);
+            text.append(String.format(Locale.ROOT,
+                    "Self-diffusion coefficient D: %.6e cm^2/s%n", diffusion));
+        } else {
+            text.append("Trajectory is shorter than the 5-frame minimum; no D was fitted.\n");
+        }
+        for (String diagnostic : parser.getDiagnostics()) {
+            text.append(" - ").append(diagnostic).append('\n');
+        }
+        text.append("\nD uses the slope/6 of the MSD over the last 50% of frames; this fit "
+                + "window is a diagnostic, not proof of the diffusive regime. Longer production "
+                + "trajectories and unaltered output units remain the user's responsibility.");
+        boolean ok = frames.size() >= 5 && Double.isFinite(diffusion);
+        return new AnalysisReport(label, ok, text.toString(), List.of(), null);
+    }
+
+    private static final int MAX_XYZ_FRAMES = 10000;
+    private static final int MAX_XYZ_ATOMS = 1000000;
+
+    /** Bounded plain-XYZ multi-frame reader; frame count and atom count stay consistent. */
+    private static List<double[][]> readXyzFrames(File file) throws IOException {
+        List<double[][]> frames = new ArrayList<>();
+        try (java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.FileReader(file))) {
+            String countLine;
+            while ((countLine = reader.readLine()) != null) {
+                if (countLine.isBlank()) {
+                    continue; // tolerate blank separators between frames
+                }
+                int natoms;
+                try {
+                    natoms = Integer.parseInt(countLine.trim());
+                } catch (NumberFormatException ex) {
+                    throw new IOException("Expected an atom-count line but found: '"
+                            + countLine.trim() + "'");
+                }
+                if (natoms <= 0 || natoms > MAX_XYZ_ATOMS) {
+                    throw new IOException("Atom count out of bounds: " + natoms);
+                }
+                if (reader.readLine() == null) {
+                    throw new IOException("Truncated XYZ: missing comment line after atom count.");
+                }
+                double[][] frame = new double[natoms][3];
+                for (int i = 0; i < natoms; i++) {
+                    String row = reader.readLine();
+                    if (row == null) {
+                        throw new IOException("Truncated XYZ inside frame " + (frames.size() + 1));
+                    }
+                    String[] tokens = row.trim().split("\\s+");
+                    if (tokens.length < 4) {
+                        throw new IOException("Malformed XYZ atom row: '" + row.trim() + "'");
+                    }
+                    for (int axis = 0; axis < 3; axis++) {
+                        double value;
+                        try {
+                            value = Double.parseDouble(normalizeExponent(tokens[axis + 1]));
+                        } catch (NumberFormatException ex) {
+                            throw new IOException("Non-numeric coordinate in row: '" + row.trim() + "'");
+                        }
+                        if (!Double.isFinite(value)) {
+                            throw new IOException("Non-finite coordinate in row: '" + row.trim() + "'");
+                        }
+                        frame[i][axis] = value;
+                    }
+                }
+                if (!frames.isEmpty() && frame.length != frames.get(0).length) {
+                    throw new IOException("Inconsistent atom counts between frames: "
+                            + frames.get(0).length + " vs " + frame.length);
+                }
+                frames.add(frame);
+                if (frames.size() >= MAX_XYZ_FRAMES) {
+                    throw new IOException("Frame bound exceeded (" + MAX_XYZ_FRAMES + "); "
+                            + "truncate or decimate the trajectory first.");
+                }
+            }
+        }
+        return frames;
+    }
+
+    /** Binary convex hull from a phase CSV; the first data row is the evaluated candidate. */
+    private static AnalysisReport analyzeHull(File source) throws IOException {
+        String label = AnalysisKind.HULL_STABILITY.getLabel();
+        List<String> lines = Files.readAllLines(source.toPath(), StandardCharsets.UTF_8);
+        QEHullThermodynamics hull = new QEHullThermodynamics();
+        String targetFormula = null;
+        double targetFraction = Double.NaN;
+        double targetFormation = Double.NaN;
+        int rejected = 0;
+        for (String raw : lines) {
+            String line = raw.trim();
+            if (line.isEmpty() || line.startsWith("#")) {
+                continue;
+            }
+            String[] columns = line.split("[,;]");
+            if (columns.length < 3) {
+                rejected++;
+                continue;
+            }
+            String formula = columns[0].trim();
+            double fraction;
+            double formation;
+            try {
+                fraction = Double.parseDouble(normalizeExponent(columns[1].trim()));
+                formation = Double.parseDouble(normalizeExponent(columns[2].trim()));
+            } catch (NumberFormatException ex) {
+                if (targetFormula == null && hull.getPhases().isEmpty()) {
+                    continue; // header row before any data
+                }
+                rejected++;
+                continue;
+            }
+            if (formula.isEmpty() || fraction < 0.0 || fraction > 1.0
+                    || !Double.isFinite(formation)) {
+                rejected++;
+                continue;
+            }
+            if (targetFormula == null) {
+                targetFormula = formula;
+                targetFraction = fraction;
+                targetFormation = formation;
+            } else {
+                hull.addPhase(formula, fraction, formation);
+            }
+        }
+        if (targetFormula == null || hull.getPhases().isEmpty()) {
+            return failure(label, "Need at least one candidate row and one competing-phase row: "
+                    + "'formula,fraction_B,formation_energy_eV_per_atom'. Parsed target="
+                    + (targetFormula == null ? "none" : targetFormula) + "; phases="
+                    + hull.getPhases().size() + "; rejected rows=" + rejected + ".");
+        }
+        QEHullThermodynamics.StabilityResult result;
+        try {
+            result = hull.evaluateStability(targetFraction, targetFormation);
+        } catch (IllegalArgumentException ex) {
+            return failure(label, "Rejected target: " + ex.getMessage());
+        }
+        StringBuilder text = new StringBuilder();
+        text.append("Source: ").append(source.getName()).append('\n');
+        text.append(String.format(Locale.ROOT,
+                "Candidate: %s (x_B=%.4f, E_form=%.6f eV/atom) against %d competing phase(s)%n",
+                targetFormula, targetFraction, targetFormation, hull.getPhases().size()));
+        if (rejected > 0) {
+            text.append("Rejected rows (malformed/out-of-range): ").append(rejected).append('\n');
+        }
+        text.append('\n').append(result.getSummary()).append('\n');
+        text.append("\nFormation energies must all reference the same elemental chemical "
+                + "potentials; the hull construction is binary (Monotone Chain) and does not "
+                + "capture temperature/entropy contributions.");
+        return new AnalysisReport(label, result.isStable(), text.toString(), List.of(), null);
     }
 
     private static AnalysisReport failure(String title, String message) {
