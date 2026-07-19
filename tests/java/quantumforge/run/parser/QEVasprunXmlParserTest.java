@@ -3,6 +3,7 @@ package quantumforge.run.parser;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.io.File;
 import java.io.FileWriter;
@@ -60,5 +61,19 @@ class QEVasprunXmlParserTest {
         assertEquals(5.4300, results.getFinalLattice()[0][0], 1e-6);
         assertEquals(2, results.getFinalFractionalCoords().length);
         assertEquals(0.2500, results.getFinalFractionalCoords()[1][0], 1e-6);
+    }
+
+    @Test
+    void refusesIncompleteOutputInsteadOfInventingZeroEnergyOrCoordinates() throws IOException {
+        File tempFile = File.createTempFile("vasprun-incomplete", ".xml");
+        tempFile.deleteOnExit();
+        try (FileWriter writer = new FileWriter(tempFile)) {
+            writer.write("<modeling><structure><varray name=\"basis\">"
+                    + "<v>1 0 0</v><v>0 1 0</v><v>0 0 1</v>"
+                    + "</varray></structure></modeling>");
+        }
+        QEVasprunXmlParser parser = new QEVasprunXmlParser(new ProjectProperty());
+        assertThrows(IOException.class, () -> parser.parse(tempFile));
+        assertTrue(parser.getResults() == null);
     }
 }

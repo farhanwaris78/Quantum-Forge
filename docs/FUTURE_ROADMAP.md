@@ -404,3 +404,13 @@ The **thirteenth** batch restores the trust boundary between experimental source
 | 1 | **Stronger** | VASP, CASTEP, thermo_pw, phonopy, BoltzTraP2, and ML editor sketches now report unavailable and are filtered from `ExtensionManager`; production UI code cannot advertise their disconnected forms as working workflows. |
 | 2 | **Stronger** | A regression test verifies the production extension list is empty and immutable until an end-to-end, independently validated extension is admitted. |
 | 16 | **Verified** | Static/compile checks, fixture harness, shell syntax checks, and an isolated portable install/uninstall smoke test pass in this checkout; full Maven/JUnit execution remains blocked here because no JDK/Maven is installed. |
+
+The **fourteenth** batch hardens auxiliary-engine data boundaries without promoting incomplete workflows:
+
+| # | Status after batch 14 | What landed |
+|---:|---|---|
+| 106 | **Stronger Experimental** | `thermo_pw` Birch-Murnaghan EOS parsing now requires explicit volume units, accepts QE Fortran `D` exponents, converts bohr³ to Å³, rejects invalid summaries, and evaluates in documented Å³/Ry units. It remains experimental because no controlled thermo_pw execution DAG or reference-engine suite exists. |
+| 107 | **Stronger Unavailable** | `FORCE_SETS` generation validates every 3-vector, atom count, index, finite value, and non-empty record; writes atomically in UTF-8; and supplies an explicit QE Ry/bohr → phonopy eV/Å conversion API. No finite-displacement job workflow is exposed yet. |
+| 111 | **Stronger Experimental** | The VASP XML reader now fails closed for missing/non-finite energies, Fermi level, lattice, or positions and validates every parsed 3-vector. It remains a parser only: no POTCAR is bundled and no VASP workflow is advertised. |
+| 129 | **GUI status integration** | The Extensions menu now exposes phonopy/phono3py, thermo_pw, BoltzTraP2, and XCrySDen capability dialogs alongside VASP/CASTEP. These dialogs show the authoritative status and required work rather than presenting unusable forms as calculations. |
+| 1/16 | **Verified** | The old implementation-report/status documents and their packaging links were removed at user request; roadmap remains the sole implementation record. Static/structural checks and parser fixtures pass in this checkout; full Maven/JUnit execution still requires a JDK and Maven. |

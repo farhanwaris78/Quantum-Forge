@@ -45,4 +45,20 @@ class QEThermoPwEosParserTest {
         double energyLarger = result.evaluateEnergyRy(145.0);
         assertTrue(energyLarger > -120.0, "Energy at non-equilibrium volume must exceed minimum energy E0");
     }
+
+    @Test
+    void convertsBohrCubedAndFortranExponentBeforeBuildingCurve() throws IOException {
+        File tempFile = File.createTempFile("thermopw-bohr", ".log");
+        tempFile.deleteOnExit();
+        try (FileWriter writer = new FileWriter(tempFile)) {
+            writer.write("V0 = 1000.0 bohr^3, B0 = 1.300D+02 GPa, B'0 = 4.0, E0 = -1.200D+02 Ry\\n");
+        }
+        QEThermoPwEosParser parser = new QEThermoPwEosParser(new ProjectProperty());
+        parser.parse(tempFile);
+        assertTrue(parser.isEosParsed());
+        double expectedAng3 = 1000.0 * Math.pow(0.52917720859, 3);
+        assertEquals(expectedAng3, parser.getEquilibriumVolume(), 1e-8);
+        assertEquals(130.0, parser.getBulkModulus(), 1e-8);
+        assertEquals(-120.0, parser.getResult().evaluateEnergyRy(expectedAng3), 1e-8);
+    }
 }

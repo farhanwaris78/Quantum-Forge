@@ -53,7 +53,6 @@ Windows 10/11, macOS Intel/Apple Silicon, safe update/uninstall, and remote GUI:
 - **[External scientific software setup](docs/SCIENTIFIC_SOFTWARE_GUIDE.md)**
 - **[Release integrity and security model](docs/RELEASE_AND_SECURITY.md)**
 - **[Deep code/scientific audit](docs/CODE_AUDIT.md)**
-- **[Implemented changes, impacts, and further improvements](docs/IMPLEMENTATION_REPORT.md)**
 - **[Prioritized future implementation roadmap](docs/FUTURE_ROADMAP.md)**
 
 ## Build from source

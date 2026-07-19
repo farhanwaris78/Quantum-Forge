@@ -47,6 +47,10 @@
                            <items>
                               <MenuItem fx:id="vaspMItem" mnemonicParsing="false" text="VASP" />
                               <MenuItem fx:id="castepMItem" mnemonicParsing="false" text="CASTEP" />
+                              <MenuItem fx:id="phonopyMItem" mnemonicParsing="false" text="phonopy / phono3py" />
+                              <MenuItem fx:id="thermoPwMItem" mnemonicParsing="false" text="thermo_pw" />
+                              <MenuItem fx:id="boltztrapMItem" mnemonicParsing="false" text="BoltzTraP2" />
+                              <MenuItem fx:id="xcrysdenMItem" mnemonicParsing="false" text="XCrySDen" />
                               <MenuItem fx:id="stabilityMItem" mnemonicParsing="false" text="Phonon Stability Guide" />
                            </items>
                         </Menu>
