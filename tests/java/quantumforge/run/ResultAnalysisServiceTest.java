@@ -769,4 +769,148 @@ class ResultAnalysisServiceTest {
                 new AnalysisParameters());
         assertFalse(fail.isSuccess(), "A LAMMPS log without thermo rows must fail closed");
     }
+
+    @Test
+    void testGeometryConvergenceHonestyWithoutStoredSteps() throws IOException {
+        Files.copy(Path.of("tests/fixtures/qe/relax_converged.log"),
+                this.tempDir.resolve("espresso.log"));
+        AnalysisReport report = ResultAnalysisService.analyze(AnalysisKind.GEOMETRY_CONVERGENCE,
+                stubProject(this.tempDir), new AnalysisParameters());
+        assertFalse(report.isSuccess(),
+                "BFGS markers alone must not grant 'optimized' without stored ionic steps");
+        assertTrue(report.getText().contains("Status: INCOMPLETE"), report.getText());
+        assertTrue(report.getText().contains("BFGS end marker: true"), report.getText());
+        assertTrue(report.getText().contains("Final total force: 0.00080000 Ry/bohr"),
+                report.getText());
+        assertTrue(report.getText().contains("No ionic steps"), report.getText());
+
+        AnalysisReport badThreshold = ResultAnalysisService.analyze(
+                AnalysisKind.GEOMETRY_CONVERGENCE, stubProject(this.tempDir),
+                new AnalysisParameters().withForceThresholdRyBohr(-1.0e-3));
+        assertFalse(badThreshold.isSuccess());
+        assertTrue(badThreshold.getText().contains("positive finite"), badThreshold.getText());
+    }
+
+    @Test
+    void testGeometryConvergenceMissingLogFailsClosed() {
+        AnalysisReport report = ResultAnalysisService.analyze(AnalysisKind.GEOMETRY_CONVERGENCE,
+                stubProject(this.tempDir), new AnalysisParameters());
+        assertFalse(report.isSuccess());
+    }
+
+    @Test
+    void testPseudoFamilyWithoutInputFailsClosed() {
+        AnalysisReport report = ResultAnalysisService.analyze(AnalysisKind.PSEUDO_FAMILY,
+                stubProject(this.tempDir), new AnalysisParameters());
+        assertFalse(report.isSuccess());
+        assertTrue(report.getText().contains("no current QE input"), report.getText());
+    }
+
+    @Test
+    void testSymmetryKpathValidationAndCellRequirement() {
+        Cell cell = new Cell(quantumforge.com.math.Matrix3D.unit(5.0));
+        cell.addAtom("Si", 0.0, 0.0, 0.0);
+        cell.addAtom("Si", 0.25, 0.25, 0.25);
+        AnalysisReport badTolerance = ResultAnalysisService.analyze(AnalysisKind.SYMMETRY_KPATH,
+                stubProject(this.tempDir, cell),
+                new AnalysisParameters().withSymmetryTolerance(-1.0e-5));
+        assertFalse(badTolerance.isSuccess(), "A non-positive tolerance must be rejected");
+        assertTrue(badTolerance.getText().contains("positive finite"), badTolerance.getText());
+
+        AnalysisReport noCell = ResultAnalysisService.analyze(AnalysisKind.SYMMETRY_KPATH,
+                stubProject(this.tempDir), new AnalysisParameters());
+        assertFalse(noCell.isSuccess(), "A project without a cell must fail closed");
+
+        // Environment-dependent path: with a valid cell either the spglib sidecar runs or
+        // the report fails closed with an explicit sidecar/Python explanation - never invented.
+        AnalysisReport withCell = ResultAnalysisService.analyze(AnalysisKind.SYMMETRY_KPATH,
+                stubProject(this.tempDir, cell), new AnalysisParameters());
+        assertTrue(withCell.getText().toLowerCase(java.util.Locale.ROOT).contains("spglib"),
+                withCell.getText());
+    }
+
+    @Test
+    void testXmlSummaryFromDataFileSchema() throws IOException {
+        Files.copy(Path.of("tests/fixtures/qe/data-file-schema.xml"),
+                this.tempDir.resolve("data-file-schema.xml"));
+        File xml = this.tempDir.resolve("data-file-schema.xml").toFile();
+        AnalysisReport report = ResultAnalysisService.analyze(AnalysisKind.XML_SUMMARY,
+                new ProjectProperty(), this.tempDir.toFile(), "si", "si.log", xml,
+                new AnalysisParameters());
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains("Total energy: -15.85245678 Ry"), report.getText());
+        assertTrue(report.getText().contains("nat: 2"), report.getText());
+        assertTrue(report.getText().contains("SCF converged: true"), report.getText());
+        assertTrue(report.getText().contains("Per-atom forces: 2 entries"), report.getText());
+        assertTrue(report.getText().contains("HARTREE_PER_BOHR"), report.getText());
+        assertTrue(report.getText().contains("XML Fermi energy: 6.54"), report.getText());
+        assertTrue(report.getText().contains("never invented"), report.getText());
+
+        File garbage = write("data-file-schema-broken.xml", "<unclosed><xml");
+        AnalysisReport bad = ResultAnalysisService.analyze(AnalysisKind.XML_SUMMARY,
+                new ProjectProperty(), this.tempDir.toFile(), "si", "si.log", garbage,
+                new AnalysisParameters());
+        assertFalse(bad.isSuccess(), "Malformed XML must fail closed through the parser");
+    }
+
+    @Test
+    void testVasprunInspectionAndIncompleteRefusal() throws IOException {
+        File vasprun = write("vasprun.xml",
+                "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
+                + "<modeling>\n  <calculation>\n    <scstep>\n      <energy>\n"
+                + "        <i name=\"e_fr_energy\"> -12.43500000 </i>\n"
+                + "      </energy>\n    </scstep>\n    <dos>\n"
+                + "      <i name=\"efermi\"> 4.32100000 </i>\n"
+                + "    </dos>\n  </calculation>\n  <structure>\n    <crystal>\n"
+                + "      <varray name=\"basis\">\n"
+                + "        <v>   5.43000   0.00000   0.00000 </v>\n"
+                + "        <v>   0.00000   5.43000   0.00000 </v>\n"
+                + "        <v>   0.00000   0.00000   5.43000 </v>\n"
+                + "      </varray>\n    </crystal>\n"
+                + "    <varray name=\"positions\">\n"
+                + "      <v>   0.00000   0.00000   0.00000 </v>\n"
+                + "      <v>   0.25000   0.25000   0.25000 </v>\n"
+                + "    </varray>\n  </structure>\n</modeling>\n");
+        AnalysisReport report = ResultAnalysisService.analyze(AnalysisKind.VASP_VASPRUN,
+                new ProjectProperty(), this.tempDir.toFile(), "si", "si.log", vasprun,
+                new AnalysisParameters());
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains("Fermi energy: 4.321000 eV"), report.getText());
+        assertTrue(report.getText().contains("-12.43500000 eV"), report.getText());
+        assertTrue(report.getText().contains("Ionic positions: 2 entries"), report.getText());
+        assertTrue(report.getText().contains("no VASP workflow is advertised"), report.getText());
+
+        File incomplete = write("vasprun-incomplete.xml",
+                "<modeling><structure><varray name=\"basis\">"
+                + "<v>1 0 0</v><v>0 1 0</v><v>0 0 1</v>"
+                + "</varray></structure></modeling>");
+        AnalysisReport bad = ResultAnalysisService.analyze(AnalysisKind.VASP_VASPRUN,
+                new ProjectProperty(), this.tempDir.toFile(), "si", "si.log", incomplete,
+                new AnalysisParameters());
+        assertFalse(bad.isSuccess(), "An incomplete vasprun.xml must not be analyzed");
+    }
+
+    @Test
+    void testCastepLogInspection() throws IOException {
+        File castep = write("si.castep",
+                "     -------------------------------------------------------------------------\n"
+                + "     Final energy, E             =  -1234.567890 eV\n"
+                + "     Fermi energy                =   4.321000 eV\n"
+                + "     Geometry optimization completed successfully\n"
+                + "     -------------------------------------------------------------------------\n");
+        AnalysisReport report = ResultAnalysisService.analyze(AnalysisKind.CASTEP_LOG,
+                new ProjectProperty(), this.tempDir.toFile(), "si", "si.log", castep,
+                new AnalysisParameters());
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains("Final energy: -1234.567890 eV"), report.getText());
+        assertTrue(report.getText().contains("Geometry optimization completion marker: true"),
+                report.getText());
+        assertTrue(report.getText().contains("no CASTEP input generation"), report.getText());
+
+        File empty = write("no.castep", "not a castep file\n");
+        AnalysisReport bad = ResultAnalysisService.analyze(AnalysisKind.CASTEP_LOG,
+                new ProjectProperty(), this.tempDir.toFile(), "si", "si.log", empty,
+                new AnalysisParameters());
+        assertFalse(bad.isSuccess(), "A non-CASTEP file must fail closed");
+    }
 }

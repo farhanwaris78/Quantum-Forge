@@ -33,15 +33,19 @@ import quantumforge.input.validation.ValidationSeverity;
 import quantumforge.operation.OperationResult;
 import quantumforge.project.Project;
 import quantumforge.project.property.ProjectEnergies;
+import quantumforge.project.property.ProjectGeometryList;
 import quantumforge.project.property.ProjectProperty;
+import quantumforge.pseudo.PseudoFamilyValidator;
 import quantumforge.run.parser.CubeGridReader;
 import quantumforge.run.parser.ElasticParser;
+import quantumforge.run.parser.GeometryConvergenceValidator;
 import quantumforge.run.parser.PhononDosThermodynamics;
 import quantumforge.run.parser.QEAcousticSumRuleValidator;
 import quantumforge.run.parser.QEBandsDataParser;
 import quantumforge.run.parser.QEBerryPolarizationParser;
 import quantumforge.run.parser.QEBornChargeDielectricParser;
 import quantumforge.run.parser.QECarParrinelloParser;
+import quantumforge.run.parser.QECastepLogParser;
 import quantumforge.run.parser.QEElasticStabilityValidator;
 import quantumforge.run.parser.QEEliashbergTcCalculator;
 import quantumforge.run.parser.QEGipawNmrParser;
@@ -60,8 +64,13 @@ import quantumforge.symmetry.MagneticSpaceGroupDetector;
 import quantumforge.run.parser.QEPwcondConductanceParser;
 import quantumforge.run.parser.QEThermoPwEosParser;
 import quantumforge.run.parser.QETurboSpectrumParser;
+import quantumforge.run.parser.QEVasprunXmlParser;
 import quantumforge.run.parser.QEWannier90SpreadParser;
 import quantumforge.run.parser.QEXSpectraXanesParser;
+import quantumforge.run.parser.QeXmlResultParser;
+import quantumforge.symmetry.SeekPathResult;
+import quantumforge.symmetry.SpglibService;
+import quantumforge.symmetry.StandardizedCell;
 
 /**
  * Deterministic, read-only result-analysis service bound to existing, individually
@@ -119,7 +128,13 @@ public final class ResultAnalysisService {
         SMEARING_ANALYSIS("Smearing entropy and degauss safety"),
         PHONON_DOS_THERMO("Phonon DOS harmonic thermodynamics"),
         ELASTIC_STABILITY("Elastic tensor stability (thermo_pw)"),
-        LAMMPS_THERMO("LAMMPS MD thermo trajectory");
+        LAMMPS_THERMO("LAMMPS MD thermo trajectory"),
+        GEOMETRY_CONVERGENCE("Relax geometry convergence validation"),
+        PSEUDO_FAMILY("Pseudopotential family consistency"),
+        SYMMETRY_KPATH("spglib standardization and SeeK-path"),
+        XML_SUMMARY("QE XML output cross-check"),
+        VASP_VASPRUN("vasprun.xml inspection (parser only)"),
+        CASTEP_LOG("CASTEP .castep log inspection (parser only)");
 
         private final String label;
 
@@ -152,7 +167,8 @@ public final class ResultAnalysisService {
             return this == DRY_RUN_PREFLIGHT || this == RESTART_ASSESSMENT
                     || this == SCRATCH_ESTIMATE || this == RESOURCE_ESTIMATE || this == RUN_MANIFEST
                     || this == GEOMETRY_MEASURE || this == MD_MSD || this == MAGNETIC_ORDER
-                    || this == CITATIONS || this == BERRY_POLARIZATION;
+                    || this == CITATIONS || this == BERRY_POLARIZATION
+                    || this == GEOMETRY_CONVERGENCE || this == PSEUDO_FAMILY || this == SYMMETRY_KPATH;
         }
 
         /** True for project-bound kinds that additionally parse a user data file. */
@@ -177,6 +193,9 @@ public final class ResultAnalysisService {
         private double frameTimeStepPs = 1.0;
         private double temperatureK = 300.0;
         private int atomCount = 1;
+        private double forceThresholdRyBohr = 1.0e-3;
+        private double pressureThresholdKbar = Double.NaN; // NaN means "no pressure check"
+        private double symmetryTolerance = 1.0e-5;
 
         public double getFermiEv() { return this.fermiEv; }
         public int getKpointIndex() { return this.kpointIndex; }
@@ -192,6 +211,9 @@ public final class ResultAnalysisService {
         public double getFrameTimeStepPs() { return this.frameTimeStepPs; }
         public double getTemperatureK() { return this.temperatureK; }
         public int getAtomCount() { return this.atomCount; }
+        public double getForceThresholdRyBohr() { return this.forceThresholdRyBohr; }
+        public double getPressureThresholdKbar() { return this.pressureThresholdKbar; }
+        public double getSymmetryTolerance() { return this.symmetryTolerance; }
 
         public AnalysisParameters withFermiEv(double value) { this.fermiEv = value; return this; }
         public AnalysisParameters withKpointIndex(int value) { this.kpointIndex = value; return this; }
@@ -217,6 +239,18 @@ public final class ResultAnalysisService {
         }
         public AnalysisParameters withAtomCount(int value) {
             this.atomCount = value;
+            return this;
+        }
+        public AnalysisParameters withForceThresholdRyBohr(double value) {
+            this.forceThresholdRyBohr = value;
+            return this;
+        }
+        public AnalysisParameters withPressureThresholdKbar(double value) {
+            this.pressureThresholdKbar = value;
+            return this;
+        }
+        public AnalysisParameters withSymmetryTolerance(double value) {
+            this.symmetryTolerance = value;
             return this;
         }
     }
@@ -330,6 +364,13 @@ public final class ResultAnalysisService {
             return name.contains("elastic");
         case LAMMPS_THERMO:
             return name.contains("lammps");
+        case XML_SUMMARY:
+            return name.endsWith(".xml") && (name.contains("data-file")
+                    || name.contains("schema") || name.contains("qesys"));
+        case VASP_VASPRUN:
+            return name.contains("vasprun");
+        case CASTEP_LOG:
+            return name.endsWith(".castep");
         default:
             return false;
         }
@@ -408,6 +449,12 @@ public final class ResultAnalysisService {
                 return analyzeElastic(property, source);
             case LAMMPS_THERMO:
                 return analyzeLammpsThermo(property, source);
+            case XML_SUMMARY:
+                return analyzeXmlSummary(property, projectDir, logFileName, source);
+            case VASP_VASPRUN:
+                return analyzeVasprun(property, source);
+            case CASTEP_LOG:
+                return analyzeCastepLog(property, source);
             default:
                 return failure(kind.getLabel(), "This analysis kind is not implemented.");
             }
@@ -476,6 +523,12 @@ public final class ResultAnalysisService {
                 return analyzeCitations(project);
             case BERRY_POLARIZATION:
                 return analyzeBerry(project);
+            case GEOMETRY_CONVERGENCE:
+                return analyzeGeometryConvergence(project, params);
+            case PSEUDO_FAMILY:
+                return analyzePseudoFamily(project);
+            case SYMMETRY_KPATH:
+                return analyzeSymmetryKpath(project, params);
             default:
                 return failure(kind.getLabel(), "This analysis kind is not implemented.");
             }
@@ -2108,5 +2161,341 @@ public final class ResultAnalysisService {
                 + "against your log's 'units' line, which this report does not parse. The "
                 + "drift sign carries no equilibration guarantee.");
         return new AnalysisReport(label, true, text.toString(), csv, null);
+    }
+
+    /** Relax criteria from BFGS/force markers + user thresholds; "optimized" is earned only. */
+    private static AnalysisReport analyzeGeometryConvergence(Project project,
+            AnalysisParameters params) {
+        String label = AnalysisKind.GEOMETRY_CONVERGENCE.getLabel();
+        File directory = project.getDirectory();
+        String logName = project.getLogFileName();
+        if (directory == null || logName == null) {
+            return failure(label, "The project has no log file context for relax validation.");
+        }
+        File log = new File(directory, logName);
+        if (!log.isFile()) {
+            return failure(label, "No project log was found: " + log.getPath());
+        }
+        double forceThreshold = params.getForceThresholdRyBohr();
+        if (!(forceThreshold > 0.0) || !Double.isFinite(forceThreshold)) {
+            return failure(label, "The total-force threshold must be a positive finite value "
+                    + "in Ry/bohr (got " + forceThreshold + ").");
+        }
+        Double pressureThreshold = Double.isFinite(params.getPressureThresholdKbar())
+                ? params.getPressureThresholdKbar() : null;
+        String tail;
+        try {
+            tail = readTailUtf8(log.toPath(), LOG_SCAN_BYTES);
+        } catch (IOException ex) {
+            return failure(label, "Could not read the project log: " + ex.getMessage());
+        }
+        ProjectGeometryList geometries = project.getProperty() == null ? null
+                : project.getProperty().getOptList();
+        GeometryConvergenceValidator.Result result = GeometryConvergenceValidator.validate(
+                tail, geometries, forceThreshold, pressureThreshold);
+        StringBuilder text = new StringBuilder();
+        text.append("Source: ").append(log.getName()).append(" (bounded ")
+                .append(LOG_SCAN_BYTES / (1024L * 1024L)).append(" MiB tail scan)\n");
+        text.append("Stored optimization geometries: ")
+                .append(geometries == null ? "not available" : "available from project data")
+                .append('\n');
+        text.append(String.format(Locale.ROOT,
+                "User criteria: total force <= %.6g Ry/bohr%s%n", forceThreshold,
+                pressureThreshold == null ? " (no pressure criterion)"
+                        : String.format(Locale.ROOT, "; pressure <= %.6g kbar",
+                                pressureThreshold)));
+        text.append("Status: ").append(result.getStatus()).append('\n');
+        text.append("BFGS end marker: ").append(result.isBfgsEndMarker())
+                .append("; forces-converged marker: ").append(result.isForcesConvergedMarker())
+                .append("; SCF converged at every step: ").append(result.isScfAlwaysConverged())
+                .append('\n');
+        if (result.getFinalTotalForce() != null) {
+            text.append(String.format(Locale.ROOT, "Final total force: %.8f Ry/bohr%n",
+                    result.getFinalTotalForce()));
+        }
+        if (result.getFinalPressureKbar() != null) {
+            text.append(String.format(Locale.ROOT, "Final pressure: %.4f kbar%n",
+                    result.getFinalPressureKbar()));
+        }
+        for (String diagnostic : result.getDiagnostics()) {
+            text.append(" - ").append(diagnostic).append('\n');
+        }
+        text.append("\n'Optimized' requires the engine markers and your user thresholds on the "
+                + "parsed records; an automatically relaxed label is never granted without "
+                + "this evidence. UNKNOWN/INCOMPLETE statuses mean the log does not carry the "
+                + "required records.");
+        return new AnalysisReport(label, result.isOptimized(), text.toString(), List.of(), null);
+    }
+
+    /** ATOMIC_SPECIES functional/relativity consistency plus library-metadata honesty. */
+    private static AnalysisReport analyzePseudoFamily(Project project) {
+        String label = AnalysisKind.PSEUDO_FAMILY.getLabel();
+        QEInput input;
+        try {
+            project.resolveQEInputs();
+            input = project.getQEInputCurrent();
+        } catch (RuntimeException ex) {
+            return failure(label, "Resolving the current QE input failed: " + ex.getMessage());
+        }
+        if (input == null) {
+            return failure(label, "The project has no current QE input to inspect.");
+        }
+        List<ValidationIssue> issues = PseudoFamilyValidator.validateFamilies(input);
+        StringBuilder text = new StringBuilder();
+        text.append("Checked the ATOMIC_SPECIES card of the current input against the local "
+                + "pseudopotential library metadata.\n\n");
+        if (issues.isEmpty()) {
+            text.append("No mixed-functional or mixed-relativity inconsistency was found.\n");
+        } else {
+            int errors = 0;
+            int warnings = 0;
+            for (ValidationIssue issue : issues) {
+                if (issue.getSeverity() == ValidationSeverity.ERROR) {
+                    errors++;
+                } else if (issue.getSeverity() == ValidationSeverity.WARNING) {
+                    warnings++;
+                }
+                text.append("[").append(issue.getSeverity()).append("] ")
+                        .append(issue.getCode()).append(": ").append(issue.getMessage())
+                        .append('\n');
+                if (issue.getDocumentationUrl() != null && !issue.getDocumentationUrl().isBlank()) {
+                    text.append("    doc: ").append(issue.getDocumentationUrl()).append('\n');
+                }
+            }
+            text.append(String.format(Locale.ROOT, "%n%d error(s), %d warning(s)%n",
+                    errors, warnings));
+        }
+        text.append("\nA filename alone is never accepted as proof of XC/relativity "
+                + "compatibility; pseudopotentials absent from the local library metadata are "
+                + "reported as unverifiable. Family-manifest import and hash verification "
+                + "(roadmap #35 manager) remain separate user actions.");
+        boolean success = true;
+        for (ValidationIssue issue : issues) {
+            if (issue.getSeverity() == ValidationSeverity.ERROR) {
+                success = false;
+                break;
+            }
+        }
+        return new AnalysisReport(label, success, text.toString(), List.of(), null);
+    }
+
+    /** spglib sidecar standardization plus SeeK-path; fails closed without the sidecar. */
+    private static AnalysisReport analyzeSymmetryKpath(Project project,
+            AnalysisParameters params) {
+        String label = AnalysisKind.SYMMETRY_KPATH.getLabel();
+        Cell cell = project.getCell();
+        if (cell == null) {
+            return failure(label, "The project has no atomic cell to standardize.");
+        }
+        double tolerance = params.getSymmetryTolerance();
+        if (!(tolerance > 0.0) || !Double.isFinite(tolerance)) {
+            return failure(label, "The symmetry tolerance must be a positive finite value "
+                    + "in Angstrom (got " + tolerance + ").");
+        }
+        SpglibService service = SpglibService.detectDefault();
+        if (!service.isAvailable()) {
+            return failure(label, "spglib access needs the bundled Python sidecar "
+                    + "(tools/spglib_sidecar.py) plus a Python interpreter with the spglib "
+                    + "module; availability could not be confirmed. No local symmetry fallback "
+                    + "is invented.");
+        }
+        OperationResult<StandardizedCell> standardized = service.standardize(cell, tolerance, false);
+        if (!standardized.isSuccess() || standardized.getValue().isEmpty()) {
+            return failure(label, "spglib standardization failed closed: "
+                    + standardized.getMessage());
+        }
+        OperationResult<SeekPathResult> seek = service.seekPath(cell, tolerance);
+        if (!seek.isSuccess() || seek.getValue().isEmpty()) {
+            return failure(label, "SeeK-path evaluation failed closed: " + seek.getMessage());
+        }
+        StandardizedCell std = standardized.getValue().orElseThrow();
+        SeekPathResult path = seek.getValue().orElseThrow();
+        StringBuilder text = new StringBuilder();
+        text.append("spglib protocol ").append(SpglibService.PROTOCOL_VERSION)
+                .append("; tolerance ").append(String.format(Locale.ROOT, "%.3g Ang", tolerance))
+                .append('\n');
+        text.append("Standardized cell kind: ").append(std.getKind())
+                .append("; sites: ").append(std.getSites().size()).append('\n');
+        text.append("Lattice (Ang):\n");
+        appendMatrix(text, std.getLattice());
+        text.append(String.format(Locale.ROOT,
+                "Space group: %s (No. %d); seekpath %s%n", path.getSpaceGroupInternational(),
+                path.getSpaceGroupNumber(), path.getSeekpathVersion()));
+        text.append("Path summary: ").append(path.pathSummary()).append("\n\n");
+        text.append("Path points (fractional reciprocal coordinates):\n");
+        List<String> csv = new ArrayList<>();
+        csv.add("label,kx,ky,kz");
+        for (SeekPathResult.Point point : path.getPath()) {
+            text.append(String.format(Locale.ROOT, "  %-6s %10.6f %10.6f %10.6f%n",
+                    point.getLabel(), point.getKx(), point.getKy(), point.getKz()));
+            csv.add(String.format(Locale.ROOT, "%s,%.8f,%.8f,%.8f", point.getLabel(),
+                    point.getKx(), point.getKy(), point.getKz()));
+        }
+        text.append("\nLabels and coordinates follow the SeeK-path conventions for a "
+                + "conventional cell; compare against your band-path input before running.");
+        return new AnalysisReport(label, true, text.toString(), csv, null);
+    }
+
+    /** data-file-schema.xml values with Optional-aware provenance and log cross-check. */
+    private static AnalysisReport analyzeXmlSummary(ProjectProperty property, File projectDir,
+            String logFileName, File source) throws IOException {
+        String label = AnalysisKind.XML_SUMMARY.getLabel();
+        long size = Files.size(source.toPath());
+        if (size > 64L * 1024L * 1024L) {
+            return failure(label, source.getName() + " is " + (size / (1024L * 1024L))
+                    + " MiB; the bounded cross-check accepts QE XML output up to 64 MiB.");
+        }
+        OperationResult<QeXmlResultParser.QeXmlResults> parsed =
+                QeXmlResultParser.parseFile(source.toPath());
+        if (!parsed.isSuccess() || parsed.getValue().isEmpty()) {
+            return failure(label, "QE XML parsing failed closed for " + source.getName()
+                    + ": " + parsed.getMessage());
+        }
+        QeXmlResultParser.QeXmlResults data = parsed.getValue().orElseThrow();
+        StringBuilder text = new StringBuilder();
+        text.append("Source: ").append(source.getName()).append('\n');
+        text.append("Schema version: ")
+                .append(data.getSchemaVersion() == null ? "absent" : data.getSchemaVersion())
+                .append('\n');
+        text.append("nat: ").append(data.getNat().isPresent()
+                ? String.valueOf(data.getNat().orElseThrow()) : "absent").append('\n');
+        text.append("nspins: ").append(data.getNspins().isPresent()
+                ? String.valueOf(data.getNspins().orElseThrow()) : "absent").append('\n');
+        text.append("SCF converged: ").append(data.getScfConverged().isPresent()
+                ? String.valueOf(data.getScfConverged().orElseThrow()) : "absent").append('\n');
+        if (data.getTotalEnergyRy().isPresent()) {
+            double energyRy = data.getTotalEnergyRy().orElseThrow();
+            text.append(String.format(Locale.ROOT, "Total energy: %.8f Ry (%.6f eV)%n",
+                    energyRy, energyRy * 13.605693122994));
+        } else {
+            text.append("Total energy: absent\n");
+        }
+        if (data.getTotalForce().isPresent()) {
+            text.append(String.format(Locale.ROOT, "Total force: %.8f (XML units)%n",
+                    data.getTotalForce().orElseThrow()));
+        }
+        if (data.getAtomicForces().isPresent()) {
+            double[][] forcesRyBohr = data.getAtomicForcesRyPerBohr().orElse(null);
+            double maxNorm = 0.0;
+            if (forcesRyBohr != null) {
+                for (double[] force : forcesRyBohr) {
+                    maxNorm = Math.max(maxNorm, Math.sqrt(force[0] * force[0]
+                            + force[1] * force[1] + force[2] * force[2]));
+                }
+            }
+            text.append("Per-atom forces: ").append(data.getAtomicForces().orElseThrow().length)
+                    .append(" entries; declared unit ").append(data.getAtomicForceUnit());
+            if (forcesRyBohr != null) {
+                text.append(String.format(Locale.ROOT,
+                        "; max |F| normalized to Ry/bohr: %.8f", maxNorm));
+            }
+            text.append('\n');
+        }
+        if (data.getStressRyBohr3().isPresent()) {
+            text.append("Stress tensor (Ry/bohr^3):\n");
+            appendMatrix(text, data.getStressRyBohr3().orElseThrow());
+        }
+        if (data.getFermiEnergyEv().isPresent()) {
+            double xmlFermi = data.getFermiEnergyEv().orElseThrow();
+            text.append(String.format(Locale.ROOT, "%nXML Fermi energy: %.6f eV%n", xmlFermi));
+            if (projectDir != null && logFileName != null) {
+                File log = new File(projectDir, logFileName);
+                if (log.isFile()) {
+                    String tail = readTailUtf8(log.toPath(), LOG_SCAN_BYTES);
+                    String found = null;
+                    Matcher matcher = FERMI_LINE.matcher(tail);
+                    while (matcher.find()) {
+                        found = matcher.group(1);
+                    }
+                    if (found != null) {
+                        double logFermi = Double.parseDouble(normalizeExponent(found));
+                        double delta = Math.abs(xmlFermi - logFermi);
+                        text.append(String.format(Locale.ROOT,
+                                "Log-tail Fermi energy: %.6f eV; |delta| = %.6f eV -> %s%n",
+                                logFermi, delta, delta <= 1.0e-3
+                                        ? "CONSISTENT within 1 meV"
+                                        : "MISMATCH above 1 meV - investigate provenance"));
+                    } else {
+                        text.append("No 'Fermi energy' line exists in the project log tail; "
+                                + "the XML value stands without a cross-check.\n");
+                    }
+                }
+            }
+        } else {
+            text.append("\nFermi energy: absent in this XML (insulator/SCF-only output)\n");
+        }
+        text.append("\nThe XML is parsed XXE-hardened and is the structured source of these "
+                + "records; absent fields are reported as absent, never invented. Atomic-force "
+                + "normalization follows the document-declared unit (Hartree vs Ry factor two).");
+        return new AnalysisReport(label, true, text.toString(), List.of(), null);
+    }
+
+    /** vasprun.xml energy/Fermi/lattice/positions; parser-only, no VASP workflow advertised. */
+    private static AnalysisReport analyzeVasprun(ProjectProperty property, File source)
+            throws IOException {
+        String label = AnalysisKind.VASP_VASPRUN.getLabel();
+        long size = Files.size(source.toPath());
+        if (size > 256L * 1024L * 1024L) {
+            return failure(label, source.getName() + " is " + (size / (1024L * 1024L))
+                    + " MiB; the bounded inspection accepts vasprun.xml up to 256 MiB.");
+        }
+        QEVasprunXmlParser parser = new QEVasprunXmlParser(property);
+        parser.parse(source);
+        QEVasprunXmlParser.VasprunResults results = parser.getResults();
+        if (results == null) {
+            return failure(label, "No complete vasprun.xml results (final energy, Fermi level, "
+                    + "lattice, positions) were found in " + source.getName() + ". The parser "
+                    + "fails closed on incomplete files rather than inventing values.");
+        }
+        StringBuilder text = new StringBuilder();
+        text.append("Source: ").append(source.getName()).append('\n');
+        text.append(String.format(Locale.ROOT, "Final free energy (e_fr_energy as stored): %.8f eV%n",
+                results.getTotalEnergyEv()));
+        text.append(String.format(Locale.ROOT, "Fermi energy: %.6f eV%n", results.getFermiEnergyEv()));
+        text.append("Final lattice (Ang):\n");
+        appendMatrix(text, results.getFinalLattice());
+        double[][] coords = results.getFinalFractionalCoords();
+        text.append("Ionic positions: ").append(coords.length)
+                .append(" entries (fractional coordinates of the final structure)\n");
+        int limit = Math.min(coords.length, 50);
+        for (int i = 0; i < limit; i++) {
+            text.append(String.format(Locale.ROOT, "  atom %3d %12.8f %12.8f %12.8f%n",
+                    i + 1, coords[i][0], coords[i][1], coords[i][2]));
+        }
+        if (coords.length > limit) {
+            text.append("Only the first ").append(limit).append(" positions are shown.\n");
+        }
+        text.append("\nThis is a parser-only inspection: no POTCAR is bundled, no VASP "
+                + "workflow is advertised, and use of VASP outputs requires your own license. "
+                + "The e_fr_energy free energy is reported exactly as stored, without "
+                + "re-derivation against sigma/entropy terms.");
+        return new AnalysisReport(label, true, text.toString(), List.of(), null);
+    }
+
+    /** CASTEP .castep energy/Fermi/geometry-completion; parser-only, no CASTEP workflow. */
+    private static AnalysisReport analyzeCastepLog(ProjectProperty property, File source)
+            throws IOException {
+        String label = AnalysisKind.CASTEP_LOG.getLabel();
+        QECastepLogParser parser = new QECastepLogParser(property);
+        parser.parse(source);
+        List<String> diagnostics = parser.getDiagnostics();
+        if (diagnostics.isEmpty()) {
+            return failure(label, "No CASTEP 'Final energy' / 'Fermi energy' / geometry-"
+                    + "completion records were found in " + source.getName()
+                    + ". A .castep output file is required.");
+        }
+        StringBuilder text = new StringBuilder();
+        text.append("Source: ").append(source.getName()).append('\n');
+        text.append(String.format(Locale.ROOT, "Final energy: %.6f eV%n", parser.getFinalEnergyEv()));
+        text.append(String.format(Locale.ROOT, "Fermi energy: %.6f eV%n", parser.getFermiEnergyEv()));
+        text.append("Geometry optimization completion marker: ")
+                .append(parser.isGeometryConverged()).append("\n\n");
+        for (String diagnostic : diagnostics) {
+            text.append(" - ").append(diagnostic).append('\n');
+        }
+        text.append("\nThis is a parser-only inspection: no CASTEP input generation or "
+                + "execution exists, and use of CASTEP outputs requires your own license. "
+                + "Unparsed physics (dispersion, spin textures, band padding) is not claimed.");
+        return new AnalysisReport(label, true, text.toString(), List.of(), null);
     }
 }

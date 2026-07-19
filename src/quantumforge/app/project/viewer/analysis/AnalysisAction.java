@@ -227,6 +227,26 @@ public final class AnalysisAction {
             parameters.withAtomCount(atoms);
             break;
         }
+        case GEOMETRY_CONVERGENCE: {
+            Double force = askDouble("Total-force threshold in Ry/bohr "
+                    + "(the 'optimized' verdict is only granted below it)", "0.001");
+            if (force != null) {
+                parameters.withForceThresholdRyBohr(force);
+            }
+            Double pressure = askDouble("Pressure threshold in kbar, or leave empty "
+                    + "to skip the pressure check", "");
+            if (pressure != null) {
+                parameters.withPressureThresholdKbar(pressure);
+            }
+            break;
+        }
+        case SYMMETRY_KPATH: {
+            Double tolerance = askDouble("spglib symmetry tolerance in Angstrom", "1.0e-5");
+            if (tolerance != null) {
+                parameters.withSymmetryTolerance(tolerance);
+            }
+            break;
+        }
         default:
             break;
         }
