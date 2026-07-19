@@ -87,6 +87,7 @@ import quantumforge.run.parser.QESmearingConvergenceAnalyzer;
 import quantumforge.run.parser.QETimingResourceParser;
 import quantumforge.run.parser.QETensorAnalyzer;
 import quantumforge.run.parser.TrajectoryIndexReader;
+import quantumforge.run.parser.EnergySeriesComparer;
 import quantumforge.neural.ExtXyzDatasetValidator;
 import quantumforge.run.parser.ScfConvergenceAnalyzer;
 import quantumforge.run.parser.ScfIterationRecord;
@@ -191,7 +192,8 @@ public final class ResultAnalysisService {
         CONSTRAINTS_PREVIEW("Ionic constraint preview (if_pos flags)"),
         PHONOPY_DATA_REVIEW("phonopy FORCE_SETS review (finite displacements)"),
         TRAJECTORY_INDEX("XYZ trajectory streaming index (frame offsets)"),
-        MLP_DATASET_CHECK("ML dataset validation (extXYZ schema/labels/leaks)");
+        MLP_DATASET_CHECK("ML dataset validation (extXYZ schema/labels/leaks)"),
+        ENERGY_SERIES_COMPARE("Energy-series comparison (same grid, eV deltas)");
 
         private final String label;
 
@@ -691,6 +693,10 @@ public final class ResultAnalysisService {
                     && !name.contains("force");
         case MLP_DATASET_CHECK:
             return name.endsWith(".xyz") || name.contains("extxyz");
+        case ENERGY_SERIES_COMPARE:
+            return name.endsWith(".csv")
+                    && (name.contains("series") || name.contains("compare")
+                            || name.contains("vs"));
         default:
             return false;
         }
@@ -814,6 +820,8 @@ public final class ResultAnalysisService {
                 return analyzeTrajectoryIndex(source);
             case MLP_DATASET_CHECK:
                 return analyzeDatasetCheck(source);
+            case ENERGY_SERIES_COMPARE:
+                return analyzeSeriesCompare(source);
             case SITE_PROFILE_CHECK:
                 return analyzeSiteProfile(source);
             default:
@@ -3943,6 +3951,63 @@ public final class ResultAnalysisService {
                 + "and references; energy 'units' are the label's own convention per the ASE "
                 + "extXYZ schema and are never converted here. Files above 64 MiB belong to "
                 + "offline tooling.");
+        return new AnalysisReport(label, true, text.toString(), csv, null);
+    }
+
+    /**
+     * Same-grid energy-series comparison (Roadmap #124 data layer): deltas,
+     * RMS/max deviation and sign crossings between two energy columns that
+     * share one parameter column. Reference alignment (Fermi/VBM/vacuum) is
+     * never applied silently - aligned overlays are an explicit user choice.
+     */
+    private static AnalysisReport analyzeSeriesCompare(File source) {
+        String label = AnalysisKind.ENERGY_SERIES_COMPARE.getLabel();
+        OperationResult<EnergySeriesComparer.SeriesComparison> compared =
+                EnergySeriesComparer.compare(source.toPath());
+        if (!compared.isSuccess() || compared.getValue().isEmpty()) {
+            return failure(label, "Series comparison failed closed: " + compared.getMessage());
+        }
+        EnergySeriesComparer.SeriesComparison comparison =
+                compared.getValue().orElseThrow();
+        StringBuilder text = new StringBuilder();
+        text.append("Source: ").append(source.getName()).append('\n');
+        text.append("Columns: ").append(comparison.getParameterLabel()).append(" | ")
+                .append(comparison.getFirstSeriesLabel()).append(" | ")
+                .append(comparison.getSecondSeriesLabel())
+                .append("  (first-line treatment is a header heuristic)\n");
+        text.append(String.format(Locale.ROOT,
+                "Rows compared: %d; rejected rows: %d; out-of-order parameters: %d%n",
+                comparison.getRowCount(), comparison.getRejectedRows(),
+                comparison.getOutOfOrderRows()));
+        text.append(String.format(Locale.ROOT,
+                "Delta E2 - E1: RMS %.10f; mean signed %.10f%n",
+                comparison.getRmsDeltaEv(), comparison.getMeanSignedDeltaEv()));
+        text.append(String.format(Locale.ROOT,
+                "Max |delta| %.10f at %s = %.6g%n", comparison.getMaxAbsDeltaEv(),
+                comparison.getParameterLabel(), comparison.getMaxAbsDeltaAtParameter()));
+        text.append(String.format(Locale.ROOT,
+                "First/last row deltas: %.10f / %.10f; sign crossings of delta: %d%n",
+                comparison.getFirstDeltaEv(), comparison.getLastDeltaEv(),
+                comparison.getSignCrossings()));
+        List<String> csv = new ArrayList<>();
+        csv.add(csvCell(comparison.getParameterLabel()) + "," + csvCell(
+                comparison.getFirstSeriesLabel()) + "," + csvCell(
+                        comparison.getSecondSeriesLabel()) + ",delta_e2_minus_e1");
+        int cap = 20000;
+        List<double[]> rows = comparison.getRows();
+        for (int i = 0; i < rows.size() && i < cap; i++) {
+            double[] row = rows.get(i);
+            csv.add(String.format(Locale.ROOT, "%.10f,%.10f,%.10f,%.10f",
+                    row[0], row[1], row[2], row[2] - row[1]));
+        }
+        if (rows.size() > cap) {
+            text.append(String.format(Locale.ROOT, "CSV truncated at %d rows.%n", cap));
+        }
+        text.append("\nHonesty boundary: both series share one parameter column, so the "
+                + "grid agreement is by construction (unsorted rows are counted as notes, "
+                + "not silently re-sorted). NO reference alignment was applied - if these "
+                + "energies come from different states/codes, align Fermi/VBM/vacuum "
+                + "references explicitly before trusting the deltas.");
         return new AnalysisReport(label, true, text.toString(), csv, null);
     }
 

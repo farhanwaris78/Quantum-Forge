@@ -1979,4 +1979,36 @@ class ResultAnalysisServiceTest {
                 new AnalysisParameters());
         assertFalse(refused.isSuccess(), "Non-finite coordinates must fail closed");
     }
+
+    @Test
+    void testSeriesCompareKindExactMetricsAndHonesty() throws IOException {
+        File series = write("a-vs-b-series.csv",
+                "param,E_Ry_A,E_Ry_B\n"
+                + "30,-5.0,-4.5\n"
+                + "40,-6.0,-6.25\n"
+                + "50,-7.0,-7.75\n");
+        AnalysisReport report = ResultAnalysisService.analyze(AnalysisKind.ENERGY_SERIES_COMPARE,
+                new ProjectProperty(), this.tempDir.toFile(), "si", "si.log", series,
+                new AnalysisParameters());
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains("Delta E2 - E1: RMS 0.5400617249"),
+                report.getText());
+        assertTrue(report.getText().contains("mean signed -0.1666666667"), report.getText());
+        assertTrue(report.getText().contains("Max |delta| 0.7500000000 at param = 50.0000"),
+                report.getText());
+        assertTrue(report.getText().contains("sign crossings of delta: 1"), report.getText());
+        assertTrue(report.getText().contains("NO reference alignment was applied"),
+                report.getText());
+        assertEquals(4, report.getCsvLines().size(), "header plus 3 rows with deltas");
+        assertTrue(report.getCsvLines().get(1).endsWith(",0.5000000000"),
+                report.getCsvLines().get(1));
+        assertTrue(report.getCsvLines().get(3).endsWith(",-0.7500000000"),
+                report.getCsvLines().get(3));
+
+        File shallow = write("vs.csv", "a,b,c\n30,1,2\n");
+        AnalysisReport refused = ResultAnalysisService.analyze(
+                AnalysisKind.ENERGY_SERIES_COMPARE, new ProjectProperty(),
+                this.tempDir.toFile(), "si", "si.log", shallow, new AnalysisParameters());
+        assertFalse(refused.isSuccess(), "A single-row series must fail closed");
+    }
 }
