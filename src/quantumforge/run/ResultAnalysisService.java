@@ -77,6 +77,7 @@ import quantumforge.run.parser.QETensorAnalyzer;
 import quantumforge.run.parser.ScfConvergenceAnalyzer;
 import quantumforge.run.parser.ScfIterationRecord;
 import quantumforge.symmetry.MagneticSpaceGroupDetector;
+import quantumforge.symmetry.QEBrillouinZoneGeometry;
 import quantumforge.run.parser.QEPwcondConductanceParser;
 import quantumforge.run.parser.QEThermoPwEosParser;
 import quantumforge.run.parser.QETurboSpectrumParser;
@@ -162,7 +163,8 @@ public final class ResultAnalysisService {
         ADSORPTION_PREVIEW("Molecule adsorption preview (site/collision check)"),
         SITE_PROFILE_CHECK("HPC site profile validation (scheduler/container)"),
         ML_MODEL_CHECK("ML potential model-manifest validation"),
-        EXX_GUIDANCE("Exact-exchange (hybrid) k/q grid guidance");
+        EXX_GUIDANCE("Exact-exchange (hybrid) k/q grid guidance"),
+        BZ_GEOMETRY("Brillouin-zone polyhedron (lattice geometry)");
 
         private final String label;
 
@@ -199,7 +201,7 @@ public final class ResultAnalysisService {
                     || this == GEOMETRY_CONVERGENCE || this == PSEUDO_FAMILY || this == SYMMETRY_KPATH
                     || this == INPUT_DIFF || this == KMESH_QUALITY || this == DEFECT_PREVIEW
                     || this == SERIES_PLAN || this == ADSORPTION_PREVIEW || this == ML_MODEL_CHECK
-                    || this == EXX_GUIDANCE;
+                    || this == EXX_GUIDANCE || this == BZ_GEOMETRY;
         }
 
         /** True for project-bound kinds that additionally parse a user data file. */
@@ -792,6 +794,8 @@ public final class ResultAnalysisService {
                 return analyzeMlModel(project, file);
             case EXX_GUIDANCE:
                 return analyzeExxGuidance(project, params);
+            case BZ_GEOMETRY:
+                return analyzeBzGeometry(project);
             default:
                 return failure(kind.getLabel(), "This analysis kind is not implemented.");
         }
@@ -3573,5 +3577,57 @@ public final class ResultAnalysisService {
                 + "hybrid calculation, does not estimate wall time from a universal factor, "
                 + "and leaves input_dft/ecutfock/exxdiv_treatment as explicit physics choices.");
         return new AnalysisReport(label, guidance.isUsable(), text.toString(), csv, null);
+    }
+
+    /**
+     * Reciprocal Wigner-Seitz zone polyhedron from the live cell lattice
+     * (Roadmap #126, geometry layer). The result is accepted only when the volume
+     * identity and the Euler characteristic both hold; symmetry labels belong to
+     * the SeeK-path analysis, not to this geometric construction.
+     */
+    private static AnalysisReport analyzeBzGeometry(Project project) {
+        String label = AnalysisKind.BZ_GEOMETRY.getLabel();
+        Cell cell = project.getCell();
+        if (cell == null) {
+            return failure(label, "The project has no cell; a lattice is required.");
+        }
+        OperationResult<QEBrillouinZoneGeometry.BzReport> computed =
+                QEBrillouinZoneGeometry.compute(cell.copyLattice());
+        if (!computed.isSuccess() || computed.getValue().isEmpty()) {
+            return failure(label, "Zone construction failed closed: " + computed.getMessage());
+        }
+        QEBrillouinZoneGeometry.BzReport zone = computed.getValue().orElseThrow();
+        StringBuilder text = new StringBuilder();
+        text.append(String.format(Locale.ROOT,
+                "Reciprocal lattice rows (Ang^-1, 2 pi included):%n"));
+        for (double[] row : zone.getReciprocalRows()) {
+            text.append(String.format(Locale.ROOT, "  % .8f % .8f % .8f%n",
+                    row[0], row[1], row[2]));
+        }
+        text.append(String.format(Locale.ROOT,
+                "%nVertices: %d%nEdges: %d%nFaces: %d%n",
+                zone.getVertexCount(), zone.getEdgeCount(), zone.getFaceCount()));
+        text.append(String.format(Locale.ROOT,
+                "Zone volume: %.8f Ang^-3; expected (2 pi)^3/V_cell: %.8f Ang^-3%n",
+                zone.getVolumeInvAng3(), zone.getExpectedVolumeInvAng3()));
+        for (String note : zone.getNotes()) {
+            text.append(" - ").append(note).append('\n');
+        }
+        text.append("Shell level used for the half-space enumeration: ")
+                .append(zone.getShellsUsed()).append('\n');
+        List<String> csv = new ArrayList<>();
+        csv.add("vertex_index,x_inv_ang,y_inv_ang,z_inv_ang");
+        int index = 0;
+        for (double[] vertex : zone.getVertices()) {
+            csv.add(String.format(Locale.ROOT, "%d,%.10f,%.10f,%.10f",
+                    ++index, vertex[0], vertex[1], vertex[2]));
+        }
+        text.append("\nVertices are Cartesian coordinates in Ang^-1 (CSV export contains all ")
+                .append(zone.getVertexCount()).append(").\n");
+        text.append("\nThis is bare lattice geometry: no point-group symmetry was applied and "
+                + "no high-symmetry point names are attached - use the spglib/SeeK-path "
+                + "analysis for labelled paths. The polyhedron was accepted only because the "
+                + "volume identity and the Euler characteristic both hold.");
+        return new AnalysisReport(label, zone.isConsistent(), text.toString(), csv, null);
     }
 }

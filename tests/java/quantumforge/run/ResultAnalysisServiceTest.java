@@ -1480,4 +1480,26 @@ class ResultAnalysisServiceTest {
                 "Gamma-only inputs get an honest no-grid statement, not advice");
         assertTrue(gammaReport.getText().contains("Gamma-only"), gammaReport.getText());
     }
+
+    @Test
+    void testBzGeometryKindOnKnownCells() {
+        Cell cubic = new Cell(quantumforge.com.math.Matrix3D.unit(10.0));
+        cubic.addAtom("Si", 0.1, 0.2, 0.3);
+        AnalysisReport report = ResultAnalysisService.analyze(AnalysisKind.BZ_GEOMETRY,
+                stubProject(this.tempDir, cubic), new AnalysisParameters());
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains("Vertices: 8"), report.getText());
+        assertTrue(report.getText().contains("Edges: 12"), report.getText());
+        assertTrue(report.getText().contains("Faces: 6"), report.getText());
+        assertTrue(report.getText().contains("expected (2 pi)^3/V_cell: 0.24805021"),
+                report.getText());
+        assertTrue(report.getText().contains("Euler characteristic V - E + F = 8 - 12 + 6 = 2"),
+                report.getText());
+        assertTrue(report.getText().contains("no high-symmetry point names"), report.getText());
+        assertEquals(9, report.getCsvLines().size(), "header plus 8 zone vertices");
+
+        AnalysisReport noCell = ResultAnalysisService.analyze(AnalysisKind.BZ_GEOMETRY,
+                stubProject(this.tempDir), new AnalysisParameters());
+        assertFalse(noCell.isSuccess(), "No cell must fail closed");
+    }
 }
