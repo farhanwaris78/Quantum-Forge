@@ -64,6 +64,7 @@ import quantumforge.run.parser.QEPhono3pyKappaParser;
 import quantumforge.run.parser.QESlabPlateauDiagnostic;
 import quantumforge.run.parser.QESmearingConvergenceAnalyzer;
 import quantumforge.run.parser.QETimingResourceParser;
+import quantumforge.run.parser.QETensorAnalyzer;
 import quantumforge.run.parser.ScfConvergenceAnalyzer;
 import quantumforge.run.parser.ScfIterationRecord;
 import quantumforge.symmetry.MagneticSpaceGroupDetector;
@@ -134,6 +135,7 @@ public final class ResultAnalysisService {
         SMEARING_ANALYSIS("Smearing entropy and degauss safety"),
         PHONON_DOS_THERMO("Phonon DOS harmonic thermodynamics"),
         ELASTIC_STABILITY("Elastic tensor stability (thermo_pw)"),
+        ELASTIC_MODULI("Elastic moduli (Voigt/Reuss/Hill)"),
         LAMMPS_THERMO("LAMMPS MD thermo trajectory"),
         GEOMETRY_CONVERGENCE("Relax geometry convergence validation"),
         PSEUDO_FAMILY("Pseudopotential family consistency"),
@@ -389,6 +391,7 @@ public final class ResultAnalysisService {
             return name.contains("phdos") || name.endsWith(".dos")
                     || (name.contains("dos") && name.endsWith(".dat"));
         case ELASTIC_STABILITY:
+        case ELASTIC_MODULI:
             return name.contains("elastic");
         case LAMMPS_THERMO:
             return name.contains("lammps");
@@ -477,6 +480,8 @@ public final class ResultAnalysisService {
                 return analyzePhononDosThermo(source, params);
             case ELASTIC_STABILITY:
                 return analyzeElastic(property, source);
+            case ELASTIC_MODULI:
+                return analyzeElasticModuli(property, source);
             case LAMMPS_THERMO:
                 return analyzeLammpsThermo(property, source);
             case XML_SUMMARY:
@@ -2745,5 +2750,57 @@ public final class ResultAnalysisService {
                 + "(roadmap #84) needs the spglib path, and the recorded charge state is "
                 + "metadata - tot_charge is not rewritten into the input by this analysis.");
         return new AnalysisReport(label, true, text.toString(), List.of(), null);
+    }
+
+    /** Voigt/Reuss/Hill moduli from the thermo_pw elastic block; SPD-gated, units as printed. */
+    private static AnalysisReport analyzeElasticModuli(ProjectProperty property, File source)
+            throws IOException {
+        String label = AnalysisKind.ELASTIC_MODULI.getLabel();
+        long size = Files.size(source.toPath());
+        if (size > 64L * 1024L * 1024L) {
+            return failure(label, source.getName() + " is " + (size / (1024L * 1024L))
+                    + " MiB; pass the thermo_pw output containing the 'Elastic Constant "
+                    + "Matrix' block (or an extract of it), bounded to 64 MiB.");
+        }
+        String content = Files.readString(source.toPath(), StandardCharsets.UTF_8);
+        if (!content.contains("Elastic Constant Matrix")) {
+            return failure(label, "No 'Elastic Constant Matrix' block exists in "
+                    + source.getName() + ". A thermo_pw elastic-constants output is required.");
+        }
+        ElasticParser parser = new ElasticParser(property);
+        parser.parse(source);
+        OperationResult<QETensorAnalyzer.ElasticModuli> analyzed =
+                QETensorAnalyzer.analyzeElastic(parser.getCij());
+        if (!analyzed.isSuccess() || analyzed.getValue().isEmpty()) {
+            return failure(label, "Elastic modulus derivation failed closed: "
+                    + analyzed.getMessage());
+        }
+        QETensorAnalyzer.ElasticModuli moduli = analyzed.getValue().orElseThrow();
+        StringBuilder text = new StringBuilder();
+        text.append("Source: ").append(source.getName()).append('\n');
+        text.append("All moduli use the tensor's printed units (thermo_pw default kbar; "
+                + "divide by 10 for GPa).\n\n");
+        List<String> csv = new ArrayList<>();
+        csv.add("quantity,value");
+        java.util.function.BiConsumer<String, Double> row = (name, value) -> {
+            text.append(String.format(Locale.ROOT, "%-34s %.6f%n", name, value));
+            csv.add(String.format(Locale.ROOT, "%s,%.8f", name.replace(' ', '_'), value));
+        };
+        row.accept("Bulk modulus K Voigt", moduli.getBulkVoigt());
+        row.accept("Bulk modulus K Reuss", moduli.getBulkReuss());
+        row.accept("Bulk modulus K Hill", moduli.getBulkHill());
+        row.accept("Shear modulus G Voigt", moduli.getShearVoigt());
+        row.accept("Shear modulus G Reuss", moduli.getShearReuss());
+        row.accept("Shear modulus G Hill", moduli.getShearHill());
+        row.accept("Young's modulus E Hill", moduli.getYoungsModulusHill());
+        row.accept("Poisson ratio nu Hill (unitless)", moduli.getPoissonRatioHill());
+        row.accept("Pugh ratio K/G Hill (unitless)", moduli.getPughRatio());
+        row.accept("Cauchy pressure C12-C44", moduli.getCauchyPressure());
+        row.accept("Universal anisotropy A^U (unitless)", moduli.getUniversalAnisotropy());
+        text.append("\nThe Voigt/Reuss bounds bracket the true polycrystalline average for a "
+                + "random aggregate; the Hill mean is an estimator, not a measurement. The "
+                + "tensor is SPD-verified before inversion. Anisotropy A^U is 0 only for an "
+                + "isotropic medium.");
+        return new AnalysisReport(label, true, text.toString(), csv, null);
     }
 }

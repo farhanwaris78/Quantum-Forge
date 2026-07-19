@@ -895,6 +895,44 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
+    void testElasticModuliFromIsotropicMatrix() throws IOException {
+        File elastic = write("elastic-moduli.out",
+                "  Elastic Constant Matrix (kbar)\n"
+                + "  6000 2000 2000    0    0    0\n"
+                + "  2000 6000 2000    0    0    0\n"
+                + "  2000 2000 6000    0    0    0\n"
+                + "     0    0    0 2000    0    0\n"
+                + "     0    0    0    0 2000    0\n"
+                + "     0    0    0    0    0 2000\n");
+        AnalysisReport report = ResultAnalysisService.analyze(AnalysisKind.ELASTIC_MODULI,
+                new ProjectProperty(), this.tempDir.toFile(), "si", "si.log", elastic,
+                new AnalysisParameters());
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains("Bulk modulus K Hill"), report.getText());
+        assertTrue(report.getText().contains("3333.333333"), report.getText());
+        assertTrue(report.getText().contains("Young's modulus E Hill"), report.getText());
+        assertTrue(report.getText().contains("5000.000000"), report.getText());
+        assertTrue(report.getText().contains("Poisson ratio nu Hill (unitless)"), report.getText());
+        assertTrue(report.getText().contains("0.250000"), report.getText());
+        assertTrue(report.getText().contains("Universal anisotropy A^U (unitless)"),
+                report.getText());
+        assertEquals(12, report.getCsvLines().size(), "header plus 11 moduli rows");
+
+        File unstab = write("elastic-unstable-moduli.out",
+                "  Elastic Constant Matrix (kbar)\n"
+                + "   500 1000 1000    0    0    0\n"
+                + "  1000  500 1000    0    0    0\n"
+                + "  1000 1000  500    0    0    0\n"
+                + "     0    0    0 2000    0    0\n"
+                + "     0    0    0    0 2000    0\n"
+                + "     0    0    0    0    0 2000\n");
+        AnalysisReport fail = ResultAnalysisService.analyze(AnalysisKind.ELASTIC_MODULI,
+                new ProjectProperty(), this.tempDir.toFile(), "si", "si.log", unstab,
+                new AnalysisParameters());
+        assertFalse(fail.isSuccess(), "A non-SPD tensor cannot produce Reuss moduli");
+    }
+
+    @Test
     void testVasprunInspectionAndIncompleteRefusal() throws IOException {
         File vasprun = write("vasprun.xml",
                 "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
