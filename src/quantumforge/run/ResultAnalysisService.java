@@ -23,6 +23,7 @@ import java.util.regex.Pattern;
 import quantumforge.app.project.editor.result.geometry.GeometryMeasurer;
 import quantumforge.atoms.model.Atom;
 import quantumforge.atoms.model.Cell;
+import quantumforge.builder.QECitationManager;
 import quantumforge.builder.QEHullThermodynamics;
 import quantumforge.input.QEInput;
 import quantumforge.input.QEPpChargePotentialBuilder;
@@ -33,15 +34,21 @@ import quantumforge.operation.OperationResult;
 import quantumforge.project.Project;
 import quantumforge.project.property.ProjectEnergies;
 import quantumforge.project.property.ProjectProperty;
+import quantumforge.run.parser.CubeGridReader;
 import quantumforge.run.parser.QEAcousticSumRuleValidator;
 import quantumforge.run.parser.QEBandsDataParser;
+import quantumforge.run.parser.QEBerryPolarizationParser;
 import quantumforge.run.parser.QEBornChargeDielectricParser;
+import quantumforge.run.parser.QECarParrinelloParser;
 import quantumforge.run.parser.QEEliashbergTcCalculator;
 import quantumforge.run.parser.QEGipawNmrParser;
+import quantumforge.run.parser.QEGridDensityDifference;
 import quantumforge.run.parser.QEHubbardHpParser;
 import quantumforge.run.parser.QEMagneticMomentParser;
 import quantumforge.run.parser.QEMdDiffusionMsdParser;
 import quantumforge.run.parser.QEPhono3pyKappaParser;
+import quantumforge.run.parser.QESlabPlateauDiagnostic;
+import quantumforge.symmetry.MagneticSpaceGroupDetector;
 import quantumforge.run.parser.QEPwcondConductanceParser;
 import quantumforge.run.parser.QEThermoPwEosParser;
 import quantumforge.run.parser.QETurboSpectrumParser;
@@ -91,7 +98,13 @@ public final class ResultAnalysisService {
         RUN_MANIFEST("Run manifest history"),
         GEOMETRY_MEASURE("Geometry measurement (bond/angle/dihedral)"),
         MD_MSD("MD diffusion from XYZ trajectory"),
-        HULL_STABILITY("Convex-hull stability from phase CSV");
+        HULL_STABILITY("Convex-hull stability from phase CSV"),
+        BERRY_POLARIZATION("Berry-phase polarization"),
+        WORK_FUNCTION("Slab work function (planar-averaged potential)"),
+        CP_TRAJECTORY("Car-Parrinello cp.x energy trajectory"),
+        MAGNETIC_ORDER("Magnetic order classification"),
+        CUBE_INSPECT("CUBE volumetric grid inspection"),
+        CITATIONS("Citation / BibTeX bundle");
 
         private final String label;
 
@@ -123,7 +136,8 @@ public final class ResultAnalysisService {
         public boolean isProjectBound() {
             return this == DRY_RUN_PREFLIGHT || this == RESTART_ASSESSMENT
                     || this == SCRATCH_ESTIMATE || this == RESOURCE_ESTIMATE || this == RUN_MANIFEST
-                    || this == GEOMETRY_MEASURE || this == MD_MSD;
+                    || this == GEOMETRY_MEASURE || this == MD_MSD || this == MAGNETIC_ORDER
+                    || this == CITATIONS || this == BERRY_POLARIZATION;
         }
 
         /** True for project-bound kinds that additionally parse a user data file. */
@@ -271,6 +285,13 @@ public final class ResultAnalysisService {
             return name.endsWith(".xyz");
         case HULL_STABILITY:
             return name.endsWith(".csv");
+        case WORK_FUNCTION:
+            return name.contains("tavg") || name.contains("planar")
+                    || (name.contains("avg") && (name.endsWith(".dat") || name.endsWith(".out")));
+        case CP_TRAJECTORY:
+            return name.contains("cp") && (name.endsWith(".out") || name.endsWith(".log"));
+        case CUBE_INSPECT:
+            return name.endsWith(".cube") || name.endsWith(".cub");
         default:
             return false;
         }
@@ -331,6 +352,12 @@ public final class ResultAnalysisService {
                 return analyzeTc(property, source, params);
             case HULL_STABILITY:
                 return analyzeHull(source);
+            case WORK_FUNCTION:
+                return analyzeWorkFunction(property, projectDir, logFileName, source, params);
+            case CP_TRAJECTORY:
+                return analyzeCpTrajectory(property, source);
+            case CUBE_INSPECT:
+                return analyzeCube(source);
             default:
                 return failure(kind.getLabel(), "This analysis kind is not implemented.");
             }
@@ -393,6 +420,12 @@ public final class ResultAnalysisService {
                 return analyzeGeometryMeasure(project, params);
             case MD_MSD:
                 return analyzeMdMsd(project, file, params);
+            case MAGNETIC_ORDER:
+                return analyzeMagneticOrder(project);
+            case CITATIONS:
+                return analyzeCitations(project);
+            case BERRY_POLARIZATION:
+                return analyzeBerry(project);
             default:
                 return failure(kind.getLabel(), "This analysis kind is not implemented.");
             }
@@ -1431,5 +1464,280 @@ public final class ResultAnalysisService {
                 + "no file is written unless you explicitly save it, and the pp.x run itself is "
                 + "not launched by this viewer.");
         return new AnalysisReport(kind.getLabel(), true, text.toString(), List.of(), input);
+    }
+
+    /** Berry-phase polarization: raw records plus per-direction polarization quanta. */
+    private static AnalysisReport analyzeBerry(Project project) {
+        String label = AnalysisKind.BERRY_POLARIZATION.getLabel();
+        File directory = project.getDirectory();
+        String logName = project.getLogFileName();
+        if (directory == null || logName == null) {
+            return failure(label, "The project has no log file context for Berry-phase parsing.");
+        }
+        File log = new File(directory, logName);
+        if (!log.isFile()) {
+            return failure(label, "No project log with Berry-phase output records was found: "
+                    + log.getPath());
+        }
+        QEBerryPolarizationParser parser = new QEBerryPolarizationParser(project.getProperty());
+        try {
+            parser.parse(log);
+        } catch (IOException ex) {
+            return failure(label, "Could not parse Berry-phase output: " + ex.getMessage());
+        }
+        double ionic = parser.getIonicPolarizationBohr();
+        double electronic = parser.getElectronicPolarizationBohr();
+        double total = parser.getTotalPolarizationBohr();
+        if (ionic == 0.0 && electronic == 0.0 && total == 0.0) {
+            return failure(label, "No Berry-phase polarization records were found in "
+                    + log.getName() + ". A supported pw.x Berry workflow (lberry/.true. or "
+                    + "gipaw/polarization path) is required.");
+        }
+        StringBuilder text = new StringBuilder();
+        text.append("Source: ").append(log.getName()).append('\n');
+        text.append(String.format(Locale.ROOT, "Ionic polarization:     %.6f (Bohr units)%n", ionic));
+        text.append(String.format(Locale.ROOT, "Electronic polarization: %.6f (Bohr units)%n", electronic));
+        text.append(String.format(Locale.ROOT, "Total polarization:      %.6f (Bohr units)%n%n", total));
+        Cell cell = project.getCell();
+        if (cell != null && cell.copyLattice() != null) {
+            text.append("Polarization quantum along lattice directions (SI, C/m^2):\n");
+            for (int direction = 0; direction < 3; direction++) {
+                double quantum = parser.calculatePolarizationQuantumSI(cell, direction);
+                text.append(String.format(Locale.ROOT, "  direction %d: %.8g%n",
+                        direction + 1, quantum));
+            }
+        } else {
+            text.append("No periodic cell is available; polarization quanta were not computed.\n");
+        }
+        text.append("\nOnly polarization CHANGES between states are physically meaningful; "
+                + "absolute branches are undefined modulo the polarization quantum. No "
+                + "two-state unwrapping is applied in this single-log analysis.");
+        boolean ok = Double.isFinite(ionic) && Double.isFinite(electronic) && Double.isFinite(total);
+        return new AnalysisReport(label, ok, text.toString(), List.of(), null);
+    }
+
+    /** Planar-averaged potential -> plateau diagnostic -> work functions on both terminations. */
+    private static AnalysisReport analyzeWorkFunction(ProjectProperty property, File projectDir,
+            String logFileName, File source, AnalysisParameters params) throws IOException {
+        String label = AnalysisKind.WORK_FUNCTION.getLabel();
+        List<Double> zValues = new ArrayList<>();
+        List<Double> potentials = new ArrayList<>();
+        for (String raw : Files.readAllLines(source.toPath(), StandardCharsets.UTF_8)) {
+            String line = raw.trim();
+            if (line.isEmpty() || line.startsWith("#") || line.startsWith("@")) {
+                continue;
+            }
+            String[] tokens = line.split("\\s+");
+            if (tokens.length < 2) {
+                continue;
+            }
+            try {
+                double z = Double.parseDouble(normalizeExponent(tokens[0]));
+                double v = Double.parseDouble(normalizeExponent(tokens[1]));
+                if (Double.isFinite(z) && Double.isFinite(v)) {
+                    zValues.add(z);
+                    potentials.add(v);
+                }
+            } catch (NumberFormatException ex) {
+                // Non-numeric header rows are skipped; data rows keep the parser honest.
+            }
+        }
+        if (zValues.size() < 3) {
+            return failure(label, "Fewer than three (z, V) rows were parsed from "
+                    + source.getName() + ". A tavg.x/pp.x planar-averaged potential file is required.");
+        }
+        double dz = zValues.get(1) - zValues.get(0);
+        if (!(dz > 0.0) || !Double.isFinite(dz)) {
+            return failure(label, "The z grid is not strictly increasing; a uniform slab-grid "
+                    + "potential cannot be assumed.");
+        }
+        for (int i = 2; i < zValues.size(); i++) {
+            double spacing = zValues.get(i) - zValues.get(i - 1);
+            if (Math.abs(spacing - dz) > 1.0e-6 * Math.max(1.0, dz)) {
+                return failure(label, "Non-uniform z spacing at row " + (i + 1) + " (dz="
+                        + spacing + " vs " + dz + "); the plateau analysis requires a uniform grid.");
+            }
+        }
+        double[] v = new double[potentials.size()];
+        for (int i = 0; i < potentials.size(); i++) {
+            v[i] = potentials.get(i);
+        }
+        FermiReference fermi = resolveFermi(property, projectDir, logFileName, params.getFermiEv());
+        QESlabPlateauDiagnostic.PlateauResult result = QESlabPlateauDiagnostic.analyzePotential(
+                v, dz, fermi.valueEv, 1.0e-3);
+        StringBuilder text = new StringBuilder();
+        text.append("Source: ").append(source.getName()).append("; samples: ").append(v.length)
+                .append(String.format(Locale.ROOT, "; dz=%.6f Ang%n", dz));
+        text.append("Fermi reference: ").append(fermi.description).append('\n');
+        text.append("Local-slope plateau tolerance: 1.0e-3 (analysis dialog choice)\n\n");
+        if (!result.isPlateauFound()) {
+            text.append("No stable vacuum plateau was identified; work functions are not reported "
+                    + "without a plateau.\n");
+        } else {
+            text.append(String.format(Locale.ROOT, "Left vacuum level:  %.6f eV%n",
+                    result.getLeftVacuumLevel()));
+            text.append(String.format(Locale.ROOT, "Right vacuum level: %.6f eV%n",
+                    result.getRightVacuumLevel()));
+            text.append(String.format(Locale.ROOT, "Dipole step:        %.6f eV%n",
+                    result.getDipoleStep()));
+            text.append(String.format(Locale.ROOT, "Left work function:  %.6f eV%n",
+                    result.getLeftWorkFunction()));
+            text.append(String.format(Locale.ROOT, "Right work function: %.6f eV%n",
+                    result.getRightWorkFunction()));
+        }
+        for (String warning : result.getWarnings()) {
+            text.append(" ! ").append(warning).append('\n');
+        }
+        text.append("\nWork function follows Phi = V_vac - E_F on each side; slab thickness and "
+                + "vacuum-size convergence remain the user's responsibility.");
+        return new AnalysisReport(label, result.isPlateauFound(), text.toString(), List.of(), null);
+    }
+
+    /** cp.x fictitious/electronic/ionic energy trajectory with adiabaticity flag and CSV. */
+    private static AnalysisReport analyzeCpTrajectory(ProjectProperty property, File source)
+            throws IOException {
+        String label = AnalysisKind.CP_TRAJECTORY.getLabel();
+        QECarParrinelloParser parser = new QECarParrinelloParser(property);
+        parser.parse(source);
+        List<QECarParrinelloParser.CpMdFrame> frames = parser.getTrajectory();
+        if (frames.isEmpty()) {
+            return failure(label, "No 'nfi=..., ekinc=..., ekinh=..., etot=...' rows were found in "
+                    + source.getName() + ". A dedicated cp.x run (not pw.x 'cp' mode) is required.");
+        }
+        QECarParrinelloParser.CpMdFrame last = frames.get(frames.size() - 1);
+        double maxEkinc = 0.0;
+        List<String> csv = new ArrayList<>();
+        csv.add("step,ekinc_au,ekinh_au,etot_au");
+        for (QECarParrinelloParser.CpMdFrame frame : frames) {
+            maxEkinc = Math.max(maxEkinc, Math.abs(frame.getEkincAu()));
+            csv.add(String.format(Locale.ROOT, "%d,%.8g,%.8g,%.8g", frame.getStep(),
+                    frame.getEkincAu(), frame.getEkinhAu(), frame.getEtotAu()));
+        }
+        StringBuilder text = new StringBuilder();
+        text.append("Source: ").append(source.getName()).append('\n');
+        text.append("MD steps parsed: ").append(frames.size()).append('\n');
+        text.append(String.format(Locale.ROOT,
+                "Last step %d: etot=%.8f au, ekinh=%.8f au, ekinc=%.8f au%n",
+                last.getStep(), last.getEtotAu(), last.getEkinhAu(), last.getEkincAu()));
+        text.append(String.format(Locale.ROOT, "Largest |ekinc| along trajectory: %.8g au%n",
+                maxEkinc));
+        text.append("Adiabaticity flag from parser heuristics: ").append(parser.isAdiabatic())
+                .append('\n');
+        for (String diagnostic : parser.getDiagnostics()) {
+            text.append(" - ").append(diagnostic).append('\n');
+        }
+        text.append("\nSmall, stable ekinc is necessary but not sufficient for Car-Parrinello "
+                + "adiabatic separation; fictitious mass and timestep convergence are not "
+                + "validated by this report.");
+        return new AnalysisReport(label, true, text.toString(), csv, null);
+    }
+
+    /** Collinear/noncollinear magnetic-order and Shubnikov guess from site-moment properties. */
+    private static AnalysisReport analyzeMagneticOrder(Project project) {
+        String label = AnalysisKind.MAGNETIC_ORDER.getLabel();
+        Cell cell = project.getCell();
+        if (cell == null) {
+            return failure(label, "The project has no atomic cell to classify.");
+        }
+        MagneticSpaceGroupDetector detector = new MagneticSpaceGroupDetector(cell);
+        MagneticSpaceGroupDetector.MsgReport report = detector.analyzeMagneticSymmetry();
+        StringBuilder text = new StringBuilder();
+        text.append("Magnetic order: ").append(report.getOrder()).append('\n');
+        text.append("Shubnikov type guess: ").append(report.getShubnikovTypeGuess()).append('\n');
+        text.append(String.format(Locale.ROOT, "Net moment: %.6f; sum of absolute moments: %.6f%n",
+                report.getNetMoment(), report.getAbsoluteMomentSum()));
+        text.append('\n').append(report.getDescription()).append('\n');
+        text.append("\nClassification uses per-atom starting_magnetization/magnetic_moment "
+                + "properties (tolerance 1e-2/5e-2 Bohr mag). This is not a spglib magnetic "
+                + "space-group determination; unitary/antiunitary operation analysis requires "
+                + "the magnetic symmetry sidecar.");
+        return new AnalysisReport(label, true, text.toString(), List.of(), null);
+    }
+
+    /** Detects used workflows from project artifacts and compiles the exact BibTeX bundle. */
+    private static AnalysisReport analyzeCitations(Project project) {
+        String label = AnalysisKind.CITATIONS.getLabel();
+        boolean phonons = false;
+        boolean thermo = false;
+        boolean wannier = false;
+        File directory = project.getDirectory();
+        if (directory != null) {
+            File[] files = directory.listFiles(File::isFile);
+            if (files != null) {
+                for (File candidate : files) {
+                    String name = candidate.getName().toLowerCase(Locale.ROOT);
+                    if (name.contains("matdyn") || name.endsWith(".freq") || name.endsWith(".freq.gp")
+                            || name.startsWith("ph.")) {
+                        phonons = true;
+                    }
+                    if (name.contains("thermo") || name.contains("eos")) {
+                        thermo = true;
+                    }
+                    if (name.endsWith(".wout")) {
+                        wannier = true;
+                    }
+                }
+            }
+        }
+        QECitationManager manager = new QECitationManager();
+        manager.registerFeatureCitations(phonons, thermo, wannier, false);
+        String bibtex = manager.compileBibTex();
+        if (bibtex == null || bibtex.isBlank()) {
+            return failure(label, "No citations were registered; nothing to compile.");
+        }
+        StringBuilder text = new StringBuilder();
+        text.append("Citation keys registered for this project: ")
+                .append(manager.getActiveCitationKeys()).append('\n');
+        text.append("Detected workflow artifacts - phonons: ").append(phonons)
+                .append("; thermo_pw: ").append(thermo)
+                .append("; Wannier90: ").append(wannier).append('\n');
+        text.append("Pseudopotential-family citations are NOT auto-registered without a verified "
+                + "library manifest; add the exact SSSP/PSLibrary citation manually when used.\n\n");
+        text.append("The BibTeX below can be saved explicitly from this dialog.");
+        return new AnalysisReport(label, true, text.toString(), List.of(), bibtex);
+    }
+
+    /** Bounded CUBE header/data inspection with density-unit honesty; nothing is written. */
+    private static AnalysisReport analyzeCube(File source) {
+        String label = AnalysisKind.CUBE_INSPECT.getLabel();
+        OperationResult<QEGridDensityDifference.Grid3D> result = CubeGridReader.read(source.toPath());
+        if (!result.isSuccess() || result.getValue().isEmpty()) {
+            return failure(label, result.getMessage());
+        }
+        QEGridDensityDifference.Grid3D grid = result.getValue().orElseThrow();
+        double[][][] values = grid.getValues();
+        double min = Double.POSITIVE_INFINITY;
+        double max = Double.NEGATIVE_INFINITY;
+        double sum = 0.0;
+        long count = 0L;
+        for (double[][] plane : values) {
+            for (double[] row : plane) {
+                for (double value : row) {
+                    min = Math.min(min, value);
+                    max = Math.max(max, value);
+                    sum += value;
+                    count++;
+                }
+            }
+        }
+        double volume = grid.getVolume();
+        double integral = grid.integrate();
+        StringBuilder text = new StringBuilder();
+        text.append("Source: ").append(source.getName()).append('\n');
+        text.append("Grid: ").append(grid.getNx()).append(" x ").append(grid.getNy())
+                .append(" x ").append(grid.getNz()).append(" voxels (bounded reader \u2264 16 Mi)\n");
+        text.append("Lattice (Ang):\n");
+        appendMatrix(text, grid.getLattice());
+        text.append(String.format(Locale.ROOT, "Cell volume: %.6f Ang^3%n", volume));
+        if (count > 0L) {
+            text.append(String.format(Locale.ROOT,
+                    "Voxel values: min=%.8g max=%.8g mean=%.8g%n", min, max, sum / count));
+            text.append(String.format(Locale.ROOT,
+                    "Grid integral (trapezoidal voxel sum * dv): %.8g%n", integral));
+        }
+        text.append("\nValue units follow the CUBE payload (typically bohr^-3 for charge "
+                + "density); an electron-count claim additionally requires the explicit density "
+                + "convention and is not made here.");
+        return new AnalysisReport(label, true, text.toString(), List.of(), null);
     }
 }

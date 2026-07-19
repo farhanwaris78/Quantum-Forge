@@ -15,6 +15,7 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import quantumforge.atoms.model.Atom;
 import quantumforge.atoms.model.Cell;
 import quantumforge.input.QEInput;
 import quantumforge.project.Project;
@@ -403,5 +404,164 @@ class ResultAnalysisServiceTest {
         assertTrue(report.getCsvLines().get(1).matches("\\d+\\.\\d+,\\d+.*"),
                 "CSV numbers must use dot decimals regardless of locale: "
                 + report.getCsvLines().get(1));
+    }
+
+    @Test
+    void testWorkFunctionFromUniformPlateauPotential() throws IOException {
+        // 20-sample grid: flat 4.0 eV left vacuum, a monotonically sloped slab
+        // region (never a plateau), and a flat 4.5 eV right vacuum.
+        StringBuilder content = new StringBuilder("# z(Ang) V(eV)\n");
+        for (int i = 0; i < 20; i++) {
+            double v;
+            if (i < 5) {
+                v = 4.0;
+            } else if (i < 15) {
+                v = 4.0 - 0.5 * (i - 4);
+            } else {
+                v = 4.5;
+            }
+            content.append(i).append(' ').append(v).append(" 0.0\n");
+        }
+        File tavg = write("si-tavg.dat", content.toString());
+        AnalysisReport report = ResultAnalysisService.analyze(AnalysisKind.WORK_FUNCTION,
+                new ProjectProperty(), this.tempDir.toFile(), "si", "si.log", tavg,
+                new AnalysisParameters().withFermiEv(2.0));
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains("Left work function:  2.000000 eV"), report.getText());
+        assertTrue(report.getText().contains("Right work function: 2.500000 eV"), report.getText());
+        assertTrue(report.getText().contains("Dipole step:        0.500000 eV"), report.getText());
+        assertTrue(report.getText().contains("Phi = V_vac - E_F"), report.getText());
+    }
+
+    @Test
+    void testWorkFunctionRejectsNonUniformGridAndPlateauLessPotential() throws IOException {
+        File nonUniform = write("si-tavg-nonuniform.dat",
+                "0.0 4.0\n0.5 4.0\n1.5 4.0\n2.0 4.0\n3.0 4.0\n4.0 8.0\n5.0 8.0\n6.0 8.0\n");
+        AnalysisReport badGrid = ResultAnalysisService.analyze(AnalysisKind.WORK_FUNCTION,
+                new ProjectProperty(), this.tempDir.toFile(), "si", "si.log", nonUniform,
+                new AnalysisParameters().withFermiEv(2.0));
+        assertFalse(badGrid.isSuccess());
+        assertTrue(badGrid.getText().contains("Non-uniform z spacing"), badGrid.getText());
+
+        StringBuilder ramp = new StringBuilder();
+        for (int i = 0; i < 20; i++) {
+            ramp.append(i).append(' ').append(0.5 * i).append("\n");
+        }
+        File noPlateau = write("si-tavg-ramp.dat", ramp.toString());
+        AnalysisReport noFlat = ResultAnalysisService.analyze(AnalysisKind.WORK_FUNCTION,
+                new ProjectProperty(), this.tempDir.toFile(), "si", "si.log", noPlateau,
+                new AnalysisParameters().withFermiEv(2.0));
+        assertFalse(noFlat.isSuccess(), "A constantly sloped potential has no vacuum plateau");
+        assertTrue(noFlat.getText().contains("No stable vacuum plateau"), noFlat.getText());
+    }
+
+    @Test
+    void testCpTrajectoryFromCpLog() throws IOException {
+        File log = write("si-cp.out",
+                "     nfi=     10, ekinc=   0.00012, ekinh=   0.01245, etot=  -12.78452\n"
+                + "     nfi=     20, ekinc=   0.00015, ekinh=   0.01423, etot=  -12.78455\n"
+                + "     nfi=     30, ekinc=   0.00013, ekinh=   0.01524, etot=  -12.78454\n");
+        AnalysisReport report = ResultAnalysisService.analyze(AnalysisKind.CP_TRAJECTORY,
+                new ProjectProperty(), this.tempDir.toFile(), "si", "si.log", log,
+                new AnalysisParameters());
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains("MD steps parsed: 3"), report.getText());
+        assertTrue(report.getText().contains("etot=-12.78454000 au"), report.getText());
+        assertTrue(report.getText().contains("Adiabaticity flag from parser heuristics: true"),
+                report.getText());
+        assertTrue(report.hasCsv());
+        assertEquals("step,ekinc_au,ekinh_au,etot_au", report.getCsvLines().get(0));
+        assertEquals(4, report.getCsvLines().size(), "header plus 3 trajectory rows");
+
+        File fake = write("fake-cp.out", "Program PWSCF v.7.2 starts ...\nNo CP rows here.\n");
+        AnalysisReport empty = ResultAnalysisService.analyze(AnalysisKind.CP_TRAJECTORY,
+                new ProjectProperty(), this.tempDir.toFile(), "si", "si.log", fake,
+                new AnalysisParameters());
+        assertFalse(empty.isSuccess(), "An SCF log must not be analysed as cp.x dynamics");
+    }
+
+    @Test
+    void testCubeInspectionStatisticsAndTruncation() throws IOException {
+        File cube = write("rho.cube",
+                "comment\ncomment\n1 0 0 0\n2 1 0 0\n1 0 1 0\n1 0 0 1\n1 0 0 0 0\n1.0 3.0\n");
+        AnalysisReport report = ResultAnalysisService.analyze(AnalysisKind.CUBE_INSPECT,
+                new ProjectProperty(), this.tempDir.toFile(), "h", "h.log", cube,
+                new AnalysisParameters());
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains("Grid: 2 x 1 x 1 voxels"), report.getText());
+        assertTrue(report.getText().contains("mean=2.0000000"), report.getText());
+        assertTrue(report.getText().contains("min=1.0000000"), report.getText());
+
+        File truncated = write("bad.cube",
+                "a\nb\n0 0 0 0\n2 1 0 0\n1 0 1 0\n1 0 0 1\n1\n");
+        AnalysisReport fail = ResultAnalysisService.analyze(AnalysisKind.CUBE_INSPECT,
+                new ProjectProperty(), this.tempDir.toFile(), "h", "h.log", truncated,
+                new AnalysisParameters());
+        assertFalse(fail.isSuccess(), "A truncated CUBE must fail closed");
+    }
+
+    @Test
+    void testMagneticOrderClassificationAndMissingCell() {
+        Cell cell = new Cell(quantumforge.com.math.Matrix3D.unit(10.0));
+        cell.addAtom("Fe", 0.0, 0.0, 0.0);
+        cell.addAtom("Fe", 0.5, 0.5, 0.5);
+        Atom[] atoms = cell.listAtoms();
+        atoms[0].setProperty("starting_magnetization", "0.5");
+        atoms[1].setProperty("starting_magnetization", "-0.5");
+        AnalysisReport report = ResultAnalysisService.analyze(AnalysisKind.MAGNETIC_ORDER,
+                stubProject(this.tempDir, cell), new AnalysisParameters());
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains("Magnetic order: ANTIFERROMAGNETIC"), report.getText());
+        assertTrue(report.getText().contains("sum of absolute moments: 1.000000"), report.getText());
+        assertTrue(report.getText().contains("not a spglib"), report.getText());
+
+        AnalysisReport noCell = ResultAnalysisService.analyze(AnalysisKind.MAGNETIC_ORDER,
+                stubProject(this.tempDir), new AnalysisParameters());
+        assertFalse(noCell.isSuccess(), "A project without a cell must fail closed");
+    }
+
+    @Test
+    void testCitationsDetectWorkflowArtifacts() throws IOException {
+        write("si.wout", "... wannier90 disentanglement output ...\n");
+        write("matdyn.freq.gp", "0.0 100.0 120.0\n");
+        AnalysisReport report = ResultAnalysisService.analyze(AnalysisKind.CITATIONS,
+                stubProject(this.tempDir), new AnalysisParameters());
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains("Wannier90: true"), report.getText());
+        assertTrue(report.getText().contains("phonons: true"), report.getText());
+        assertTrue(report.getText().contains("QUANTUM_ESPRESSO"), report.getText());
+        assertTrue(report.getText().contains("WANNIER90"), report.getText());
+        String bibtex = report.getGeneratedInput();
+        assertNotNull(bibtex, "The BibTeX bundle must be offered for explicit saving");
+        assertTrue(bibtex.contains("@"), bibtex);
+        assertTrue(bibtex.contains("pizzi2020wannier90"), bibtex);
+    }
+
+    @Test
+    void testBerryPolarizationFromProjectLog() throws IOException {
+        File log = new File(this.tempDir.toFile(), "espresso.log");
+        try (FileWriter writer = new FileWriter(log)) {
+            writer.write("     Ionic Polarization    =    1.54212 electrons * bohr\n");
+            writer.write("     Electronic Polarization =   -0.51234 electrons * bohr\n");
+        }
+        Cell cell = new Cell(quantumforge.com.math.Matrix3D.unit(4.0));
+        cell.addAtom("Ba", 0.0, 0.0, 0.0);
+        AnalysisReport report = ResultAnalysisService.analyze(AnalysisKind.BERRY_POLARIZATION,
+                stubProject(this.tempDir, cell), new AnalysisParameters());
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains("Ionic polarization:     1.542120 (Bohr units)"),
+                report.getText());
+        assertTrue(report.getText().contains("Total polarization:      1.029780 (Bohr units)"),
+                report.getText());
+        assertTrue(report.getText().contains("direction 1:"), report.getText());
+        assertTrue(report.getText().contains("undefined modulo the polarization quantum"),
+                report.getText());
+    }
+
+    @Test
+    void testBerryWithoutLogFailsClosed() {
+        AnalysisReport noLog = ResultAnalysisService.analyze(AnalysisKind.BERRY_POLARIZATION,
+                stubProject(this.tempDir), new AnalysisParameters());
+        assertFalse(noLog.isSuccess(), "A project without a Berry log must fail closed");
     }
 }

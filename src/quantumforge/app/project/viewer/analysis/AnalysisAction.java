@@ -174,6 +174,14 @@ public final class AnalysisAction {
             }
             break;
         }
+        case WORK_FUNCTION: {
+            Double fermi = askDouble(
+                    "Slab Fermi energy in eV, or leave empty to use the stored/log value", "");
+            if (fermi != null) {
+                parameters.withFermiEv(fermi);
+            }
+            break;
+        }
         case RESOURCE_ESTIMATE: {
             Integer ranks = askInteger("Total MPI ranks for the layout advice", 1);
             if (ranks == null) {
