@@ -32,6 +32,7 @@ class FinalGeometryUpdaterTest {
         ProjectGeometry geometry = new ProjectGeometry();
         geometry.setEnergy(-15.0);
         geometry.setTotalForce(0.0001);
+        geometry.addAtom("Si", 0.0, 0.0, 0.0);
         geometry.setConverged(true);
         list.addGeometry(geometry);
         list.setConverged(true);

@@ -27,6 +27,14 @@ public class ViewerItemSet {
     private ViewerItem recoverItem;
     private ViewerItem xcrysdenItem;
     private ViewerItem exportWorkflowItem;
+    private ViewerItem validateInputItem;
+    private ViewerItem diagnoseLogItem;
+    private ViewerItem bandGapItem;
+    private ViewerItem finalGeometryItem;
+    private ViewerItem pdosItem;
+    private ViewerItem phononItem;
+    private ViewerItem spectraItem;
+    private ViewerItem densityDifferenceItem;
 
     public ViewerItemSet() {
         this.atomsViewerItem = new ViewerItem(SVGData.ATOMS, "Show atoms");
@@ -41,6 +49,14 @@ public class ViewerItemSet {
         this.resultItem = new ViewerItem(SVGData.RESULT, "Result");
         this.exportItem = new ViewerItem(SVGData.EXPORT, "Export structure");
         this.exportWorkflowItem = new ViewerItem(SVGData.FILE, "Export workflow script");
+        this.validateInputItem = new ViewerItem(SVGData.TOOL, "Validate QE input");
+        this.diagnoseLogItem = new ViewerItem(SVGData.RESULT, "Diagnose QE log");
+        this.bandGapItem = new ViewerItem(SVGData.RESULT, "Analyze band gap from QE log");
+        this.finalGeometryItem = new ViewerItem(SVGData.ATOMS, "Preview final geometry");
+        this.pdosItem = new ViewerItem(SVGData.RESULT, "Inspect projected DOS");
+        this.phononItem = new ViewerItem(SVGData.RESULT, "Inspect phonon frequencies");
+        this.spectraItem = new ViewerItem(SVGData.RESULT, "Inspect Raman / IR modes");
+        this.densityDifferenceItem = new ViewerItem(SVGData.RESULT, "Compute CUBE density difference");
         this.xcrysdenItem = new ViewerItem(SVGData.CRYSTAL, "Open in XCrySDen");
     }
 
@@ -57,6 +73,14 @@ public class ViewerItemSet {
                 this.runItem,
                 this.resultItem,
                 this.exportItem,
+                this.validateInputItem,
+                this.diagnoseLogItem,
+                this.bandGapItem,
+                this.finalGeometryItem,
+                this.pdosItem,
+                this.phononItem,
+                this.spectraItem,
+                this.densityDifferenceItem,
                 this.exportWorkflowItem,
                 this.xcrysdenItem
         };
@@ -108,6 +132,38 @@ public ViewerItem getSaveAsFileItem() {
 
     public ViewerItem getExportWorkflowItem() {
         return this.exportWorkflowItem;
+    }
+
+    public ViewerItem getValidateInputItem() {
+        return this.validateInputItem;
+    }
+
+    public ViewerItem getDiagnoseLogItem() {
+        return this.diagnoseLogItem;
+    }
+
+    public ViewerItem getBandGapItem() {
+        return this.bandGapItem;
+    }
+
+    public ViewerItem getFinalGeometryItem() {
+        return this.finalGeometryItem;
+    }
+
+    public ViewerItem getPdosItem() {
+        return this.pdosItem;
+    }
+
+    public ViewerItem getPhononItem() {
+        return this.phononItem;
+    }
+
+    public ViewerItem getSpectraItem() {
+        return this.spectraItem;
+    }
+
+    public ViewerItem getDensityDifferenceItem() {
+        return this.densityDifferenceItem;
     }
 
     public ViewerItem getXcrysdenItem() {

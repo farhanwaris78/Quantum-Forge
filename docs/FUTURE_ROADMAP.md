@@ -396,3 +396,123 @@ The **twelfth** batch is a massive integration of 100+ roadmap items from the re
 | 165 | **Partial** | `QEEliashbergTcCalculator` Allen-Dynes Tc |
 | 166 | **Partial** | `HyperfineMapper` isotope database |
 | 170 | **Partial** | `QECatMapMkmExporter` microkinetics |
+
+The **thirteenth** batch restores the trust boundary between experimental source sketches and the production GUI:
+
+| # | Status after batch 13 | What landed |
+|---:|---|---|
+| 1 | **Stronger** | VASP, CASTEP, thermo_pw, phonopy, BoltzTraP2, and ML editor sketches now report unavailable and are filtered from `ExtensionManager`; production UI code cannot advertise their disconnected forms as working workflows. |
+| 2 | **Stronger** | A regression test verifies the production extension list is empty and immutable until an end-to-end, independently validated extension is admitted. |
+| 16 | **Verified** | Static/compile checks, fixture harness, shell syntax checks, and an isolated portable install/uninstall smoke test pass in this checkout; full Maven/JUnit execution remains blocked here because no JDK/Maven is installed. |
+
+The **fourteenth** batch hardens auxiliary-engine data boundaries without promoting incomplete workflows:
+
+| # | Status after batch 14 | What landed |
+|---:|---|---|
+| 106 | **Stronger Experimental** | `thermo_pw` Birch-Murnaghan EOS parsing now requires explicit volume units, accepts QE Fortran `D` exponents, converts bohr³ to Å³, rejects invalid summaries, and evaluates in documented Å³/Ry units. It remains experimental because no controlled thermo_pw execution DAG or reference-engine suite exists. |
+| 107 | **Stronger Unavailable** | `FORCE_SETS` generation validates every 3-vector, atom count, index, finite value, and non-empty record; writes atomically in UTF-8; and supplies an explicit QE Ry/bohr → phonopy eV/Å conversion API. No finite-displacement job workflow is exposed yet. |
+| 111 | **Stronger Experimental** | The VASP XML reader now fails closed for missing/non-finite energies, Fermi level, lattice, or positions and validates every parsed 3-vector. It remains a parser only: no POTCAR is bundled and no VASP workflow is advertised. |
+| 129 | **GUI status integration** | The Extensions menu now exposes phonopy/phono3py, thermo_pw, BoltzTraP2, and XCrySDen capability dialogs alongside VASP/CASTEP. These dialogs show the authoritative status and required work rather than presenting unusable forms as calculations. |
+| 1/16 | **Verified** | The old implementation-report/status documents and their packaging links were removed at user request; roadmap remains the sole implementation record. Static/structural checks and parser fixtures pass in this checkout; full Maven/JUnit execution still requires a JDK and Maven. |
+
+The **fifteenth** batch closes a force-unit error path between QE XML and phonopy data preparation:
+
+| # | Status after batch 15 | What landed |
+|---:|---|---|
+| 42/107 | **Stronger Partial** | QE XML atomic-force parsing now records the document-declared Hartree/bohr or Ry/bohr convention, rejects incomplete force blocks, accepts Fortran exponents, and provides an explicit normalized Ry/bohr accessor. This connects safely to the FORCE_SETS conversion boundary and prevents a silent factor-of-two error for `Units="Hartree atomic units"`. |
+| 16 | **Verified** | Static consistency, structural compile-readiness, and parser fixture checks pass after the unit-boundary change. Full Maven/JUnit remains pending a Java/Maven-enabled runner. |
+
+The **sixteenth** batch makes scratch storage conservative and deletion-safe:
+
+| # | Status after batch 16 | What landed |
+|---:|---|---|
+| 34 | **Stronger Partial** | Scratch roots are normalized, quota must be positive, invalid estimates fail closed, full k meshes are used instead of guessed symmetry-halving, overflow is clamped, and a buffer/restart factor is included. Cleanup now refuses any path outside the configured scratch root, avoids following a broad arbitrary run directory, closes directory streams, and has a regression test proving it cannot delete an unrelated `.wfc`. |
+| 45 | **Stronger Partial** | Scratch-space verification creates/checks the requested directory, rejects unknown/non-positive estimates and quota overruns, and reports filesystem-query failures as failed verification rather than success. |
+| 16 | **Verified** | Static consistency, structural compile-readiness, parser fixtures, shell syntax, and whitespace checks pass after the scratch-policy changes. Full Maven/JUnit remains pending a Java/Maven-enabled runner. |
+
+The **seventeenth** batch improves deterministic review and resource parsing foundations:
+
+| # | Status after batch 17 | What landed |
+|---:|---|---|
+| 43 | **Stronger Partial** | Timing/resource parsing now resets all values before every parse, represents unavailable values as `NaN`/zero rather than stale previous-job data, accepts Fortran `D` notation for memory, and ignores malformed optional resource lines without losing other parsed values. |
+| 44 | **Stronger Partial** | Input diffing now uses deterministic case-insensitive ordering and treats numerically equivalent QE/Fortran spellings such as `3D1` and `30.0` as unchanged, reducing false review noise while retaining literal string/card differences. |
+| 16 | **Verified** | Added regression coverage for stale timing reset and equivalent Fortran numeric input. Static/structural checks, fixture harness, shell syntax, and whitespace checks pass; a Java/Maven-enabled runner is still required for full JUnit execution. |
+
+The **eighteenth** batch connects deterministic preflight to the project GUI and makes pseudo metadata uncertainty visible:
+
+| # | Status after batch 18 | What landed |
+|---:|---|---|
+| 25/45 | **GUI wired** | Each project viewer now has **Validate QE input**. It resolves the current input, runs the existing deterministic validator without launching/modifying a calculation, and presents blocking errors/warnings with QE documentation links. A clean report explicitly says it is not convergence or physical-validation evidence. |
+| 35 | **Stronger Partial** | Pseudopotential validation no longer silently accepts a filename with unavailable library metadata. It emits `PSEUDO_METADATA_UNAVAILABLE` with the affected species/file names and requires a verified manifest or manual UPF inspection before family/XC/relativity compatibility can be claimed. |
+| 16 | **Verified** | The project-viewer action is structurally checked; pseudo uncertainty has a regression test; static/structural checks and fixtures pass. Full Maven/JUnit remains pending a Java/Maven-enabled runner. |
+
+The **nineteenth** batch wires bounded, deterministic result diagnosis into the project GUI:
+
+| # | Status after batch 19 | What landed |
+|---:|---|---|
+| 31/32/43 | **GUI wired** | Each project viewer now exposes **Diagnose QE log**. It reads only a bounded 2 MiB log tail, summarizes SCF convergence, parses resource/timing data, and renders deterministic QE error-KB matches with their documentation URLs. It never executes a command, modifies input, or presents suggestions as automatic fixes. |
+| 30 | **Stronger Partial** | Large-log diagnosis is bounded and begins on a complete line after truncation, preventing GUI heap exhaustion and partial-line analysis. Existing incremental live-tailing remains the runner-side mechanism. |
+| 16 | **Verified** | Viewer action wiring is covered by the structural gate; static/structural checks and parser fixtures pass. Full Maven/JUnit remains pending a Java/Maven-enabled runner. |
+
+The **twentieth** batch exposes conservative electronic/geometry result review in the project GUI:
+
+| # | Status after batch 20 | What landed |
+|---:|---|---|
+| 47 | **GUI wired Partial** | **Analyze band gap from QE log** parses only explicit QE occupied/unoccupied or stated gap summaries. It reports the 0.01 eV tolerance, preserves unknown directness unless explicitly stated, and refuses to invent k-resolved/direct-indirect evidence from a text summary. |
+| 39/40 | **GUI wired Partial** | **Preview final geometry** now displays only a validated, converged, coordinate-bearing final optimization step. The preview checks atom-count compatibility with the active project and explicitly performs no input mutation. Transactional coordinate/cell write-back remains fail-closed until a lossless card-rewrite path and rollback test exist. |
+| 16 | **Verified** | Viewer wiring, coordinate-bearing geometry preview, static/structural checks, fixture harness, and whitespace checks pass. Full Maven/JUnit remains pending a Java/Maven-enabled runner. |
+
+The **twenty-first** batch corrects electronic-output parser semantics before further visualization wiring:
+
+| # | Status after batch 21 | What landed |
+|---:|---|---|
+| 46 | **Stronger Partial** | `bands.x` gnu-data parsing now resets stale state, rejects a missing/non-finite Fermi reference, accepts Fortran `D` exponents, records malformed/non-monotonic rows, and never retains bands from a previous file after a failed parse. |
+| 48 | **Stronger Partial** | PDOS parsing now requires a header identifying PDOS, reads projection columns after LDOS, sums resolved orbital components, enforces increasing finite energy grids, and refuses ambiguous two-column/headerless data rather than plotting LDOS as PDOS. |
+| 16 | **Verified** | Added parser regression tests for D-exponent bands, stale-state reset, summed p components, and ambiguous PDOS rejection. Static/structural checks and fixtures pass; full Maven/JUnit remains pending a Java/Maven-enabled runner. |
+
+The **twenty-second** batch fully connects validated PDOS parsing to a read-only project GUI workflow:
+
+| # | Status after batch 22 | What landed |
+|---:|---|---|
+| 48/49 | **GUI wired Partial** | **Inspect projected DOS** discovers validated `projwfc.x` component files, displays atom/orbital/spin-label metadata, raw emitted energy range, and nonuniform trapezoidal ∫PDOS dE per component. It rejects headerless/ambiguous files and explicitly says the integral is not an electron count without Fermi/occupation convention. |
+| 49 | **Stronger** | `QEPdosParser.integratePdos` validates equal nonuniform grids, finite non-negative density, and strictly increasing energies before integration; a regression test covers a nonuniform grid. |
+| 16 | **Verified** | PDOS viewer wiring and integration have structural/regression checks; static/structural checks and fixtures pass. Full Maven/JUnit remains pending a Java/Maven-enabled runner. |
+
+The **twenty-third** batch connects conservative phonon q-path inspection to the project GUI:
+
+| # | Status after batch 23 | What landed |
+|---:|---|---|
+| 51 | **GUI wired Partial** | **Inspect phonon frequencies** discovers an explicit `matdyn.freq`/`*.freq.gp` file, parses branches, reports sampled range/branch count, and surfaces significant negative sampled frequencies with convergence/ASR/q-grid caveats. It explicitly does not call a sampled path a full-Brillouin-zone stability proof. |
+| 51/16 | **Stronger** | Phonon parsing now resets stale state, fails closed on missing data, accepts Fortran `D` exponents, rejects inconsistent branch-row widths, and has regression coverage for state reset and D notation. |
+| 16 | **Verified** | GUI action wiring, parser tests, static/structural checks, and fixtures pass. Full Maven/JUnit remains pending a Java/Maven-enabled runner. |
+
+The **twenty-fourth** batch integrates Raman/IR mode inspection without fabricated spectra:
+
+| # | Status after batch 24 | What landed |
+|---:|---|---|
+| 53 | **GUI wired Partial** | **Inspect Raman / IR modes** reads supported engine-mode rows from the project log and displays raw mode frequency, IR intensity, and Raman activity. It does not silently choose broadening, powder/orientation, tensor, or experimental comparison assumptions. |
+| 53/16 | **Stronger** | The Raman/IR parser clears stale data, fails closed for missing files, accepts Fortran `D` notation, and bounds invalid spectrum-grid requests. Regression coverage checks D notation and stale-state reset. |
+| 16 | **Verified** | GUI action wiring, parser regression checks, static/structural checks, and fixtures pass. Full Maven/JUnit remains pending a Java/Maven-enabled runner. |
+
+The **twenty-fifth** batch hardens volumetric density-difference backend safety:
+
+| # | Status after batch 25 | What landed |
+|---:|---|---|
+| 57 | **Stronger Partial** | Grid construction now validates 3×3 finite non-singular lattices, positive dimensions, exact 3D shape, and finite density values. Difference computation validates tolerance, caches component grids instead of cloning them per voxel, avoids grid-count overflow in integration, and no longer labels an integral as electrons unless the density-unit convention supports it. |
+| 57/16 | **Verified** | Added malformed-grid/tolerance regression checks; static/structural checks and fixtures pass. GUI volumetric import/rendering remains unavailable until a streaming CUBE/XSF reader and unit/provenance model are connected. |
+
+The **twenty-sixth** batch adds bounded CUBE volumetric import infrastructure:
+
+| # | Status after batch 26 | What landed |
+|---:|---|---|
+| 55/56/57 | **Stronger Partial** | `CubeGridReader` parses standard CUBE headers/axes/data with explicit bohr→Å handling, validates/truncation-checks voxel payloads, and refuses grids above a configurable 16 Mi-voxel default bound before allocation. Parsed data enters the validated `Grid3D` backend. |
+| 56 | **Backend foundation** | CUBE unit/shape/memory limits and malformed-input tests now exist. GUI volumetric rendering/difference selection remains unavailable until streaming display and provenance UI are connected. |
+| 16 | **Verified** | CUBE success/truncation/size-limit tests plus static/structural checks and fixtures pass. Full Maven/JUnit remains pending a Java/Maven-enabled runner. |
+
+The **twenty-seventh** batch wires bounded volumetric difference calculation to the project GUI:
+
+| # | Status after batch 27 | What landed |
+|---:|---|---|
+| 57 | **GUI wired Partial** | **Compute CUBE density difference** selects a system CUBE followed by component CUBEs, bounded-parses each file, validates grid/cell compatibility, and reports the integrated difference. It writes no output grid and states unit/provenance caveats. |
+| 55–57 | **Integrated path** | CUBE reader → validated Grid3D → component subtraction → compatibility/integral diagnostic is now an end-user GUI path with typed failure reporting. |
+| 16 | **Verified** | Static/structural checks and fixture harness pass. Full Maven/JUnit remains pending a Java/Maven-enabled runner. |

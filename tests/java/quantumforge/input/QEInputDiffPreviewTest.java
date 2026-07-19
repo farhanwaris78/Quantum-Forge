@@ -100,4 +100,13 @@ class QEInputDiffPreviewTest {
         assertTrue(report.contains("[-] SYSTEM: removed nat (was 4)"));
         assertTrue(report.contains("[+] SYSTEM: set ibrav = 0"));
     }
+
+    @Test
+    void treatsEquivalentFortranNumericSpellingsAsUnchanged() {
+        MockQEInput base = new MockQEInput();
+        MockQEInput modified = new MockQEInput();
+        base.getNamelist(QEInput.NAMELIST_SYSTEM).setValue(QEValueBase.getInstance("ecutwfc", "3D1"));
+        modified.getNamelist(QEInput.NAMELIST_SYSTEM).setValue(QEValueBase.getInstance("ecutwfc", "30.0"));
+        assertTrue(QEInputDiffPreview.compare(base, modified).isEmpty());
+    }
 }

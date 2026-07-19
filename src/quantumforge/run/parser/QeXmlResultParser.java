@@ -32,6 +32,11 @@ import quantumforge.operation.OperationResult;
  */
 public final class QeXmlResultParser {
 
+    /** Unit declared by the QE XML document for raw atomic-force vectors. */
+    public enum AtomicForceUnit {
+        HARTREE_PER_BOHR, RYDBERG_PER_BOHR, UNKNOWN
+    }
+
     public static final class QeXmlResults {
         private final String schemaVersion;
         private final Double fermiEnergyEv;
@@ -42,12 +47,13 @@ public final class QeXmlResultParser {
         private final Double totalForce;
         private final double[][] stressRyBohr3;
         private final double[][] atomicForces;
+        private final AtomicForceUnit atomicForceUnit;
         private final Map<String, String> rawScalars;
 
         public QeXmlResults(String schemaVersion, Double fermiEnergyEv, Double totalEnergyRy,
                             Boolean scfConverged, Integer nat, Integer nspins,
                             Double totalForce, double[][] stressRyBohr3,
-                            double[][] atomicForces,
+                            double[][] atomicForces, AtomicForceUnit atomicForceUnit,
                             Map<String, String> rawScalars) {
             this.schemaVersion = schemaVersion == null ? "" : schemaVersion;
             this.fermiEnergyEv = fermiEnergyEv;
@@ -58,6 +64,7 @@ public final class QeXmlResultParser {
             this.totalForce = totalForce;
             this.stressRyBohr3 = stressRyBohr3 == null ? null : copy3(stressRyBohr3);
             this.atomicForces = atomicForces == null ? null : copyNx3(atomicForces);
+            this.atomicForceUnit = atomicForceUnit == null ? AtomicForceUnit.UNKNOWN : atomicForceUnit;
             this.rawScalars = rawScalars == null
                     ? Map.of() : Map.copyOf(rawScalars);
         }
@@ -72,8 +79,35 @@ public final class QeXmlResultParser {
         public Optional<double[][]> getStressRyBohr3() {
             return this.stressRyBohr3 == null ? Optional.empty() : Optional.of(copy3(this.stressRyBohr3));
         }
+        /**
+         * Raw XML force vectors. New callers must use
+         * {@link #getAtomicForcesRyPerBohr()} or inspect
+         * {@link #getAtomicForceUnit()} rather than assuming a unit.
+         */
+        @Deprecated
         public Optional<double[][]> getAtomicForces() {
             return this.atomicForces == null ? Optional.empty() : Optional.of(copyNx3(this.atomicForces));
+        }
+
+        public AtomicForceUnit getAtomicForceUnit() { return this.atomicForceUnit; }
+
+        /**
+         * Complete atomic force block normalized to Ry/bohr. An unknown XML
+         * unit returns empty instead of silently feeding the wrong force scale
+         * to a finite-displacement workflow.
+         */
+        public Optional<double[][]> getAtomicForcesRyPerBohr() {
+            if (this.atomicForces == null || this.atomicForceUnit == AtomicForceUnit.UNKNOWN) {
+                return Optional.empty();
+            }
+            double factor = this.atomicForceUnit == AtomicForceUnit.HARTREE_PER_BOHR ? 2.0 : 1.0;
+            double[][] normalized = copyNx3(this.atomicForces);
+            for (double[] vector : normalized) {
+                for (int i = 0; i < 3; i++) {
+                    vector[i] *= factor;
+                }
+            }
+            return Optional.of(normalized);
         }
         public Map<String, String> getRawScalars() { return this.rawScalars; }
 
@@ -183,8 +217,10 @@ public final class QeXmlResultParser {
             double[][] stress = extractStress(scalars);
 
             double[][] atomicForces = extractAtomicForces(root, nat);
+            AtomicForceUnit forceUnit = forceUnitFrom(root);
             QeXmlResults results = new QeXmlResults(
-                    schemaVersion, fermi, etot, converged, nat, nspin, totalForce, stress, atomicForces, scalars);
+                    schemaVersion, fermi, etot, converged, nat, nspin, totalForce, stress,
+                    atomicForces, forceUnit, scalars);
             return OperationResult.success("QE_XML_OK",
                     "Parsed QE XML from " + sourceLabel, results);
         } catch (Exception ex) {
@@ -315,7 +351,17 @@ public final class QeXmlResultParser {
         return null;
     }
 
-
+    private static AtomicForceUnit forceUnitFrom(Element root) {
+        String units = root == null ? "" : attr(root, "Units");
+        String normalized = units == null ? "" : units.toLowerCase(Locale.ROOT);
+        if (normalized.contains("hartree")) {
+            return AtomicForceUnit.HARTREE_PER_BOHR;
+        }
+        if (normalized.contains("rydberg") || normalized.matches(".*\\bry\\b.*")) {
+            return AtomicForceUnit.RYDBERG_PER_BOHR;
+        }
+        return AtomicForceUnit.UNKNOWN;
+    }
 
     private static double[][] extractAtomicForces(Element root, Integer nat) {
         if (root == null) {
@@ -337,15 +383,22 @@ public final class QeXmlResultParser {
                 continue;
             }
             try {
-                list.add(new double[] {
-                        Double.parseDouble(parts[0]),
-                        Double.parseDouble(parts[1]),
-                        Double.parseDouble(parts[2])
-                });
+                double[] vector = new double[] {
+                        ScfConvergenceAnalyzer.parseFortranDouble(parts[0]),
+                        ScfConvergenceAnalyzer.parseFortranDouble(parts[1]),
+                        ScfConvergenceAnalyzer.parseFortranDouble(parts[2])
+                };
+                if (Double.isFinite(vector[0]) && Double.isFinite(vector[1])
+                        && Double.isFinite(vector[2])) {
+                    list.add(vector);
+                }
             } catch (NumberFormatException ignored) {
+                // A malformed force vector invalidates this optional block below.
             }
         }
-        if (list.isEmpty()) {
+        if (list.isEmpty() || (nat != null && list.size() != nat)) {
+            // Never expose a partial atomic-force block: a FORCE_SETS writer
+            // would otherwise associate forces with the wrong atoms.
             return null;
         }
         return list.toArray(new double[0][]);

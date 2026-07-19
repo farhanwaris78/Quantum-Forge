@@ -7,6 +7,7 @@ package quantumforge.pseudo;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
@@ -37,8 +38,7 @@ public final class PseudoFamilyValidator {
 
         Set<Integer> functionals = new HashSet<>();
         Set<Integer> relativityTypes = new HashSet<>();
-        boolean hasUSPP = false;
-        boolean hasPAW = false;
+        Set<String> metadataUnavailable = new LinkedHashSet<>();
 
         PseudoLibrary library = PseudoLibrary.getInstance();
         library.waitToLoad();
@@ -51,15 +51,14 @@ public final class PseudoFamilyValidator {
             }
 
             PseudoPotential pseudoPot = library.peekPseudoPotential(pseudoName);
-            if (pseudoPot == null) {
-                // Try looking up in environment directly
+            if (pseudoPot == null || pseudoPot.getData() == null) {
+                // A filename alone does not establish XC, valence, or
+                // relativity compatibility. Do not silently pass it.
+                metadataUnavailable.add(label + "=" + pseudoName);
                 continue;
             }
 
             PseudoData data = pseudoPot.getData();
-            if (data == null) {
-                continue;
-            }
 
             if (data.hasFunctional()) {
                 functionals.add(data.getFunctional());
@@ -68,12 +67,14 @@ public final class PseudoFamilyValidator {
                 relativityTypes.add(data.getRelativistic());
             }
 
-            int type = data.getPseudoType();
-            if (type == PseudoData.PSEUDO_TYPE_US) {
-                hasUSPP = true;
-            } else if (type == PseudoData.PSEUDO_TYPE_PAW) {
-                hasPAW = true;
-            }
+        }
+
+        if (!metadataUnavailable.isEmpty()) {
+            issues.add(new ValidationIssue(ValidationSeverity.WARNING, "PSEUDO_METADATA_UNAVAILABLE",
+                    "Cannot verify pseudopotential family/XC/relativity metadata for "
+                            + String.join(", ", metadataUnavailable)
+                            + ". Import a verified pseudo manifest or inspect each UPF before running.",
+                    PW_DOC));
         }
 
         // Rule 1: Functional mixing is a severe physical inconsistency (e.g., mixing PBE and LDA)

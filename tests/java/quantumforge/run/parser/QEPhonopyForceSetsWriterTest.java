@@ -3,6 +3,7 @@ package quantumforge.run.parser;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.io.File;
 import java.io.IOException;
@@ -70,5 +71,25 @@ class QEPhonopyForceSetsWriterTest {
         writer.writeForceSetsFile(tempFile, numAtoms);
         assertTrue(tempFile.exists());
         assertTrue(Files.size(tempFile.toPath()) > 100);
+    }
+
+    @Test
+    void rejectsMalformedOrIncompleteForceSetsInsteadOfWritingShiftedBlocks() {
+        QEPhonopyForceSetsWriter writer = new QEPhonopyForceSetsWriter();
+        assertThrows(IllegalArgumentException.class,
+                () -> writer.addRecord(1, new double[] {0.01, 0.0}, new double[][] {{0.0, 0.0, 0.0}}));
+        writer.addRecord(1, new double[] {0.01, 0.0, 0.0}, new double[][] {{0.0, 0.0, 0.0}});
+        assertThrows(IllegalArgumentException.class, () -> writer.generateForceSetsText(2));
+        assertThrows(IllegalArgumentException.class, () -> writer.generateForceSetsText(0));
+    }
+
+    @Test
+    void convertsQeRyPerBohrForcesExplicitly() {
+        QEPhonopyForceSetsWriter writer = new QEPhonopyForceSetsWriter();
+        writer.addRecordFromQeRyPerBohr(1, new double[] {0.01, 0.0, 0.0},
+                new double[][] {{1.0, 0.0, 0.0}});
+        String text = writer.generateForceSetsText(1);
+        assertTrue(text.contains(String.format(java.util.Locale.ROOT, "%.10f",
+                QEPhonopyForceSetsWriter.RY_PER_BOHR_TO_EV_PER_ANGSTROM)));
     }
 }

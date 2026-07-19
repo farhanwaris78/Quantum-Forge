@@ -12,7 +12,14 @@ package quantumforge.app.project.viewer;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.Optional;
+import java.util.List;
 
 import quantumforge.app.project.ProjectAction;
 import quantumforge.app.project.ProjectActions;
@@ -30,7 +37,20 @@ import quantumforge.app.project.viewer.save.SaveAction;
 import quantumforge.app.project.viewer.screenshot.QEFXScreenshotDialog;
 import quantumforge.export.AtomicExporter;
 import quantumforge.operation.OperationResult;
+import quantumforge.input.QEInput;
+import quantumforge.input.validation.QEInputValidator;
+import quantumforge.input.validation.ValidationIssue;
 import quantumforge.project.Project;
+import quantumforge.run.parser.BandGapParser;
+import quantumforge.run.parser.FinalGeometryUpdater;
+import quantumforge.run.parser.QEErrorKnowledgeBase;
+import quantumforge.run.parser.QETimingResourceParser;
+import quantumforge.run.parser.QEPdosParser;
+import quantumforge.run.parser.QEPhononFreqParser;
+import quantumforge.run.parser.QERamanIRSpectraParser;
+import quantumforge.run.parser.CubeGridReader;
+import quantumforge.run.parser.QEGridDensityDifference;
+import quantumforge.run.parser.ScfConvergenceAnalyzer;
 import quantumforge.run.QECommandDag;
 import quantumforge.run.RunningType;
 import quantumforge.run.WorkflowExporter;
@@ -157,6 +177,30 @@ public class ViewerActions extends ProjectActions<Node> {
 
             } else if (item == this.itemSet.getExportWorkflowItem()) {
                 this.actions.put(item, controller2 -> this.actionExportWorkflow(controller2));
+
+            } else if (item == this.itemSet.getValidateInputItem()) {
+                this.actions.put(item, controller2 -> this.actionValidateInput(controller2));
+
+            } else if (item == this.itemSet.getDiagnoseLogItem()) {
+                this.actions.put(item, controller2 -> this.actionDiagnoseLog(controller2));
+
+            } else if (item == this.itemSet.getBandGapItem()) {
+                this.actions.put(item, controller2 -> this.actionAnalyzeBandGap(controller2));
+
+            } else if (item == this.itemSet.getFinalGeometryItem()) {
+                this.actions.put(item, controller2 -> this.actionPreviewFinalGeometry(controller2));
+
+            } else if (item == this.itemSet.getPdosItem()) {
+                this.actions.put(item, controller2 -> this.actionInspectPdos(controller2));
+
+            } else if (item == this.itemSet.getPhononItem()) {
+                this.actions.put(item, controller2 -> this.actionInspectPhonons(controller2));
+
+            } else if (item == this.itemSet.getSpectraItem()) {
+                this.actions.put(item, controller2 -> this.actionInspectSpectra(controller2));
+
+            } else if (item == this.itemSet.getDensityDifferenceItem()) {
+                this.actions.put(item, controller2 -> this.actionDensityDifference(controller2));
 
             } else if (item == this.itemSet.getXcrysdenItem()) {
                 this.actions.put(item, controller2 -> this.actionXcrysden(controller2));
@@ -373,6 +417,356 @@ public class ViewerActions extends ProjectActions<Node> {
             alert.setHeaderText("Export failed");
             alert.showAndWait();
         }
+    }
+
+    /** Show deterministic preflight findings without starting or modifying a run. */
+    private void actionValidateInput(QEFXProjectController controller) {
+        if (controller == null) {
+            return;
+        }
+        this.project.resolveQEInputs();
+        QEInput input = this.project.getQEInputCurrent();
+        List<ValidationIssue> issues = new QEInputValidator().validate(input);
+        boolean errors = QEInputValidator.hasErrors(issues);
+        StringBuilder message = new StringBuilder();
+        if (issues.isEmpty()) {
+            message.append("No deterministic structural/preflight issues were found. ")
+                    .append("This does not establish convergence or physical suitability.");
+        } else {
+            for (ValidationIssue issue : issues) {
+                message.append(issue).append('\n');
+                if (!issue.getDocumentationUrl().isEmpty()) {
+                    message.append("  ").append(issue.getDocumentationUrl()).append('\n');
+                }
+            }
+        }
+        Alert alert = new Alert(errors ? AlertType.ERROR : AlertType.INFORMATION);
+        alert.setTitle("Quantum ESPRESSO input validation");
+        alert.setHeaderText(errors ? "Input has blocking preflight errors"
+                : "Input preflight completed");
+        alert.setContentText(message.toString());
+        alert.getDialogPane().setPrefWidth(900.0);
+        alert.setResizable(true);
+        alert.showAndWait();
+    }
+
+    /** Parses an explicit QE gap summary; it never infers directness from a total DOS. */
+    private void actionAnalyzeBandGap(QEFXProjectController controller) {
+        if (controller == null || this.project.getDirectory() == null) {
+            showBandGap("No project directory is available for band-gap analysis.", AlertType.WARNING);
+            return;
+        }
+        Path log = this.project.getDirectory().toPath().resolve(this.project.getLogFileName());
+        BandGapParser parser = new BandGapParser(log.toString());
+        if (!parser.parse()) {
+            String details = parser.getDiagnostics().isEmpty() ? "No supported gap summary was found."
+                    : String.join("\n", parser.getDiagnostics());
+            showBandGap(details, AlertType.WARNING);
+            return;
+        }
+        StringBuilder message = new StringBuilder();
+        message.append(String.format(java.util.Locale.ROOT, "Gap: %.6f eV%n", parser.getBandGap()));
+        if (parser.isDirectKnown()) {
+            message.append(parser.isDirect() ? "Directness: explicitly reported direct." :
+                    "Directness: explicitly reported indirect.");
+        } else {
+            message.append("Directness: unknown; this QE log summary is not k-resolved evidence.");
+        }
+        message.append("\nClassification: ").append(parser.isInsulator()
+                ? "gapped above the 0.01 eV analysis tolerance." : "metallic/small-gap within tolerance.");
+        showBandGap(message.toString(), AlertType.INFORMATION);
+    }
+
+    private void showBandGap(String message, AlertType type) {
+        Alert alert = new Alert(type);
+        alert.setTitle("Quantum ESPRESSO band-gap analysis");
+        alert.setHeaderText(type == AlertType.WARNING ? "Band gap undetermined" : "Band-gap summary");
+        alert.setContentText(message);
+        alert.showAndWait();
+    }
+
+    /** Select one system CUBE followed by one or more component CUBEs; does not write output grids. */
+    private void actionDensityDifference(QEFXProjectController controller) {
+        if (controller == null) return;
+        FileChooser chooser = new FileChooser();
+        chooser.setTitle("Select system CUBE first, then component CUBE files");
+        chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("CUBE files", "*.cube", "*.cub"));
+        List<File> files = chooser.showOpenMultipleDialog(controller.getStage());
+        if (files == null || files.size() < 2) {
+            showDensityDifference("Select one system CUBE followed by at least one component CUBE.", AlertType.WARNING);
+            return;
+        }
+        OperationResult<QEGridDensityDifference.Grid3D> systemResult = CubeGridReader.read(files.get(0).toPath());
+        if (!systemResult.isSuccess()) {
+            showDensityDifference(systemResult.getMessage(), AlertType.ERROR);
+            return;
+        }
+        java.util.ArrayList<QEGridDensityDifference.Grid3D> components = new java.util.ArrayList<>();
+        for (int i = 1; i < files.size(); i++) {
+            OperationResult<QEGridDensityDifference.Grid3D> result = CubeGridReader.read(files.get(i).toPath());
+            if (!result.isSuccess()) {
+                showDensityDifference("Component " + files.get(i).getName() + ": " + result.getMessage(), AlertType.ERROR);
+                return;
+            }
+            components.add(result.getValue().orElseThrow());
+        }
+        QEGridDensityDifference.DiffResult diff = QEGridDensityDifference.computeDifference(
+                systemResult.getValue().orElseThrow(), components, 1.0e-8);
+        showDensityDifference(diff.getDiagnosticMessage() + "\n\nNo output CUBE was written; inspect provenance and units before interpreting this value.",
+                diff.isCompatible() ? AlertType.INFORMATION : AlertType.WARNING);
+    }
+
+    private void showDensityDifference(String message, AlertType type) {
+        Alert alert = new Alert(type);
+        alert.setTitle("CUBE density difference");
+        alert.setHeaderText(type == AlertType.ERROR ? "Density difference failed" : "Grid compatibility and integral");
+        alert.setContentText(message);
+        alert.showAndWait();
+    }
+
+    /** Displays parsed Raman/IR mode metadata; broadening parameters are not guessed in the GUI. */
+    private void actionInspectSpectra(QEFXProjectController controller) {
+        if (controller == null || this.project.getDirectory() == null) {
+            showSpectra("No project directory is available for Raman/IR inspection.", AlertType.WARNING);
+            return;
+        }
+        File log = new File(this.project.getDirectory(), this.project.getLogFileName());
+        QERamanIRSpectraParser parser = new QERamanIRSpectraParser(this.project.getProperty());
+        try {
+            parser.parse(log);
+        } catch (IOException ex) {
+            showSpectra("Could not parse Raman/IR modes: " + ex.getMessage(), AlertType.ERROR);
+            return;
+        }
+        List<QERamanIRSpectraParser.SpectroMode> modes = parser.getModes();
+        if (modes.isEmpty()) {
+            showSpectra("No supported Raman/IR mode table was found in " + log.getName()
+                    + ". Raman/IR intensities require an engine route that emits those tensors.", AlertType.WARNING);
+            return;
+        }
+        StringBuilder message = new StringBuilder("Parsed modes: ").append(modes.size()).append('\n');
+        int limit = Math.min(modes.size(), 100);
+        for (int i = 0; i < limit; i++) {
+            QERamanIRSpectraParser.SpectroMode mode = modes.get(i);
+            message.append(String.format(java.util.Locale.ROOT,
+                    "mode %d: %.5f cm-1; IR=%g; Raman=%g%n", mode.getModeIndex(),
+                    mode.getFrequencyCm1(), mode.getIrIntensity(), mode.getRamanActivity()));
+        }
+        message.append("\nRaw engine activities are shown. Powder broadening/orientation assumptions are not applied automatically.");
+        showSpectra(message.toString(), AlertType.INFORMATION);
+    }
+
+    private void showSpectra(String message, AlertType type) {
+        Alert alert = new Alert(type);
+        alert.setTitle("Raman / IR mode inspection");
+        alert.setHeaderText(type == AlertType.WARNING ? "Raman/IR data unavailable" : "Parsed vibrational mode activities");
+        alert.setContentText(message);
+        alert.getDialogPane().setPrefWidth(850.0);
+        alert.setResizable(true);
+        alert.showAndWait();
+    }
+
+    /** Inspects one explicit matdyn q-path frequency table without claiming full-BZ stability. */
+    private void actionInspectPhonons(QEFXProjectController controller) {
+        if (controller == null || this.project.getDirectory() == null) {
+            showPhonons("No project directory is available for phonon-frequency inspection.", AlertType.WARNING);
+            return;
+        }
+        File[] candidates = this.project.getDirectory().listFiles(file -> file.isFile()
+                && (file.getName().equals("matdyn.freq") || file.getName().endsWith(".freq.gp")
+                || file.getName().endsWith(".freq")));
+        if (candidates == null || candidates.length == 0) {
+            showPhonons("No matdyn frequency file was found. Expected matdyn.freq or *.freq.gp.", AlertType.WARNING);
+            return;
+        }
+        java.util.Arrays.sort(candidates, java.util.Comparator.comparing(File::getName));
+        QEPhononFreqParser parser = new QEPhononFreqParser(this.project.getProperty());
+        try {
+            parser.parse(candidates[0]);
+        } catch (IOException ex) {
+            showPhonons("Could not parse phonon frequencies: " + ex.getMessage(), AlertType.ERROR);
+            return;
+        }
+        if (parser.getBranches().isEmpty()) {
+            showPhonons(String.join("\n", parser.getDiagnostics()), AlertType.WARNING);
+            return;
+        }
+        double min = Double.POSITIVE_INFINITY;
+        double max = Double.NEGATIVE_INFINITY;
+        for (QEPhononFreqParser.PhononBranch branch : parser.getBranches()) {
+            for (double frequency : branch.getFrequencyCm1()) {
+                min = Math.min(min, frequency);
+                max = Math.max(max, frequency);
+            }
+        }
+        StringBuilder message = new StringBuilder();
+        message.append("File: ").append(candidates[0].getName()).append('\n');
+        message.append("Branches: ").append(parser.getBranches().size()).append('\n');
+        message.append(String.format(java.util.Locale.ROOT, "Sampled frequency range: %.4f to %.4f cm-1%n", min, max));
+        message.append("Significant imaginary values: ").append(!parser.isLatticeStable()).append("\n\n");
+        for (String diagnostic : parser.getDiagnostics()) {
+            message.append(diagnostic).append('\n');
+        }
+        showPhonons(message.toString(), parser.isLatticeStable() ? AlertType.INFORMATION : AlertType.WARNING);
+    }
+
+    private void showPhonons(String message, AlertType type) {
+        Alert alert = new Alert(type);
+        alert.setTitle("Phonon frequency inspection");
+        alert.setHeaderText(type == AlertType.WARNING ? "Phonon stability needs review" : "Sampled phonon q-path");
+        alert.setContentText(message);
+        alert.getDialogPane().setPrefWidth(850.0);
+        alert.setResizable(true);
+        alert.showAndWait();
+    }
+
+    /** Inspects parsed projwfc.x components without fabricating a total-DOS electron count. */
+    private void actionInspectPdos(QEFXProjectController controller) {
+        if (controller == null || this.project.getDirectory() == null) {
+            showPdos("No project directory is available for projected-DOS inspection.", AlertType.WARNING);
+            return;
+        }
+        QEPdosParser parser = new QEPdosParser(this.project.getProperty());
+        parser.parseDirectory(this.project.getDirectory(), this.project.getPrefixName());
+        List<QEPdosParser.PdosComponent> components = parser.getComponents();
+        if (components.isEmpty()) {
+            showPdos("No validated projwfc.x .pdos_atm# files were found. "
+                    + "Files without a PDOS header are intentionally rejected.", AlertType.WARNING);
+            return;
+        }
+        StringBuilder message = new StringBuilder();
+        message.append("Validated PDOS components: ").append(components.size()).append('\n');
+        int limit = Math.min(components.size(), 100);
+        for (int i = 0; i < limit; i++) {
+            QEPdosParser.PdosComponent component = components.get(i);
+            double[] energy = component.getEnergies();
+            double[] density = component.getPdos();
+            double area = QEPdosParser.integratePdos(energy, density);
+            message.append(String.format(java.util.Locale.ROOT,
+                    "atom %d %s wfc %d (%s), spin label %d: E=[%.5f, %.5f] eV, ∫PDOS dE=%.6g states%n",
+                    component.getAtomIndex(), component.getElement(), component.getWfcIndex(),
+                    component.getOrbitalL(), component.getSpinChannel(), energy[0], energy[energy.length - 1], area));
+        }
+        if (components.size() > limit) {
+            message.append("Only the first ").append(limit).append(" components are shown.\n");
+        }
+        message.append("\nEnergy is exactly as emitted by projwfc.x. The integral is not an electron count "
+                + "without an explicit Fermi/occupation convention.");
+        showPdos(message.toString(), AlertType.INFORMATION);
+    }
+
+    private void showPdos(String message, AlertType type) {
+        Alert alert = new Alert(type);
+        alert.setTitle("Projected DOS inspection");
+        alert.setHeaderText(type == AlertType.WARNING ? "Projected DOS unavailable" : "Validated projwfc.x components");
+        alert.setContentText(message);
+        alert.getDialogPane().setPrefWidth(900.0);
+        alert.setResizable(true);
+        alert.showAndWait();
+    }
+
+    /** Previews a converged final geometry and deliberately does not mutate input cards. */
+    private void actionPreviewFinalGeometry(QEFXProjectController controller) {
+        if (controller == null) {
+            return;
+        }
+        OperationResult<FinalGeometryUpdater.GeometryPreview> result = FinalGeometryUpdater.preview(this.project);
+        Alert alert = new Alert(result.isSuccess() ? AlertType.INFORMATION : AlertType.WARNING);
+        alert.setTitle("Final geometry preview");
+        alert.setHeaderText(result.isSuccess() ? "Validated read-only geometry preview" : "Geometry cannot be applied safely");
+        if (result.isSuccess()) {
+            FinalGeometryUpdater.GeometryPreview preview = result.getValue().orElseThrow();
+            StringBuilder message = new StringBuilder();
+            message.append("Ionic step: ").append(preview.getStepIndex() + 1).append('\n');
+            message.append(String.format(java.util.Locale.ROOT, "Energy: %.10f Ry%n", preview.getEnergyRy()));
+            message.append(String.format(java.util.Locale.ROOT, "Total force: %.6g Ry/bohr%n", preview.getTotalForce()));
+            message.append("Converged: ").append(preview.isConverged()).append('\n');
+            message.append("Atoms: ").append(preview.getAtomCount()).append('\n');
+            message.append("\nNo QE input cards were changed.\n");
+            for (String note : preview.getNotes()) {
+                message.append(note).append('\n');
+            }
+            alert.setContentText(message.toString());
+        } else {
+            alert.setContentText(result.getMessage());
+        }
+        alert.getDialogPane().setPrefWidth(800.0);
+        alert.setResizable(true);
+        alert.showAndWait();
+    }
+
+    /**
+     * Diagnose the tail of the current QE log without executing a command or
+     * loading an unbounded cluster output into the JavaFX process.
+     */
+    private void actionDiagnoseLog(QEFXProjectController controller) {
+        if (controller == null || this.project.getDirectory() == null) {
+            showLogDiagnosis("No project directory is available for log diagnosis.", AlertType.WARNING);
+            return;
+        }
+        Path log = this.project.getDirectory().toPath().resolve(this.project.getLogFileName());
+        if (!Files.isRegularFile(log)) {
+            showLogDiagnosis("QE log file was not found: " + log, AlertType.WARNING);
+            return;
+        }
+        try {
+            String text = readLogTail(log, 2L * 1024L * 1024L);
+            ScfConvergenceAnalyzer.Report scf = ScfConvergenceAnalyzer.analyze(text);
+            List<QEErrorKnowledgeBase.Diagnosis> diagnoses = QEErrorKnowledgeBase.diagnose(text);
+            QETimingResourceParser timing = new QETimingResourceParser(this.project.getProperty());
+            timing.parse(log.toFile());
+
+            StringBuilder message = new StringBuilder();
+            message.append(ScfConvergenceAnalyzer.formatSummary(scf)).append('\n');
+            if (Double.isFinite(timing.getWallTimeSeconds())) {
+                message.append(String.format(java.util.Locale.ROOT,
+                        "wall=%.2f s cpu=%.2f s ranks=%d memory=%.2f MB fft=%s%n",
+                        timing.getWallTimeSeconds(), timing.getCpuTimeSeconds(), timing.getNumProcessors(),
+                        timing.getEstimatedMaxMemoryMb(), timing.getFftGrid()));
+            }
+            if (diagnoses.isEmpty()) {
+                message.append("No deterministic QE error signature matched this log tail.");
+            } else {
+                message.append("\nDiagnoses (review the raw log before changing input):\n");
+                for (QEErrorKnowledgeBase.Diagnosis diagnosis : diagnoses) {
+                    message.append(diagnosis).append('\n');
+                    message.append("  ").append(diagnosis.getSignature().getDocumentationUrl()).append('\n');
+                }
+            }
+            showLogDiagnosis(message.toString(), diagnoses.isEmpty() ? AlertType.INFORMATION : AlertType.WARNING);
+        } catch (IOException | RuntimeException ex) {
+            showLogDiagnosis("Could not diagnose QE log: " + ex.getMessage(), AlertType.ERROR);
+        }
+    }
+
+    private void showLogDiagnosis(String message, AlertType type) {
+        Alert alert = new Alert(type);
+        alert.setTitle("Quantum ESPRESSO log diagnosis");
+        alert.setHeaderText(type == AlertType.ERROR ? "Log diagnosis failed" : "Deterministic log analysis");
+        alert.setContentText(message);
+        alert.getDialogPane().setPrefWidth(900.0);
+        alert.setResizable(true);
+        alert.showAndWait();
+    }
+
+    private static String readLogTail(Path path, long maximumBytes) throws IOException {
+        long size = Files.size(path);
+        long start = Math.max(0L, size - maximumBytes);
+        int count = (int) (size - start);
+        ByteBuffer bytes = ByteBuffer.allocate(count);
+        try (FileChannel channel = FileChannel.open(path, StandardOpenOption.READ)) {
+            channel.position(start);
+            while (bytes.hasRemaining() && channel.read(bytes) >= 0) {
+                // Read until EOF or requested bounded tail.
+            }
+        }
+        String text = StandardCharsets.UTF_8.decode((ByteBuffer) bytes.flip()).toString();
+        if (start > 0L) {
+            int firstNewline = text.indexOf('\n');
+            text = firstNewline >= 0 ? text.substring(firstNewline + 1) : "";
+            text = "[Earlier log content omitted; last " + maximumBytes + " bytes analyzed.]\n" + text;
+        }
+        return text;
     }
 
     private void actionExportWorkflow(QEFXProjectController controller) {

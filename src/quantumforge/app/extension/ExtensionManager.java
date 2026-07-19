@@ -5,6 +5,7 @@
 package quantumforge.app.extension;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import quantumforge.app.extension.vasp.VASPExtension;
 import quantumforge.app.extension.castep.CASTEPExtension;
@@ -25,6 +26,11 @@ public class ExtensionManager {
         extensions.add(new BoltzTraP2Extension());
         extensions.add(new ThermoPwExtension());
         extensions.add(new MLPotentialExtension());
+        // Only complete, validated extensions may be returned to production UI
+        // code. The source tree retains several historical editor sketches, but
+        // exposing them would imply that an executable form is a workflow.
+        extensions.removeIf(extension -> !extension.isAvailable());
+        extensions = Collections.unmodifiableList(extensions);
     }
 
     public static ExtensionManager getInstance() {
@@ -34,6 +40,11 @@ public class ExtensionManager {
         return instance;
     }
 
+    /**
+     * Returns only production-ready extensions. Experimental source sketches
+     * are deliberately excluded until their capability is independently
+     * validated end-to-end.
+     */
     public List<SoftwareExtension> getExtensions() {
         return extensions;
     }

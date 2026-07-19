@@ -44,6 +44,19 @@ class QERamanIRSpectraParserTest {
     }
 
     @Test
+    void acceptsFortranExponentModesAndClearsStaleResults() throws IOException {
+        File tempFile = File.createTempFile("ph-raman-d", ".log");
+        try (FileWriter writer = new FileWriter(tempFile)) {
+            writer.write("mode 1 freq 2.0D+02 cm-1 IR intensity 1.0D+01 Raman activity 5.0D+00\\n");
+        }
+        QERamanIRSpectraParser parser = new QERamanIRSpectraParser(new ProjectProperty());
+        parser.parse(tempFile);
+        assertEquals(1, parser.getModes().size());
+        parser.parse(new File(tempFile.getParentFile(), "missing.log"));
+        assertTrue(parser.getModes().isEmpty());
+    }
+
+    @Test
     void testLorentzianBroadeningGeneratesPeakAtModeFrequency() throws IOException {
         File tempFile = File.createTempFile("ph-spectra-peaks", ".log");
         tempFile.deleteOnExit();

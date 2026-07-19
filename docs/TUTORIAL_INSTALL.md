@@ -492,4 +492,3 @@ atomic writes, schema version metadata, and last-known-good `.bak` copies.
 - [RELEASE_AND_SECURITY.md](RELEASE_AND_SECURITY.md) — signing, SBOM, integrity
 - [CODE_AUDIT.md](CODE_AUDIT.md) — scientific honesty audit
 - [FUTURE_ROADMAP.md](FUTURE_ROADMAP.md) — prioritized implementation plan
-- [IMPLEMENTATION_REPORT.md](IMPLEMENTATION_REPORT.md) — what changed and why

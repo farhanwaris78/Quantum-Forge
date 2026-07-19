@@ -31,6 +31,14 @@ class QEInputValidatorTest {
     }
 
     @Test
+    void reportsUnverifiedPseudoMetadataInsteadOfTreatingAFileNameAsCompatibilityEvidence() {
+        QESCFInput input = createMinimalScf();
+        input.getCard(QEAtomicSpecies.class).setPseudoPotential(0, "not-a-verified-library-entry.UPF");
+        List<ValidationIssue> issues = new QEInputValidator().validate(input);
+        assertTrue(issues.stream().anyMatch(issue -> "PSEUDO_METADATA_UNAVAILABLE".equals(issue.getCode())));
+    }
+
+    @Test
     void catchesCountsMissingPseudopotentialAndSingularCell() {
         QESCFInput input = createMinimalScf();
         QENamelist system = input.getNamelist("SYSTEM");

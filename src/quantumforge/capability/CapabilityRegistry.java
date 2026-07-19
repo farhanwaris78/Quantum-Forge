@@ -52,10 +52,10 @@ public final class CapabilityRegistry {
                 "Strict known_hosts store, JSch transport, host-key acceptance UI helper, selective result sync with checksum cache, remote job monitor with backoff, safe cancel-by-id, SLURM/PBS/SGE adapters, site profiles, durable job-queue store, and job-state records exist; live multi-cluster validation is still required.",
                 "Validate against two real clusters and polish fingerprint dialog UX.");
         register(values, THERMO_PW, "thermo_pw", CapabilityStatus.EXPERIMENTAL,
-                "Executable detection and a narrow elastic-matrix parser exist.",
+                "Executable detection and a fail-closed, unit-aware Birch-Murnaghan EOS summary parser exist.",
                 "Add QE compatibility checks, controls, execution DAG, units, and reference tests.");
         register(values, PHONOPY, "phonopy/phono3py", CapabilityStatus.UNAVAILABLE,
-                "Only detection/data sketches exist; there is no force-displacement workflow.",
+                "A unit-explicit, validated FORCE_SETS serializer exists, but there is no displacement-job workflow.",
                 "Implement isolated Python protocol, displacement jobs, force collection, and YAML parsing.");
         register(values, BOLTZTRAP2, "BoltzTraP2", CapabilityStatus.UNAVAILABLE,
                 "The btp2 command can be detected but no conversion, execution, or parser exists.",
@@ -64,7 +64,7 @@ public final class CapabilityRegistry {
                 "Safe temp XSF export and argument-array launch are implemented; requires a local xcrysden binary and display.",
                 "Add remote/X11 lifecycle tests and density/grid XSF export.");
         register(values, VASP, "VASP", CapabilityStatus.EXPERIMENTAL,
-                "POSCAR I/O and a disconnected INCAR form exist; no complete licensed workflow exists.",
+                "POSCAR I/O and a fail-closed vasprun.xml reader exist; no complete licensed workflow exists.",
                 "Add private licensed schema/execution/vasprun.xml tests without distributing POTCAR data.");
         register(values, CASTEP, "CASTEP", CapabilityStatus.UNAVAILABLE,
                 "No .cell/.param model, execution adapter, or results parser exists.",

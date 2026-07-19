@@ -105,6 +105,18 @@ public class QEFXMainController implements Initializable {
     private MenuItem castepMItem;
 
     @FXML
+    private MenuItem phonopyMItem;
+
+    @FXML
+    private MenuItem thermoPwMItem;
+
+    @FXML
+    private MenuItem boltztrapMItem;
+
+    @FXML
+    private MenuItem xcrysdenMItem;
+
+    @FXML
     private MenuItem stabilityMItem;
 
     @FXML
@@ -276,6 +288,18 @@ public class QEFXMainController implements Initializable {
 
         if (this.castepMItem != null) {
             this.castepMItem.setOnAction(event -> this.showCapability(CapabilityRegistry.CASTEP));
+        }
+        if (this.phonopyMItem != null) {
+            this.phonopyMItem.setOnAction(event -> this.showCapability(CapabilityRegistry.PHONOPY));
+        }
+        if (this.thermoPwMItem != null) {
+            this.thermoPwMItem.setOnAction(event -> this.showCapability(CapabilityRegistry.THERMO_PW));
+        }
+        if (this.boltztrapMItem != null) {
+            this.boltztrapMItem.setOnAction(event -> this.showCapability(CapabilityRegistry.BOLTZTRAP2));
+        }
+        if (this.xcrysdenMItem != null) {
+            this.xcrysdenMItem.setOnAction(event -> this.showCapability(CapabilityRegistry.XCRYSDEN));
         }
 
         if (this.stabilityMItem != null) {

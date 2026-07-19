@@ -43,13 +43,15 @@ public final class QEBandsDataParser extends LogParser {
     }
 
     private final List<Band> bands = new ArrayList<>();
-    private double fermiEnergyEv = 0.0;
+    private final List<String> diagnostics = new ArrayList<>();
+    private double fermiEnergyEv = Double.NaN;
 
     public QEBandsDataParser(ProjectProperty property) {
         super(property);
     }
 
     public List<Band> getBands() { return List.copyOf(this.bands); }
+    public List<String> getDiagnostics() { return List.copyOf(this.diagnostics); }
     public double getFermiEnergyEv() { return this.fermiEnergyEv; }
 
     @Override
@@ -61,11 +63,17 @@ public final class QEBandsDataParser extends LogParser {
      * Parses the bands file and shifts all energies relative to the Fermi level (E_F).
      */
     public void parseWithFermi(File file, double fermiEnergy) throws IOException {
-        if (file == null || !file.exists()) {
+        this.bands.clear();
+        this.diagnostics.clear();
+        this.fermiEnergyEv = Double.NaN;
+        if (file == null || !file.isFile()) {
+            this.diagnostics.add("Bands data file is missing or not a regular file.");
             return;
         }
-
-        this.bands.clear();
+        if (!Double.isFinite(fermiEnergy)) {
+            this.diagnostics.add("Fermi energy is not finite; energies cannot be referenced safely.");
+            return;
+        }
         this.fermiEnergyEv = fermiEnergy;
 
         try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
@@ -86,13 +94,18 @@ public final class QEBandsDataParser extends LogParser {
                 String[] tokens = trim.split("\\s+");
                 if (tokens.length >= 2) {
                     try {
-                        double kDist = Double.parseDouble(tokens[0]);
-                        double energyRaw = Double.parseDouble(tokens[1]);
-                        // Shift relative to the Fermi energy
-                        double shiftedEnergy = energyRaw - fermiEnergy;
-                        currentBand.addPoint(kDist, shiftedEnergy);
+                        double kDist = ScfConvergenceAnalyzer.parseFortranDouble(tokens[0]);
+                        double energyRaw = ScfConvergenceAnalyzer.parseFortranDouble(tokens[1]);
+                        if (!Double.isFinite(kDist) || !Double.isFinite(energyRaw)
+                                || (currentBand.size() > 0
+                                && kDist < currentBand.getKDistance()[currentBand.size() - 1])) {
+                            this.diagnostics.add("Skipped non-finite or non-monotonic band point: " + trim);
+                            continue;
+                        }
+                        // Shift relative to the explicit Fermi reference.
+                        currentBand.addPoint(kDist, energyRaw - fermiEnergy);
                     } catch (NumberFormatException e) {
-                        // Skip malformed lines
+                        this.diagnostics.add("Skipped malformed band-data row: " + trim);
                     }
                 }
             }
