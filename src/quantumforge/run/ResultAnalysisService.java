@@ -18,6 +18,7 @@ import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -44,6 +45,7 @@ import quantumforge.hpc.SiteProfileValidator;
 import quantumforge.input.QEExxPlanner;
 import quantumforge.neural.MlModelManifest;
 import quantumforge.input.QEInput;
+import quantumforge.input.QEKeywordHelp;
 import quantumforge.input.QEInputDiffPreview;
 import quantumforge.input.QEKpointMeshAdvisor;
 import quantumforge.input.QEPpChargePotentialBuilder;
@@ -51,6 +53,7 @@ import quantumforge.input.QEPpWavefunctionBuilder;
 import quantumforge.input.QESCFInput;
 import quantumforge.input.card.QEKPoints;
 import quantumforge.input.namelist.QENamelist;
+import quantumforge.input.namelist.QEValue;
 import quantumforge.input.validation.ValidationIssue;
 import quantumforge.input.validation.ValidationSeverity;
 import quantumforge.operation.OperationResult;
@@ -198,7 +201,8 @@ public final class ResultAnalysisService {
         ENERGY_SERIES_COMPARE("Energy-series comparison (same grid, eV deltas)"),
         TENSOR_EIGEN("Symmetric 3x3 tensor eigenanalysis"),
         PHONON_MODE_FRAMES("Phonon mode animation frames (multi-frame XYZ)"),
-        HYPERFINE_LOOKUP("Hyperfine isotope g-factor + Fermi contact A_iso");
+        HYPERFINE_LOOKUP("Hyperfine isotope g-factor + Fermi contact A_iso"),
+        KEYWORD_HELP("pw.x keyword reference (offline curated subset)");
 
         private final String label;
 
@@ -238,7 +242,8 @@ public final class ResultAnalysisService {
                     || this == EXX_GUIDANCE || this == BZ_GEOMETRY || this == METHODS_TEXT
                     || this == RO_CRATE || this == DEFECT_FORMATION || this == ADSORPTION_ENERGY
                     || this == BARRIER_DIFFUSION || this == CONSTRAINTS_PREVIEW
-                    || this == PHONON_MODE_FRAMES || this == HYPERFINE_LOOKUP;
+                    || this == PHONON_MODE_FRAMES || this == HYPERFINE_LOOKUP
+                    || this == KEYWORD_HELP;
         }
 
         /** True for project-bound kinds that additionally parse a user data file. */
@@ -994,6 +999,8 @@ public final class ResultAnalysisService {
                 return analyzePhononModeFrames(project, file, params);
             case HYPERFINE_LOOKUP:
                 return analyzeHyperfineLookup(params);
+            case KEYWORD_HELP:
+                return analyzeKeywordHelp(project, params);
             default:
                 return failure(kind.getLabel(), "This analysis kind is not implemented.");
         }
@@ -3740,6 +3747,76 @@ public final class ResultAnalysisService {
                 + "from your own converged GIPAW calculation - this analysis does not parse "
                 + "GIPAW output and cannot verify the number's provenance. Compare against "
                 + "experiment only with your reference/shift convention stated.");
+        return new AnalysisReport(label, true, text.toString(), csv, null);
+    }
+
+    /**
+     * Roadmap #129 offline keyword reference: looks a keyword up in the curated
+     * table, always prints the upstream URL, and cross-checks the current project
+     * input for the keyword's presence/value when one is resolvable. Anything
+     * outside the curated subset fails closed and points upstream - nothing is
+     * improvised, and this table is named as a subset of Roadmap #22's future
+     * version-generated schema.
+     */
+    private static AnalysisReport analyzeKeywordHelp(Project project,
+            AnalysisParameters params) {
+        String label = AnalysisKind.KEYWORD_HELP.getLabel();
+        String keyword = params.getSeriesKeyword() == null
+                ? "" : params.getSeriesKeyword().trim();
+        List<String> covered = QEKeywordHelp.coveredNames();
+        if (keyword.isEmpty()) {
+            return failure(label, "Supply a pw.x namelist keyword to look up. The offline "
+                    + "table covers " + covered.size() + " curated keywords; anything else "
+                    + "opens upstream: " + QEKeywordHelp.INPUT_PW_URL);
+        }
+        Optional<QEKeywordHelp.KeywordEntry> found = QEKeywordHelp.lookup(keyword);
+        if (found.isEmpty()) {
+            return failure(label, "\"" + keyword + "\" is outside the curated offline "
+                    + "table (" + covered.size() + " keywords). Nothing is improvised; "
+                    + "consult the version-matched upstream docs: "
+                    + QEKeywordHelp.INPUT_PW_URL + ". Covered keywords: " + covered);
+        }
+        QEKeywordHelp.KeywordEntry entry = found.get();
+        StringBuilder text = new StringBuilder();
+        text.append(String.format(Locale.ROOT, "Keyword: %s   (namelist &%s)%n",
+                entry.getName(), entry.getSection()));
+        text.append(entry.getSummary()).append("\n\n");
+        text.append("Upstream reference (match your QE version): ")
+                .append(QEKeywordHelp.INPUT_PW_URL).append("\n\n");
+        // Cross-check the live project input without blocking the lookup itself.
+        QEInput input = null;
+        String inputNote = "the project has no resolvable current input";
+        try {
+            project.resolveQEInputs();
+            input = project.getQEInputCurrent();
+        } catch (RuntimeException ex) {
+            inputNote = "resolving the current input failed: " + ex.getMessage();
+        }
+        if (input == null) {
+            text.append("Input cross-check skipped: ").append(inputNote).append('\n');
+        } else {
+            QENamelist namelist = input.getNamelist(entry.getSection());
+            QEValue value = namelist == null ? null : namelist.getValue(entry.getName());
+            if (value == null) {
+                text.append(String.format(Locale.ROOT,
+                        "Current input: &%s does not set %s (the QE default, if any, "
+                                + "applies).%n", entry.getSection(), entry.getName()));
+            } else {
+                text.append(String.format(Locale.ROOT,
+                        "Current input: &%s sets %s = %s%n", entry.getSection(),
+                        entry.getName(), value.toString().trim()));
+            }
+        }
+        text.append("\nHonesty boundary: this is a curated, human-vetted subset (")
+                .append(String.valueOf(covered.size()))
+                .append(" keywords) - NOT the complete, version-generated schema that "
+                        + "Roadmap #22 targets. Defaults, allowed values and version "
+                        + "constraints are intentionally NOT restated here; the upstream "
+                        + "version-matched documentation is the authority.");
+        List<String> csv = new ArrayList<>();
+        csv.add("keyword,section,summary");
+        csv.add(String.format(Locale.ROOT, "%s,%s,%s", csvCell(entry.getName()),
+                csvCell(entry.getSection()), csvCell(entry.getSummary())));
         return new AnalysisReport(label, true, text.toString(), csv, null);
     }
 

@@ -432,6 +432,15 @@ public final class AnalysisAction {
             parameters.withConstraintSpec(spec).withConstraintMode(mode);
             break;
         }
+        case KEYWORD_HELP: {
+            String keyword = askText("pw.x namelist keyword to look up "
+                    + "(e.g. ecutwfc, conv_thr)", "ecutwfc");
+            if (keyword == null) {
+                return null;
+            }
+            parameters.withSeriesKeyword(keyword);
+            break;
+        }
         case HYPERFINE_LOOKUP: {
             String isotope = askText("Isotope label (covered: 1H 13C 14N 15N 29Si 31P)",
                     "13C");

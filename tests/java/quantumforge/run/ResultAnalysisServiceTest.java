@@ -2204,4 +2204,49 @@ class ResultAnalysisServiceTest {
                 stubProject(this.tempDir), new AnalysisParameters().withIsotopeLabel("  "));
         assertFalse(blank.isSuccess(), "A blank isotope label must fail closed");
     }
+
+    @Test
+    void testKeywordHelpKindLookupCrossCheckAndFailClosed() {
+        QESCFInput base = new QESCFInput();
+        base.getNamelist(QEInput.NAMELIST_SYSTEM)
+                .setValue(QEValueBase.getInstance("ecutwfc", "30.0"));
+
+        AnalysisReport report = ResultAnalysisService.analyze(AnalysisKind.KEYWORD_HELP,
+                stubProjectWithInput(this.tempDir, base, null),
+                new AnalysisParameters().withSeriesKeyword("ECUTWFC"));
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains("Keyword: ecutwfc   (namelist &SYSTEM)"),
+                report.getText());
+        assertTrue(report.getText().contains("Ry"), report.getText());
+        assertTrue(report.getText().contains("INPUT_PW.html"), report.getText());
+        assertTrue(report.getText().contains("Current input: &SYSTEM sets ecutwfc ="),
+                report.getText());
+        assertTrue(report.getText().contains("curated, human-vetted subset"),
+                report.getText());
+        assertEquals(2, report.getCsvLines().size());
+
+        AnalysisReport absent = ResultAnalysisService.analyze(AnalysisKind.KEYWORD_HELP,
+                stubProjectWithInput(this.tempDir, base, null),
+                new AnalysisParameters().withSeriesKeyword("smearing"));
+        assertTrue(absent.isSuccess(), absent.getText());
+        assertTrue(absent.getText().contains("&SYSTEM does not set smearing"),
+                absent.getText());
+
+        AnalysisReport noInput = ResultAnalysisService.analyze(AnalysisKind.KEYWORD_HELP,
+                stubProject(this.tempDir), new AnalysisParameters().withSeriesKeyword("conv_thr"));
+        assertTrue(noInput.isSuccess(), noInput.getText());
+        assertTrue(noInput.getText().contains("Input cross-check skipped"), noInput.getText());
+
+        AnalysisReport unknown = ResultAnalysisService.analyze(AnalysisKind.KEYWORD_HELP,
+                stubProject(this.tempDir),
+                new AnalysisParameters().withSeriesKeyword("notakeyword"));
+        assertFalse(unknown.isSuccess(), "Uncovered keywords fail closed, not improvised");
+        assertTrue(unknown.getText().contains("INPUT_PW.html"), unknown.getText());
+        assertTrue(unknown.getText().contains("ecutwfc"),
+                "Covered names must be listed: " + unknown.getText());
+
+        AnalysisReport blank = ResultAnalysisService.analyze(AnalysisKind.KEYWORD_HELP,
+                stubProject(this.tempDir), new AnalysisParameters().withSeriesKeyword(" "));
+        assertFalse(blank.isSuccess(), "A blank keyword must fail closed");
+    }
 }
