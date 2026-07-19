@@ -79,6 +79,7 @@ import quantumforge.run.parser.QECarParrinelloParser;
 import quantumforge.run.parser.QECastepLogParser;
 import quantumforge.run.parser.QEDynmatModesParser;
 import quantumforge.run.parser.QERamanIRSpectraParser;
+import quantumforge.run.parser.QETimingParser;
 import quantumforge.run.parser.PhononFrameSynthesis;
 import quantumforge.run.parser.QEElasticStabilityValidator;
 import quantumforge.run.parser.QEEliashbergTcCalculator;
@@ -216,7 +217,8 @@ public final class ResultAnalysisService {
         TENSOR_DIRECTIONAL("Tensor directional surface n^T.T.n (eigen basis)"),
         DENSITY_DIFFERENCE("Grid density difference (compatible CUBE pair)"),
         SUPERCELL_PREVIEW("Supercell transformation preview (integer 3x3 matrix)"),
-        HUBBARD_HP_DRAFT("hp.x input draft (existing DFT+U context required)");
+        HUBBARD_HP_DRAFT("hp.x input draft (existing DFT+U context required)"),
+        TIMING_RESOURCE("pw.x timing/resource table (CPU/WALL per routine)");
 
         private final String label;
 
@@ -812,6 +814,9 @@ public final class ResultAnalysisService {
             return name.contains("tensor") || name.contains("direction");
         case DENSITY_DIFFERENCE:
             return name.endsWith(".cube");
+        case TIMING_RESOURCE:
+            return name.contains("timing") || name.endsWith(".log")
+                    || name.endsWith(".out");
         case PHONON_MODE_FRAMES:
             return name.contains("dynmat") || name.contains("modes");
         default:
@@ -947,6 +952,8 @@ public final class ResultAnalysisService {
                 return analyzeRamanIrSpectrum(property, source, params);
             case TRAJECTORY_WINDOW_SCAN:
                 return analyzeTrajectoryWindowScan(source, params);
+            case TIMING_RESOURCE:
+                return analyzeTimingResource(source);
             case SITE_PROFILE_CHECK:
                 return analyzeSiteProfile(source);
             default:
@@ -5254,6 +5261,76 @@ public final class ResultAnalysisService {
                 + "potential); the integral uses the parsed voxel volume. A non-charge "
                 + "payload would subtract identically - the interpretation is yours. "
                 + "Rendering the difference is the #56 volumetric work.");
+        return new AnalysisReport(label, true, text.toString(), csv, null);
+    }
+
+    /**
+     * Roadmap #43 timing/resource report: the PWSCF total (required) plus the
+     * top routines by wall time, with the double-counting caveat stated.
+     */
+    private static AnalysisReport analyzeTimingResource(File source) {
+        String label = AnalysisKind.TIMING_RESOURCE.getLabel();
+        OperationResult<QETimingParser.TimingSummary> parsed =
+                QETimingParser.parse(source.toPath());
+        if (!parsed.isSuccess() || parsed.getValue().isEmpty()) {
+            return failure(label, "Timing parse refused: " + parsed.getMessage());
+        }
+        QETimingParser.TimingSummary summary = parsed.getValue().get();
+        List<QETimingParser.RoutineTime> routines = new ArrayList<>(
+                summary.getRoutines());
+        routines.sort((a, b) -> Double.compare(b.getWallSeconds(), a.getWallSeconds()));
+        StringBuilder text = new StringBuilder();
+        text.append("Source: ").append(source.getName()).append('\n');
+        text.append(String.format(Locale.ROOT,
+                "pw.x total: CPU %.2f s, WALL %.2f s (CPU/WALL ratio %.3f)%n",
+                summary.getTotalCpuSeconds(), summary.getTotalWallSeconds(),
+                summary.getTotalWallSeconds() > 0.0
+                        ? summary.getTotalCpuSeconds() / summary.getTotalWallSeconds()
+                        : Double.NaN));
+        double routineWallSum = 0.0;
+        for (QETimingParser.RoutineTime routine : routines) {
+            routineWallSum += routine.getWallSeconds();
+        }
+        text.append(String.format(Locale.ROOT,
+                "Parsed routine rows: %d (their WALL sum %.2f s does NOT need to equal "
+                        + "the total - QE timers nest and overlap)%n%n",
+                routines.size(), routineWallSum));
+        int shown = Math.min(5, routines.size());
+        text.append(String.format(Locale.ROOT, " %-16s %12s %12s %12s %10s%n", "routine",
+                "cpu (s)", "wall (s)", "% of total", "calls"));
+        for (int i = 0; i < shown; i++) {
+            QETimingParser.RoutineTime routine = routines.get(i);
+            text.append(String.format(Locale.ROOT, " %-16s %12.2f %12.2f %12.2f %10s%n",
+                    routine.getName(), routine.getCpuSeconds(), routine.getWallSeconds(),
+                    summary.getTotalWallSeconds() > 0.0
+                            ? 100.0 * routine.getWallSeconds()
+                                    / summary.getTotalWallSeconds()
+                            : Double.NaN,
+                    routine.getCalls() < 0L ? "?" : Long.toString(routine.getCalls())));
+        }
+        if (routines.size() > shown) {
+            text.append(String.format(Locale.ROOT,
+                    " ... plus %d more routine(s), all in the CSV.%n",
+                    routines.size() - shown));
+        }
+        List<String> csv = new ArrayList<>();
+        csv.add("routine,cpu_s,wall_s,calls");
+        for (QETimingParser.RoutineTime routine : routines) {
+            if (csv.size() - 1 >= 20_000) {
+                csv.add("# further routines omitted: CSV capped at 20000 rows");
+                break;
+            }
+            csv.add(String.format(Locale.ROOT, "%s,%.2f,%.2f,%d",
+                    csvCell(routine.getName()), routine.getCpuSeconds(),
+                    routine.getWallSeconds(), routine.getCalls()));
+        }
+        text.append("\nHonesty boundary: values are EXACTLY as printed by the QE timer "
+                + "(compact h/m/s durations decoded token-wise - nothing estimated). "
+                + "Percentages are against the printed PWSCF wall total. QE versions vary "
+                + "this format; an unrecognized duration fails closed rather than being "
+                + "misread, and a log without the PWSCF total is treated as unfinished. "
+                + "Scaling/extrapolation advice (#101) is NOT derived from these "
+                + "measurements here.");
         return new AnalysisReport(label, true, text.toString(), csv, null);
     }
 

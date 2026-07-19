@@ -2669,4 +2669,38 @@ class ResultAnalysisServiceTest {
                 new AnalysisParameters());
         assertFalse(noInput.isSuccess(), "A missing input must fail closed");
     }
+
+    @Test
+    void testTimingResourceKindTableAndRefusals() throws IOException {
+        File log = write("timing.log",
+                "some noisy output\n"
+                + "     init_run     :      1.24s CPU      1.30s WALL (        1 calls)\n"
+                + "     electrons    :     10.50s CPU     11.00s WALL (        9 calls)\n"
+                + "     c_bands      :      8.25s CPU      8.40s WALL (       90 calls)\n"
+                + "     PWSCF        :     26.10s CPU     27.05s WALL\n");
+        AnalysisReport report = ResultAnalysisService.analyze(
+                AnalysisKind.TIMING_RESOURCE, new ProjectProperty(),
+                this.tempDir.toFile(), "si", "si.log", log, new AnalysisParameters());
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains("pw.x total: CPU 26.10 s, WALL 27.05 s"),
+                report.getText());
+        assertTrue(report.getText().contains("electronics routines nest and overlap")
+                || report.getText().contains("QE timers nest and overlap"),
+                report.getText());
+        // electrons: 11.00/27.05*100 = 40.67%
+        assertTrue(report.getText().contains("electrons"), report.getText());
+        assertTrue(report.getText().contains("40.67"), report.getText());
+        assertEquals(4, report.getCsvLines().size(), "header plus 3 routines");
+        assertEquals("routine,cpu_s,wall_s,calls", report.getCsvLines().get(0));
+        assertEquals("electrons,10.50,11.00,9", report.getCsvLines().get(1),
+                "CSV keeps wall order");
+        assertTrue(report.getText().contains("unfinished"), report.getText());
+
+        File partial = write("partial-timing.log",
+                "     init_run     :      1.24s CPU      1.30s WALL (        1 calls)\n");
+        AnalysisReport refused = ResultAnalysisService.analyze(
+                AnalysisKind.TIMING_RESOURCE, new ProjectProperty(),
+                this.tempDir.toFile(), "si", "si.log", partial, new AnalysisParameters());
+        assertFalse(refused.isSuccess(), "No PWSCF total = unfinished run = fail closed");
+    }
 }
