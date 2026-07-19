@@ -2011,4 +2011,66 @@ class ResultAnalysisServiceTest {
                 this.tempDir.toFile(), "si", "si.log", shallow, new AnalysisParameters());
         assertFalse(refused.isSuccess(), "A single-row series must fail closed");
     }
+
+    @Test
+    void testTensorEigenKindExactEigenvaluesAndRefusals() throws IOException {
+        File tensor = write("dielectric-tensor.dat",
+                "2.0 0.0 0.0\n0.0 5.0 0.0\n0.0 0.0 8.0\n");
+        AnalysisReport report = ResultAnalysisService.analyze(AnalysisKind.TENSOR_EIGEN,
+                new ProjectProperty(), this.tempDir.toFile(), "si", "si.log", tensor,
+                new AnalysisParameters());
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains(
+                "Eigenvalues (sorted ascending): 2.0000000000e+00  5.0000000000e+00"
+                        + "  8.0000000000e+00"), report.getText());
+        assertTrue(report.getText().contains("Trace: direct 1.5000000000e+01"), report.getText());
+        assertTrue(report.getText().contains("Determinant: cofactor 8.0000000000e+01"),
+                report.getText());
+        assertTrue(report.getText().contains("Structure: SPD"), report.getText());
+        assertTrue(report.getText().contains("Anisotropy spread"), report.getText());
+        assertEquals(4, report.getCsvLines().size(), "header plus 3 eigenvalue rows");
+        assertTrue(report.getCsvLines().get(3).startsWith("3,8.0000000000e+00"),
+                report.getCsvLines().get(3));
+
+        // Rotated tensor R^T diag(0.5, 0.25, 0.125) R with a 30-degree z rotation.
+        double c = Math.cos(Math.toRadians(30.0));
+        double s = Math.sin(Math.toRadians(30.0));
+        double d1 = 0.5;
+        double d2 = 0.25;
+        double m11 = c * c * d1 + s * s * d2;
+        double m22 = s * s * d1 + c * c * d2;
+        double m12 = c * s * (d1 - d2);
+        File rotated = write("rotated-tensor.dat",
+                String.format(java.util.Locale.ROOT, "%.12f %.12f 0\n%.12f %.12f 0\n0 0 0.125\n",
+                        m11, m12, m12, m22));
+        AnalysisReport rotatedReport = ResultAnalysisService.analyze(AnalysisKind.TENSOR_EIGEN,
+                new ProjectProperty(), this.tempDir.toFile(), "si", "si.log", rotated,
+                new AnalysisParameters());
+        assertTrue(rotatedReport.isSuccess(), rotatedReport.getText());
+        assertTrue(rotatedReport.getText().contains(
+                "Eigenvalues (sorted ascending): 1.2500000000e-01  2.5000000000e-01"
+                        + "  5.0000000000e-01"), rotatedReport.getText());
+
+        File asymmetric = write("asymmetric-tensor.dat",
+                "1.0 0.5 0.0\n0.5001 1.0 0.0\n0.0 0.0 1.0\n");
+        AnalysisReport refused = ResultAnalysisService.analyze(AnalysisKind.TENSOR_EIGEN,
+                new ProjectProperty(), this.tempDir.toFile(), "si", "si.log", asymmetric,
+                new AnalysisParameters());
+        assertFalse(refused.isSuccess(), "Asymmetric tensors must fail closed");
+        assertTrue(refused.getText().contains("symmetric"), refused.getText());
+
+        File shallow = write("short-tensor.dat", "1 2 3\n4 5 6\n");
+        AnalysisReport tooShort = ResultAnalysisService.analyze(AnalysisKind.TENSOR_EIGEN,
+                new ProjectProperty(), this.tempDir.toFile(), "si", "si.log", shallow,
+                new AnalysisParameters());
+        assertFalse(tooShort.isSuccess(), "Two rows are not a 3x3 tensor");
+
+        File indefinite = write("indefinite-tensor.dat",
+                "1.0 0.0 0.0\n0.0 -2.0 0.0\n0.0 0.0 3.0\n");
+        AnalysisReport neg = ResultAnalysisService.analyze(AnalysisKind.TENSOR_EIGEN,
+                new ProjectProperty(), this.tempDir.toFile(), "si", "si.log", indefinite,
+                new AnalysisParameters());
+        assertTrue(neg.isSuccess(), neg.getText());
+        assertTrue(neg.getText().contains("INDEFINITE"), neg.getText());
+    }
 }

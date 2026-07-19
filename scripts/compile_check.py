@@ -338,7 +338,7 @@ def main() -> int:
                   "QEConstraintSpec", "QEIonicConstraintManager",
                   "PhonopyForceSetsReader", "QEPhonopyForceSetsWriter",
                   "TrajectoryIndexReader", "ExtXyzDatasetValidator",
-                  "EnergySeriesComparer"]:
+                  "EnergySeriesComparer", "TENSOR_EIGEN"]:
         if token not in service:
             error(f"ResultAnalysisService is not bound to {token}")
     for rel in ["quantumforge/com/math/SymmetricEigen3.java",

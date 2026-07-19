@@ -193,7 +193,8 @@ public final class ResultAnalysisService {
         PHONOPY_DATA_REVIEW("phonopy FORCE_SETS review (finite displacements)"),
         TRAJECTORY_INDEX("XYZ trajectory streaming index (frame offsets)"),
         MLP_DATASET_CHECK("ML dataset validation (extXYZ schema/labels/leaks)"),
-        ENERGY_SERIES_COMPARE("Energy-series comparison (same grid, eV deltas)");
+        ENERGY_SERIES_COMPARE("Energy-series comparison (same grid, eV deltas)"),
+        TENSOR_EIGEN("Symmetric 3x3 tensor eigenanalysis");
 
         private final String label;
 
@@ -697,6 +698,9 @@ public final class ResultAnalysisService {
             return name.endsWith(".csv")
                     && (name.contains("series") || name.contains("compare")
                             || name.contains("vs"));
+        case TENSOR_EIGEN:
+            return name.contains("tensor") || name.contains("dielectric")
+                    || name.endsWith(".t3");
         default:
             return false;
         }
@@ -822,6 +826,8 @@ public final class ResultAnalysisService {
                 return analyzeDatasetCheck(source);
             case ENERGY_SERIES_COMPARE:
                 return analyzeSeriesCompare(source);
+            case TENSOR_EIGEN:
+                return analyzeTensorEigen(source);
             case SITE_PROFILE_CHECK:
                 return analyzeSiteProfile(source);
             default:
@@ -4008,6 +4014,127 @@ public final class ResultAnalysisService {
                 + "not silently re-sorted). NO reference alignment was applied - if these "
                 + "energies come from different states/codes, align Fermi/VBM/vacuum "
                 + "references explicitly before trusting the deltas.");
+        return new AnalysisReport(label, true, text.toString(), csv, null);
+    }
+
+    /**
+     * Symmetric 3x3 tensor eigenanalysis (Roadmap #125 partial): the first
+     * three non-blank lines each supply three finite numbers (matrix rows);
+     * the tested Jacobi solver ({@link SymmetricEigen3}) gives sorted
+     * eigenvalues only when the decomposition converges. An internal
+     * determinant cross-check (cofactor vs eigenvalue product) guards the
+     * result; the report attaches no physical interpretation - tensor type is
+     * the caller's context (dielectric, stress, inertia, ...).
+     */
+    private static AnalysisReport analyzeTensorEigen(File source) throws IOException {
+        String label = AnalysisKind.TENSOR_EIGEN.getLabel();
+        long size = Files.size(source.toPath());
+        if (size > 64L * 1024L * 1024L) {
+            return failure(label, source.getName() + " exceeds the 64 MiB parse bound.");
+        }
+        List<String> lines = Files.readAllLines(source.toPath(), StandardCharsets.UTF_8);
+        double[][] matrix = new double[3][3];
+        int rows = 0;
+        for (String line : lines) {
+            if (rows >= 3) {
+                break;
+            }
+            String trimmed = line.trim();
+            if (trimmed.isEmpty()) {
+                continue;
+            }
+            String[] cells = trimmed.split("[,\\s]+");
+            if (cells.length < 3) {
+                return failure(label, "Line \"" + trimmed + "\" has fewer than 3 numeric "
+                        + "values; the contract is the 3x3 matrix rows, three per line.");
+            }
+            for (int col = 0; col < 3; col++) {
+                try {
+                    matrix[rows][col] = Double.parseDouble(normalizeExponent(cells[col]));
+                } catch (NumberFormatException ex) {
+                    return failure(label, "Non-numeric value \"" + cells[col]
+                            + "\" in matrix row " + (rows + 1) + ".");
+                }
+                if (!Double.isFinite(matrix[rows][col])) {
+                    return failure(label, "Non-finite value \"" + cells[col]
+                            + "\" in matrix row " + (rows + 1) + ".");
+                }
+            }
+            rows++;
+        }
+        if (rows < 3) {
+            return failure(label, "Only " + rows + " matrix row(s) were found; three numeric "
+                    + "rows (the first three non-blank lines) are required.");
+        }
+        SymmetricEigen3.EigenResult eigen;
+        try {
+            eigen = SymmetricEigen3.eigenvalues(matrix);
+        } catch (IllegalArgumentException ex) {
+            return failure(label, "Tensor refused: " + ex.getMessage()
+                    + " (an asymmetric tensor has no real eigenbasis; this analysis covers "
+                    + "symmetric tensors only).");
+        }
+        if (!eigen.isConverged()) {
+            return failure(label, "The Jacobi eigen decomposition did not converge within "
+                    + "the sweep budget; not reporting suspicious eigenvalues.");
+        }
+        double[] values = eigen.getEigenvalues();
+        double traceDirect = matrix[0][0] + matrix[1][1] + matrix[2][2];
+        double traceEigen = values[0] + values[1] + values[2];
+        double detDirect = matrix[0][0] * (matrix[1][1] * matrix[2][2]
+                - matrix[1][2] * matrix[2][1])
+                - matrix[0][1] * (matrix[1][0] * matrix[2][2] - matrix[1][2] * matrix[2][0])
+                + matrix[0][2] * (matrix[1][0] * matrix[2][1] - matrix[1][1] * matrix[2][0]);
+        double detEigen = values[0] * values[1] * values[2];
+        double detDeviation = Math.abs(detEigen - detDirect)
+                / Math.max(1.0e-30, Math.max(Math.abs(detEigen), Math.abs(detDirect)));
+        double traceDeviation = Math.abs(traceEigen - traceDirect)
+                / Math.max(1.0e-30, Math.max(Math.abs(traceEigen), Math.abs(traceDirect)));
+        if (detDeviation > 1.0e-9 || traceDeviation > 1.0e-12) {
+            return failure(label, String.format(Locale.ROOT,
+                    "Internal self-check failed: trace deviation %.3e, determinant deviation "
+                            + "%.3e; refusing to display inconsistent eigensystem.",
+                    traceDeviation, detDeviation));
+        }
+        StringBuilder text = new StringBuilder();
+        text.append("Source: ").append(source.getName()).append('\n');
+        text.append("Tensor as read (rows):\n");
+        for (double[] row : matrix) {
+            text.append(String.format(Locale.ROOT, "  % .10e % .10e % .10e%n",
+                    row[0], row[1], row[2]));
+        }
+        text.append(String.format(Locale.ROOT,
+                "%nEigenvalues (sorted ascending): %.10e  %.10e  %.10e%n",
+                values[0], values[1], values[2]));
+        text.append(String.format(Locale.ROOT,
+                "Trace: direct %.10e vs eigen-sum %.10e (dev %.1e)%n", traceDirect,
+                traceEigen, traceDeviation));
+        text.append(String.format(Locale.ROOT,
+                "Determinant: cofactor %.10e vs eigen-product %.10e (dev %.1e)%n",
+                detDirect, detEigen, detDeviation));
+        if (values[0] > 0.0) {
+            text.append("Structure: SPD - all three eigenvalues are strictly positive.\n");
+        } else if (values[0] == 0.0) {
+            text.append("Structure: positive semi-definite (smallest eigenvalue is zero).\n");
+        } else {
+            text.append("Structure: INDEFINITE - negative eigenvalue(s) present.\n");
+        }
+        double spread = Math.abs(values[2]) > 0.0
+                ? Math.abs(values[2] - values[0]) / Math.abs(values[2]) : 0.0;
+        text.append(String.format(Locale.ROOT,
+                "Anisotropy spread |lambda_max - lambda_min|/|lambda_max| = %.6f%n",
+                spread));
+        List<String> csv = new ArrayList<>();
+        csv.add("eigen_index,eigenvalue");
+        for (int i = 0; i < 3; i++) {
+            csv.add(String.format(Locale.ROOT, "%d,%.10e", i + 1, values[i]));
+        }
+        text.append("\nHonesty boundary: no physical interpretation is attached - the same "
+                + "arithmetic serves dielectric, stress, inertia or other symmetric tensors; "
+                + "units and meaning come from the source you selected. Eigenvectors are not "
+                + "reported at this layer (Roadmap #125 viewer work).");
+        text.append(String.format(Locale.ROOT, "Jacobi converged in %d sweep(s).",
+                eigen.getSweeps()));
         return new AnalysisReport(label, true, text.toString(), csv, null);
     }
 
