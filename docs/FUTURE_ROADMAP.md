@@ -538,3 +538,15 @@ The **twenty-eighth** batch makes the whole build compile honestly again and ful
 | 16 | **Tests** | `ResultAnalysisServiceTest` covers Fermi provenance/fallback, explicit referencing, κ and W90 tables, XANES peak selection, full Tc integration with μ* rejection, pp.x preview correctness and fail-closed indices, discovery patterns, project-log preference, and locale-stable CSV numerics. |
 
 Notes on integration scope: the fourteen analyzers share one viewer-menu entry (**Analyze QE results**) that collects only the parameters an analysis consumes (1-based k-point/band/spin, μ*, optional Fermi override), discovers fail-closed candidate files, and writes nothing unless the user explicitly exports CSV or saves a pp.x preview. This keeps the deterministic backend contract end to end inside the GUI.
+
+The **twenty-ninth** batch binds the run-readiness and provenance backends to the same GUI contract:
+
+| # | Status after batch 29 | What landed |
+|---:|---|---|
+| 45 | **GUI wired Partial** | **Dry-run preflight check** runs the runner-identical `DryRunPreflight` (binaries/version probe, disk, MPI, input semantics, command DAG) from the viewer and renders blocking errors/warnings with documentation links plus the planned DAG. No calculation starts and no file is written. |
+| 33/27 | **GUI wired Partial** | **Restart safety assessment** validates `.save` completeness and prefix/outdir compatibility, reports the recommended `restart_mode`, and shows the exact namelist snippet for review — never auto-applied. |
+| 34 | **GUI wired Partial** | **Scratch storage check** estimates scratch needs with the conservative full-k-mesh/buffer policy and runs the writable+quota verification, reporting the root and policy warnings. |
+| 101/102 | **GUI wired Partial** | **Resource and MPI layout estimate** combines the memory/core-hour range with pool/band/task/diag group advice and QE arguments for a user-supplied rank count; the report states these are model ranges, not measured benchmarks. |
+| 28 | **GUI wired** | **Run manifest history** renders the project's `.quantumforge.run-manifest.jsonl` from a bounded tail (job, stage, status, exit code, start time), counts malformed lines instead of dropping them silently, and never loads the unbounded file. |
+| 3/121 | **Stronger** | All five operations return the same typed `AnalysisReport` and join the chooser with per-kind parameter prompts (only the rank count is requested, only for the MPI advice). |
+| 16 | **Verified** | `ResultAnalysisServiceTest` gains stub-project coverage for preflight, restart fail-closure on empty projects, scratch/resource input requirements, manifest table rendering with malformed-line counting, file-kind delegation through the project facade, and the non-destructive wording contract. Static/structural checks, fixtures, and the import-resolution gate pass. Full Maven/JUnit remains pending the JDK/Maven-enabled CI that batch 28 prepared. |

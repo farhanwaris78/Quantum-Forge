@@ -15,6 +15,9 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import quantumforge.atoms.model.Cell;
+import quantumforge.input.QEInput;
+import quantumforge.project.Project;
 import quantumforge.project.property.ProjectProperty;
 import quantumforge.run.ResultAnalysisService.AnalysisKind;
 import quantumforge.run.ResultAnalysisService.AnalysisParameters;
@@ -24,6 +27,43 @@ class ResultAnalysisServiceTest {
 
     @TempDir
     Path tempDir;
+
+    /** Minimal backend project stub mirroring DryRunPreflightTest's anonymous override set. */
+    private Project stubProject(Path dir) {
+        return new Project(null, dir.toString()) {
+            @Override public void setNetProject(Project project) { }
+            @Override public boolean isValid() { return true; }
+            @Override public boolean isSameAs(Project project) { return false; }
+            @Override public ProjectProperty getProperty() {
+                return new ProjectProperty(dir.toString(), "espresso");
+            }
+            @Override public String getPrefixName() { return "espresso"; }
+            @Override public String getInpFileName(String ext) {
+                return ext == null || ext.isBlank() ? "espresso.in" : "espresso.in." + ext;
+            }
+            @Override public String getLogFileName(String ext) {
+                return ext == null || ext.isBlank() ? "espresso.log" : "espresso.log." + ext;
+            }
+            @Override public String getErrFileName(String ext) {
+                return ext == null || ext.isBlank() ? "espresso.err" : "espresso.err." + ext;
+            }
+            @Override public String getExitFileName() { return "espresso.EXIT"; }
+            @Override public QEInput getQEInputGeometry() { return null; }
+            @Override public QEInput getQEInputScf() { return null; }
+            @Override public QEInput getQEInputOptimiz() { return null; }
+            @Override public QEInput getQEInputMd() { return null; }
+            @Override public QEInput getQEInputDos() { return null; }
+            @Override public QEInput getQEInputBand() { return null; }
+            @Override public Cell getCell() { return null; }
+            @Override protected void loadQEInputs() { }
+            @Override public void resolveQEInputs() { }
+            @Override public void markQEInputs() { }
+            @Override public boolean isQEInputChanged() { return false; }
+            @Override public void saveQEInputs(String directoryPath) { }
+            @Override public void exportQEInputsTo(String directoryPath) { }
+            @Override public Project cloneProject(String directoryPath) { return null; }
+        };
+    }
 
     private File write(String name, String content) throws IOException {
         Path path = this.tempDir.resolve(name);
@@ -184,6 +224,66 @@ class ResultAnalysisServiceTest {
         assertEquals(1, w90.size(), "sample.wout must be discovered");
         assertTrue(ResultAnalysisService.discover(AnalysisKind.PP_CHARGE_INPUT,
                 this.tempDir.toFile(), "x.log").isEmpty(), "Input previews need no source file");
+    }
+
+    @Test
+    void testDryRunPreflightProjectBound() {
+        AnalysisReport report = ResultAnalysisService.analyze(AnalysisKind.DRY_RUN_PREFLIGHT,
+                stubProject(this.tempDir), new AnalysisParameters());
+        assertNotNull(report);
+        assertTrue(report.getText().contains("Workflow type:"));
+        assertTrue(report.getText().contains("No calculation was started."),
+                "Preflight must stay non-destructive in its wording");
+    }
+
+    @Test
+    void testRestartAssessmentEmptyProjectFailsClosed() {
+        AnalysisReport report = ResultAnalysisService.analyze(AnalysisKind.RESTART_ASSESSMENT,
+                stubProject(this.tempDir), new AnalysisParameters());
+        assertFalse(report.isSuccess(), "A directory without a QE .save tree cannot be restart-safe");
+    }
+
+    @Test
+    void testScratchAndResourceNeedUsableInput() {
+        AnalysisReport scratch = ResultAnalysisService.analyze(AnalysisKind.SCRATCH_ESTIMATE,
+                stubProject(this.tempDir), new AnalysisParameters());
+        assertFalse(scratch.isSuccess());
+        assertTrue(scratch.getText().contains("no current QE input"));
+
+        AnalysisReport resources = ResultAnalysisService.analyze(AnalysisKind.RESOURCE_ESTIMATE,
+                stubProject(this.tempDir), new AnalysisParameters().withTotalRanks(4));
+        assertFalse(resources.isSuccess());
+    }
+
+    @Test
+    void testRunManifestHistoryRendersTable() throws IOException {
+        AnalysisReport missing = ResultAnalysisService.analyze(AnalysisKind.RUN_MANIFEST,
+                stubProject(this.tempDir), new AnalysisParameters());
+        assertFalse(missing.isSuccess(), "No manifest exists before any run");
+
+        write(RunManifest.FILE_NAME,
+                "{\"schema\":\"quantumforge.run-manifest.v1\",\"jobId\":\"job-2026-001\","
+                + "\"stage\":\"scf\",\"status\":\"COMPLETED\",\"startedAt\":\"2026-07-19T10:00:00Z\","
+                + "\"exitCode\":0,\"command\":[\"pw.x\"]}\n"
+                + "not-a-manifest-line\n"
+                + "{\"jobId\":\"job-2026-002\",\"stage\":\"bands\",\"status\":\"FAILED\","
+                + "\"startedAt\":\"2026-07-19T11:00:00Z\",\"exitCode\":2}\n");
+        AnalysisReport report = ResultAnalysisService.analyze(AnalysisKind.RUN_MANIFEST,
+                stubProject(this.tempDir), new AnalysisParameters());
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains("job-2026-001"));
+        assertTrue(report.getText().contains("FAILED"));
+        assertTrue(report.getText().contains("Skipped 1 malformed"),
+                "Malformed manifest lines must be counted, not silently dropped");
+    }
+
+    @Test
+    void testProjectBoundDelegationForFileKinds() throws IOException {
+        File bands = write("si.dat.gnu", "0.0 1.0\n0.1 1.1\n");
+        AnalysisReport report = ResultAnalysisService.analyze(AnalysisKind.BANDS_DATA,
+                stubProject(this.tempDir), new AnalysisParameters().withFermiEv(0.5));
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains("0.500000 eV (explicitly provided"));
     }
 
     @Test

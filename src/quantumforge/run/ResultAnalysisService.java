@@ -20,8 +20,14 @@ import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import quantumforge.atoms.model.Cell;
+import quantumforge.input.QEInput;
 import quantumforge.input.QEPpChargePotentialBuilder;
 import quantumforge.input.QEPpWavefunctionBuilder;
+import quantumforge.input.validation.ValidationIssue;
+import quantumforge.input.validation.ValidationSeverity;
+import quantumforge.operation.OperationResult;
+import quantumforge.project.Project;
 import quantumforge.project.property.ProjectEnergies;
 import quantumforge.project.property.ProjectProperty;
 import quantumforge.run.parser.QEAcousticSumRuleValidator;
@@ -73,7 +79,12 @@ public final class ResultAnalysisService {
         WANNIER90_SPREAD("Wannier90 spread convergence"),
         THERMOPW_EOS("thermo_pw equation of state"),
         PHONO3PY_KAPPA("phono3py lattice thermal conductivity"),
-        ELIASHBERG_TC("Allen-Dynes Tc from alpha2F");
+        ELIASHBERG_TC("Allen-Dynes Tc from alpha2F"),
+        DRY_RUN_PREFLIGHT("Dry-run preflight check"),
+        RESTART_ASSESSMENT("Restart safety assessment"),
+        SCRATCH_ESTIMATE("Scratch storage check"),
+        RESOURCE_ESTIMATE("Resource and MPI layout estimate"),
+        RUN_MANIFEST("Run manifest history");
 
         private final String label;
 
@@ -100,6 +111,12 @@ public final class ResultAnalysisService {
         public boolean isInputPreview() {
             return this == PP_CHARGE_INPUT || this == PP_POTENTIAL_INPUT || this == PP_WAVEFUNCTION_INPUT;
         }
+
+        /** True when the kind needs the whole open project rather than a parsed file. */
+        public boolean isProjectBound() {
+            return this == DRY_RUN_PREFLIGHT || this == RESTART_ASSESSMENT
+                    || this == SCRATCH_ESTIMATE || this == RESOURCE_ESTIMATE || this == RUN_MANIFEST;
+        }
     }
 
     /** Optional, explicitly supplied analysis parameters. Defaults stay physical. */
@@ -110,6 +127,7 @@ public final class ResultAnalysisService {
         private int spinComponent = 0;
         private boolean lsign = false;
         private double muStar = 0.10;
+        private int totalRanks = 1;
 
         public double getFermiEv() { return this.fermiEv; }
         public int getKpointIndex() { return this.kpointIndex; }
@@ -117,6 +135,7 @@ public final class ResultAnalysisService {
         public int getSpinComponent() { return this.spinComponent; }
         public boolean isLsign() { return this.lsign; }
         public double getMuStar() { return this.muStar; }
+        public int getTotalRanks() { return this.totalRanks; }
 
         public AnalysisParameters withFermiEv(double value) { this.fermiEv = value; return this; }
         public AnalysisParameters withKpointIndex(int value) { this.kpointIndex = value; return this; }
@@ -124,6 +143,7 @@ public final class ResultAnalysisService {
         public AnalysisParameters withSpinComponent(int value) { this.spinComponent = value; return this; }
         public AnalysisParameters withLsign(boolean value) { this.lsign = value; return this; }
         public AnalysisParameters withMuStar(double value) { this.muStar = value; return this; }
+        public AnalysisParameters withTotalRanks(int value) { this.totalRanks = value; return this; }
     }
 
     /** A completed, self-describing analysis result. */
@@ -283,6 +303,277 @@ public final class ResultAnalysisService {
     private static File firstCandidate(AnalysisKind kind, File projectDir, String logFileName) {
         List<File> candidates = discover(kind, projectDir, logFileName);
         return candidates.isEmpty() ? null : candidates.get(0);
+    }
+
+    /**
+     * Runs a project-bound analysis (run readiness, restart safety, scratch and
+     * resource estimates, or run-manifest history) against the open project.
+     * File-based kinds are delegated through the project's context. Nothing is
+     * executed and no file is created or modified.
+     */
+    public static AnalysisReport analyze(AnalysisKind kind, Project project,
+            AnalysisParameters parameters) {
+        if (kind == null) {
+            return failure("Result analysis", "No analysis type was selected.");
+        }
+        AnalysisParameters params = parameters == null ? new AnalysisParameters() : parameters;
+        if (!kind.isProjectBound()) {
+            if (project == null) {
+                return failure(kind.getLabel(), "No project is open.");
+            }
+            return analyze(kind, project.getProperty(), project.getDirectory(),
+                    project.getPrefixName(), project.getLogFileName(), null, params);
+        }
+        if (project == null) {
+            return failure(kind.getLabel(), "No project is open.");
+        }
+        try {
+            switch (kind) {
+            case DRY_RUN_PREFLIGHT:
+                return analyzePreflight(project);
+            case RESTART_ASSESSMENT:
+                return analyzeRestart(project);
+            case SCRATCH_ESTIMATE:
+                return analyzeScratch(project);
+            case RESOURCE_ESTIMATE:
+                return analyzeResources(project, params);
+            case RUN_MANIFEST:
+                return analyzeRunManifest(project);
+            default:
+                return failure(kind.getLabel(), "This analysis kind is not implemented.");
+            }
+        } catch (RuntimeException ex) {
+            return failure(kind.getLabel(), "Analysis failed closed: " + ex.getMessage());
+        }
+    }
+
+    /** Deterministic binaries/disk/MPI/input/DAG preflight; identical to the runner's gate. */
+    private static AnalysisReport analyzePreflight(Project project) {
+        RunningType type = RunningType.getRunningType(project);
+        if (type == null) {
+            type = RunningType.SCF;
+        }
+        DryRunPreflight.Report report = DryRunPreflight.run(project, type, 1);
+        StringBuilder text = new StringBuilder();
+        text.append("Workflow type: ").append(type).append('\n');
+        long errors = report.getIssues().stream()
+                .filter(issue -> issue.getSeverity() == ValidationSeverity.ERROR).count();
+        long warnings = report.getIssues().size() - errors;
+        text.append("Blocking errors: ").append(errors).append("; warnings/info: ")
+                .append(warnings).append("\n\n");
+        for (ValidationIssue issue : report.getIssues()) {
+            text.append(issue).append('\n');
+            if (!issue.getDocumentationUrl().isEmpty()) {
+                text.append("  ").append(issue.getDocumentationUrl()).append('\n');
+            }
+        }
+        if (report.getDag() != null) {
+            text.append("\nPlanned command DAG:\n").append(report.getDag().describe());
+        }
+        text.append("\nNo calculation was started. A clean report is not convergence or "
+                + "physical-suitability evidence.");
+        return new AnalysisReport(AnalysisKind.DRY_RUN_PREFLIGHT.getLabel(),
+                errors == 0L, text.toString(), List.of(), null);
+    }
+
+    /** Restart-mode recommendation after checking .save completeness and prefix/outdir. */
+    private static AnalysisReport analyzeRestart(Project project) {
+        File directory = project.getDirectory();
+        if (directory == null) {
+            return failure(AnalysisKind.RESTART_ASSESSMENT.getLabel(),
+                    "The project has no on-disk directory to assess.");
+        }
+        OperationResult<RestartManager.RestartAssessment> result = RestartManager.assess(
+                directory.toPath(), project.getPrefixName());
+        if (!result.isSuccess() || result.getValue().isEmpty()) {
+            return failure(AnalysisKind.RESTART_ASSESSMENT.getLabel(), result.getMessage());
+        }
+        RestartManager.RestartAssessment assessment = result.getValue().orElseThrow();
+        StringBuilder text = new StringBuilder();
+        text.append("Save directory: ").append(assessment.getSaveDirectory()).append('\n');
+        text.append("Restart safe: ").append(assessment.isRestartSafe()).append('\n');
+        text.append("Recommended restart_mode: ").append(assessment.getRecommendedRestartMode())
+                .append("\n\nDiagnostics:\n");
+        for (String diagnostic : assessment.getDiagnostics()) {
+            text.append(" - ").append(diagnostic).append('\n');
+        }
+        if (assessment.isRestartSafe()) {
+            text.append("\nNamelist snippet for a resubmission input (review before use):\n")
+                    .append(RestartManager.namelistSnippet(assessment));
+        }
+        text.append("\nNo restart files were modified or copied.");
+        return new AnalysisReport(AnalysisKind.RESTART_ASSESSMENT.getLabel(),
+                assessment.isRestartSafe(), text.toString(), List.of(), null);
+    }
+
+    /** Conservative scratch estimate (full k mesh, buffer factor) and writable/quota check. */
+    private static AnalysisReport analyzeScratch(Project project) {
+        QEContext context = requireInputAndCell(project, AnalysisKind.SCRATCH_ESTIMATE.getLabel());
+        if (context.failure != null) {
+            return context.failure;
+        }
+        QEScratchStoragePolicy policy = new QEScratchStoragePolicy();
+        long estimateBytes = policy.estimateScratchSize(context.cell, context.input);
+        StringBuilder text = new StringBuilder();
+        text.append("Scratch root: ").append(policy.getScratchRoot()).append('\n');
+        if (estimateBytes <= 0L) {
+            text.append("A positive scratch estimate could not be produced from this input; "
+                    + "verification fails closed by policy.");
+            return new AnalysisReport(AnalysisKind.SCRATCH_ESTIMATE.getLabel(), false,
+                    text.toString(), List.of(), null);
+        }
+        text.append(String.format(Locale.ROOT,
+                "Estimated scratch need: %.2f GiB (includes buffer/restart factor)%n",
+                estimateBytes / 1073741824.0));
+        List<String> warnings = new ArrayList<>();
+        boolean ok = policy.verifySpace(policy.getScratchRoot(), estimateBytes, warnings);
+        text.append("Writable + quota check: ").append(ok ? "passed" : "FAILED").append('\n');
+        for (String warning : warnings) {
+            text.append(" - ").append(warning).append('\n');
+        }
+        text.append("\nNothing was created or deleted except the policy's own scratch-root "
+                + "verification probe; cleanup is never triggered by this analysis.");
+        return new AnalysisReport(AnalysisKind.SCRATCH_ESTIMATE.getLabel(), ok,
+                text.toString(), List.of(), null);
+    }
+
+    /** Memory/core-hour estimate with confidence range plus QE pool-layout advice. */
+    private static AnalysisReport analyzeResources(Project project, AnalysisParameters params) {
+        QEContext context = requireInputAndCell(project, AnalysisKind.RESOURCE_ESTIMATE.getLabel());
+        if (context.failure != null) {
+            return context.failure;
+        }
+        if (params.getTotalRanks() <= 0) {
+            return failure(AnalysisKind.RESOURCE_ESTIMATE.getLabel(),
+                    "Total MPI ranks must be positive; received " + params.getTotalRanks() + ".");
+        }
+        QEResourceEstimator.Estimation estimation = QEResourceEstimator.estimate(
+                context.cell, context.input);
+        QEMpiTopologyAdvisor.TopologyRecommendation topology = QEMpiTopologyAdvisor.advise(
+                context.input, params.getTotalRanks());
+        StringBuilder text = new StringBuilder();
+        if (estimation != null) {
+            text.append(estimation.getReport()).append("\n\n");
+        } else {
+            text.append("No resource estimate could be produced from this input.\n\n");
+        }
+        text.append("MPI topology for ").append(params.getTotalRanks()).append(" rank(s):\n");
+        text.append("  pools=").append(topology.getNumPools())
+                .append(" band-groups=").append(topology.getNumBandGroups())
+                .append(" task-groups=").append(topology.getNumTaskGroups())
+                .append(" diag-groups=").append(topology.getNumDiagGroups()).append('\n');
+        text.append("  QE arguments: ").append(topology.getCmdArguments()).append('\n');
+        for (String warning : topology.getWarnings()) {
+            text.append(" ! ").append(warning).append('\n');
+        }
+        for (String note : topology.getNotes()) {
+            text.append(" - ").append(note).append('\n');
+        }
+        text.append("\nEstimates are model-based ranges, not measured benchmarks; validate "
+                + "against a small pilot run before consuming allocation.");
+        return new AnalysisReport(AnalysisKind.RESOURCE_ESTIMATE.getLabel(), estimation != null,
+                text.toString(), List.of(), null);
+    }
+
+    private static final class QEContext {
+        private Cell cell;
+        private QEInput input;
+        private AnalysisReport failure;
+    }
+
+    private static QEContext requireInputAndCell(Project project, String label) {
+        QEContext context = new QEContext();
+        try {
+            project.resolveQEInputs();
+        } catch (RuntimeException ex) {
+            context.failure = failure(label, "Resolving the current QE input failed: "
+                    + ex.getMessage());
+            return context;
+        }
+        context.input = project.getQEInputCurrent();
+        if (context.input == null) {
+            context.failure = failure(label, "The project has no current QE input to analyze.");
+            return context;
+        }
+        context.cell = project.getCell();
+        if (context.cell == null) {
+            context.failure = failure(label, "The project has no atomic cell to analyze.");
+        }
+        return context;
+    }
+
+    /** Bounded, read-only history of this project's run manifest (JSONL). */
+    private static AnalysisReport analyzeRunManifest(Project project) throws RuntimeException {
+        File directory = project.getDirectory();
+        if (directory == null) {
+            return failure(AnalysisKind.RUN_MANIFEST.getLabel(),
+                    "The project has no on-disk directory.");
+        }
+        File manifest = new File(directory, RunManifest.FILE_NAME);
+        if (!manifest.isFile()) {
+            return failure(AnalysisKind.RUN_MANIFEST.getLabel(),
+                    "No run manifest yet: " + RunManifest.FILE_NAME
+                    + " is created by launched calculations.");
+        }
+        String tail;
+        try {
+            tail = readTailUtf8(manifest.toPath(), LOG_SCAN_BYTES);
+        } catch (IOException ex) {
+            return failure(AnalysisKind.RUN_MANIFEST.getLabel(),
+                    "Could not read the run manifest: " + ex.getMessage());
+        }
+        Pattern jobId = Pattern.compile("\"jobId\"\\s*:\\s*\"([^\"]*)\"");
+        Pattern stage = Pattern.compile("\"stage\"\\s*:\\s*\"([^\"]*)\"");
+        Pattern status = Pattern.compile("\"status\"\\s*:\\s*\"([^\"]*)\"");
+        Pattern started = Pattern.compile("\"startedAt\"\\s*:\\s*\"([^\"]*)\"");
+        Pattern exitCode = Pattern.compile("\"exitCode\"\\s*:\\s*(null|-?\\d+)");
+        StringBuilder table = new StringBuilder();
+        table.append("job                     stage          status       exit  started (UTC)\n");
+        int rows = 0;
+        int unparsed = 0;
+        for (String line : tail.split("\\R")) {
+            if (line.isBlank()) {
+                continue;
+            }
+            Matcher mJob = jobId.matcher(line);
+            if (!mJob.find()) {
+                unparsed++;
+                continue;
+            }
+            Matcher mStage = stage.matcher(line);
+            Matcher mStatus = status.matcher(line);
+            Matcher mStarted = started.matcher(line);
+            Matcher mExit = exitCode.matcher(line);
+            table.append(String.format(Locale.ROOT, "%-22s  %-13s  %-11s  %-4s  %s%n",
+                    trimTo(mJob.group(1), 22), mStage.find() ? trimTo(mStage.group(1), 13) : "?",
+                    mStatus.find() ? trimTo(mStatus.group(1), 11) : "?",
+                    mExit.find() ? mExit.group(1) : "?",
+                    mStarted.find() ? mStarted.group(1) : "?"));
+            rows++;
+        }
+        if (rows == 0) {
+            return failure(AnalysisKind.RUN_MANIFEST.getLabel(),
+                    "The run manifest exists but no parsable job records were found in its tail.");
+        }
+        StringBuilder text = new StringBuilder();
+        text.append("Manifest: ").append(RunManifest.FILE_NAME)
+                .append(" (bounded tail; full file is never loaded into the GUI)\n\n");
+        text.append(table);
+        if (unparsed > 0) {
+            text.append("\nSkipped ").append(unparsed)
+                    .append(" malformed/manifest-schema-mismatch line(s).");
+        }
+        text.append("\n\nEvery plotted result is attributable to exactly one of these "
+                + "command/manifest records.");
+        return new AnalysisReport(AnalysisKind.RUN_MANIFEST.getLabel(), true,
+                text.toString(), List.of(), null);
+    }
+
+    private static String trimTo(String value, int width) {
+        if (value == null) {
+            return "?";
+        }
+        return value.length() <= width ? value : value.substring(0, Math.max(1, width - 1)) + "~";
     }
 
     private static AnalysisReport failure(String title, String message) {

@@ -75,6 +75,10 @@ public final class AnalysisAction {
             if (parameters == null) {
                 return; // User cancelled parameter entry.
             }
+            if (kind.isProjectBound()) {
+                showReport(ResultAnalysisService.analyze(kind, this.project, parameters));
+                return;
+            }
             File file = resolveFile(kind);
             if (file == null && requiresFile(kind)) {
                 return; // User cancelled the explicit file choice.
@@ -91,7 +95,7 @@ public final class AnalysisAction {
 
     /** True when an analysis cannot proceed with the service's own failure report alone. */
     private static boolean requiresFile(AnalysisKind kind) {
-        return !(kind.isInputPreview() || kind.usesProjectLog());
+        return !(kind.isInputPreview() || kind.usesProjectLog() || kind.isProjectBound());
     }
 
     /** File selection: discovered candidates first, explicit chooser when discovery fails. */
@@ -161,6 +165,14 @@ public final class AnalysisAction {
             if (fermi != null) {
                 parameters.withFermiEv(fermi);
             }
+            break;
+        }
+        case RESOURCE_ESTIMATE: {
+            Integer ranks = askInteger("Total MPI ranks for the layout advice", 1);
+            if (ranks == null) {
+                return null;
+            }
+            parameters.withTotalRanks(ranks);
             break;
         }
         default:
