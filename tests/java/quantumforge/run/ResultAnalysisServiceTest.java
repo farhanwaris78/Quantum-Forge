@@ -3002,4 +3002,61 @@ class ResultAnalysisServiceTest {
                 stubProject(this.tempDir), new AnalysisParameters());
         assertFalse(missing.isSuccess(), "No current input must fail closed");
     }
+
+    @Test
+    void testMoireTwistPreviewKindExactMathAndRefusals() {
+        double[][] graphite = {{2.46, 0.0, 0.0}, {0.0, 2.46, 0.0}, {0.0, 0.0, 10.0}};
+        Cell cell = new Cell(graphite);
+        AnalysisReport report = ResultAnalysisService.analyze(
+                AnalysisKind.MOIRE_TWIST_PREVIEW, stubProject(this.tempDir, cell),
+                new AnalysisParameters().withMoireIndices(2, 1).withLatticeRatio(1.0));
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains("Commensurate pair: (m, n) = (2, 1)"),
+                report.getText());
+        assertTrue(report.getText().contains("CSL index: Sigma = 7"), report.getText());
+        assertTrue(report.getText().contains("cos(theta) = 13/14 EXACTLY"),
+                report.getText());
+        assertTrue(report.getText().contains("theta = 21.786789 degrees"),
+                report.getText());
+        assertTrue(report.getText().contains("L = 2.645751 * a1"), report.getText());
+        assertTrue(report.getText().contains("= 0.0000% (identical lattices"),
+                report.getText());
+        assertTrue(report.getText().contains("honeycomb bilayer: 4 x 7 = 28 atoms"),
+                report.getText());
+        assertTrue(report.getText().contains("in-plane |a1| = 2.460000")
+                        && report.getText().contains("L ~= 6.5085 Ang"),
+                "live-cell context: " + report.getText());
+        assertTrue(report.getCsvLines().contains("sigma,7,int"),
+                report.getCsvLines().toString());
+        assertTrue(report.getCsvLines().contains("moire_period_over_a1,2.64575131,1"),
+                report.getCsvLines().toString());
+
+        AnalysisReport mismatch = ResultAnalysisService.analyze(
+                AnalysisKind.MOIRE_TWIST_PREVIEW, stubProject(this.tempDir),
+                new AnalysisParameters().withMoireIndices(2, 1).withLatticeRatio(0.98));
+        assertTrue(mismatch.isSuccess(), mismatch.getText());
+        assertTrue(mismatch.getText().contains("= 2.0408% (WITHOUT it"),
+                mismatch.getText());
+        assertTrue(mismatch.getText().contains("L = 2.615427 * a1"), mismatch.getText());
+
+        AnalysisReport duplicate = ResultAnalysisService.analyze(
+                AnalysisKind.MOIRE_TWIST_PREVIEW, stubProject(this.tempDir),
+                new AnalysisParameters().withMoireIndices(6, 3).withLatticeRatio(1.0));
+        assertTrue(duplicate.isSuccess(), duplicate.getText());
+        assertTrue(duplicate.getText().contains("common factor 3"), duplicate.getText());
+
+        AnalysisReport untwisted = ResultAnalysisService.analyze(
+                AnalysisKind.MOIRE_TWIST_PREVIEW, stubProject(this.tempDir),
+                new AnalysisParameters().withMoireIndices(1, 1).withLatticeRatio(1.0));
+        assertFalse(untwisted.isSuccess(),
+                "theta = 0 on identical lattices is the primitive cell, no moire");
+        assertTrue(untwisted.getText().contains("[MOIRE_RATIO]"), untwisted.getText());
+
+        AnalysisReport outOfRange = ResultAnalysisService.analyze(
+                AnalysisKind.MOIRE_TWIST_PREVIEW, stubProject(this.tempDir),
+                new AnalysisParameters().withMoireIndices(200, 1).withLatticeRatio(1.0));
+        assertFalse(outOfRange.isSuccess());
+        assertTrue(outOfRange.getText().contains("[MOIRE_BOUNDS]"),
+                outOfRange.getText());
+    }
 }

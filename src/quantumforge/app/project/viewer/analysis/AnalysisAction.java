@@ -572,6 +572,22 @@ public final class AnalysisAction {
             parameters.withDefectCharge(charge);
             break;
         }
+        case MOIRE_TWIST_PREVIEW: {
+            Integer m = askInteger("Commensurate index m (1-128; swapped with n if n > m)",
+                    2);
+            if (m == null) {
+                return null;
+            }
+            Integer n = askInteger("Commensurate index n (1-128)", 1);
+            if (n == null) {
+                return null;
+            }
+            Double ratio = askDouble("Second-layer lattice constant a2 / a1 "
+                    + "(blank = identical lattices)", "");
+            parameters.withMoireIndices(m, n)
+                    .withLatticeRatio(ratio == null ? 1.0 : ratio.doubleValue());
+            break;
+        }
         case TEMPLATE_LIBRARY: {
             String name = askText("Template name (blank lists all; curated: scf-basic, "
                     + "relax-bfgs, vc-relax-crystal, bands-path, nscf-dos, phonon-gamma0)",

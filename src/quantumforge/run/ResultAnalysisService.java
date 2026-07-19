@@ -29,6 +29,7 @@ import quantumforge.app.project.viewer.result.special.HyperfineMapper;
 import quantumforge.com.math.SymmetricEigen3;
 import quantumforge.atoms.model.Atom;
 import quantumforge.atoms.model.Cell;
+import quantumforge.builder.MoireTwistMath;
 import quantumforge.builder.QEBatteryVoltage;
 import quantumforge.builder.QECitationManager;
 import quantumforge.builder.adsorption.MoleculeAdsorber;
@@ -229,7 +230,8 @@ public final class ResultAnalysisService {
         POSCAR_REVIEW("POSCAR structure review (VASP 4/5, fail-closed parser)"),
         ELASTIC_ELATE_DRAFT("ELATE elastic tensor draft (Voigt, stability-gated)"),
         SPIN_CUBE_MAGNETIZATION("Spin magnetization from paired up/down CUBE files"),
-        ESM_SLAB_CHECK("ESM/slab readiness audit (assume_isolated/esm_bc + vacuum)");
+        ESM_SLAB_CHECK("ESM/slab readiness audit (assume_isolated/esm_bc + vacuum)"),
+        MOIRE_TWIST_PREVIEW("Commensurate twist preview (exact hexagonal (m,n) math)");
 
         private final String label;
 
@@ -274,7 +276,8 @@ public final class ResultAnalysisService {
                     || this == CELL_EXTXYZ_EXPORT || this == DENSITY_DIFFERENCE
                     || this == SUPERCELL_PREVIEW || this == HUBBARD_HP_DRAFT
                     || this == WORKSPACE_SEARCH || this == TEMPLATE_LIBRARY
-                    || this == SPIN_CUBE_MAGNETIZATION || this == ESM_SLAB_CHECK;
+                    || this == SPIN_CUBE_MAGNETIZATION || this == ESM_SLAB_CHECK
+                    || this == MOIRE_TWIST_PREVIEW;
         }
 
         /** True for project-bound kinds that additionally parse a user data file. */
@@ -343,6 +346,9 @@ public final class ResultAnalysisService {
         private String supercellSpec = "";       // 3x3 integer matrix, rows by ';'
         private String constraintSpec = "";      // empty means "must be supplied"
         private String constraintMode = "relax"; // relax, vc-relax, or md
+        private int moireM = 2;              // commensurate pair (m, n), m >= n >= 1
+        private int moireN = 1;
+        private double latticeRatio = 1.0;   // second-layer a2 / a1 (1.0 = identical)
 
         public double getFermiEv() { return this.fermiEv; }
         public int getKpointIndex() { return this.kpointIndex; }
@@ -400,6 +406,9 @@ public final class ResultAnalysisService {
         public String getSupercellSpec() { return this.supercellSpec; }
         public String getConstraintSpec() { return this.constraintSpec; }
         public String getConstraintMode() { return this.constraintMode; }
+        public int getMoireM() { return this.moireM; }
+        public int getMoireN() { return this.moireN; }
+        public double getLatticeRatio() { return this.latticeRatio; }
 
         public AnalysisParameters withFermiEv(double value) { this.fermiEv = value; return this; }
         public AnalysisParameters withKpointIndex(int value) { this.kpointIndex = value; return this; }
@@ -593,6 +602,17 @@ public final class ResultAnalysisService {
             this.constraintSpec = value == null ? "" : value;
             return this;
         }
+        public AnalysisParameters withMoireIndices(int m, int n) {
+            this.moireM = m;
+            this.moireN = n;
+            return this;
+        }
+
+        public AnalysisParameters withLatticeRatio(double value) {
+            this.latticeRatio = value;
+            return this;
+        }
+
         public AnalysisParameters withConstraintMode(String value) {
             this.constraintMode = value == null ? "relax" : value;
             return this;
@@ -1127,6 +1147,8 @@ public final class ResultAnalysisService {
                 return analyzeSpinCubeMagnetization(project, file);
             case ESM_SLAB_CHECK:
                 return analyzeEsmSlabCheck(project);
+            case MOIRE_TWIST_PREVIEW:
+                return analyzeMoireTwistPreview(project, params);
             default:
                 return failure(kind.getLabel(), "This analysis kind is not implemented.");
         }
@@ -5459,6 +5481,83 @@ public final class ResultAnalysisService {
                 + "universal defaults. ecutwfc/ecutrho/k-mesh/smearing choices must come "
                 + "from your convergence workflows (#36/#37/#38) for the specific "
                 + "material; a template cannot certify a result.");
+        return new AnalysisReport(label, true, text.toString(), csv, null);
+    }
+
+    /**
+     * Roadmap #85: parametric commensurate-twist preview with EXACT rational
+     * geometry. No structure is built; the live cell, when present, only
+     * scales the moire length to Angstrom for context.
+     */
+    private static AnalysisReport analyzeMoireTwistPreview(Project project,
+            AnalysisParameters params) {
+        String label = AnalysisKind.MOIRE_TWIST_PREVIEW.getLabel();
+        OperationResult<MoireTwistMath.MoireTwist> computed = MoireTwistMath.compute(
+                params.getMoireM(), params.getMoireN(), params.getLatticeRatio());
+        if (!computed.isSuccess() || computed.getValue().isEmpty()) {
+            return failure(label, "Twist preview refused: [" + computed.getCode() + "] "
+                    + computed.getMessage());
+        }
+        MoireTwistMath.MoireTwist twist = computed.getValue().get();
+        StringBuilder text = new StringBuilder();
+        text.append(String.format(Locale.ROOT,
+                "Commensurate pair: (m, n) = (%d, %d)%s%n", twist.getM(), twist.getN(),
+                twist.getCommonFactor() > 1
+                        ? " (your input had common factor " + twist.getCommonFactor()
+                                + "; this is the SAME family)"
+                        : ""));
+        text.append(String.format(Locale.ROOT,
+                "CSL index: Sigma = %d (raw m^2+mn+n^2 = %d%s)%n", twist.getSigma(),
+                twist.getSigmaRaw(),
+                twist.getSigma() != twist.getSigmaRaw() ? ", /3 because 3 | (m-n)" : ""));
+        text.append(String.format(Locale.ROOT,
+                "cos(theta) = %d/%d EXACTLY -> theta = %.6f degrees%n",
+                twist.getCosNumerator(), twist.getCosDenominator(), twist.getThetaDeg()));
+        text.append(String.format(Locale.ROOT,
+                "Lattice ratio a2/a1 = %.6f; required coherent strain of layer 2 = %.4f%% "
+                        + "%s%n",
+                twist.getLatticeRatio(), 100.0 * twist.getRequiredStrainLayer2(),
+                twist.getRequiredStrainLayer2() == 0.0
+                        ? "(identical lattices - truly commensurate)"
+                        : "(WITHOUT it the pair is only quasi-commensurate)"));
+        text.append(String.format(Locale.ROOT,
+                "Moire period: L = %.6f * a1 (exact-theta mismatch formula)%n",
+                twist.getMoireLength()));
+        text.append(String.format(Locale.ROOT,
+                "Atoms in the coincidence cell: Sigma x (layer-1 primitive atoms) + Sigma x "
+                        + "(layer-2 primitive atoms); a honeycomb bilayer: 4 x %d = %d "
+                        + "atoms.%n",
+                twist.getSigma(), 4L * twist.getSigma()));
+        Cell cell = project == null ? null : project.getCell();
+        if (cell != null) {
+            double[][] lattice = cell.copyLattice();
+            double a1 = Math.hypot(lattice[0][0], lattice[0][1]);
+            if (a1 > 0.0) {
+                text.append(String.format(Locale.ROOT,
+                        "Live-cell context: in-plane |a1| = %.6f Ang -> L ~= %.4f Ang "
+                                + "(context only; the cell's own orientation is not "
+                                + "checked for hexagonality here).%n",
+                        a1, a1 * twist.getMoireLength()));
+            }
+        }
+        text.append("\nHonesty boundary: NOTHING is constructed - no rotated cell, no "
+                + "atom mapping, no relaxation. The exact (m,n) orientation is a lattice "
+                + "geometry fact; the atom-level moire cell, interlayer registry (AA/AB "
+                + "stacking), and any built structure are the remaining #85 builder work. "
+                + "For a2 != a1 the exact incommensurability is stated via the required "
+                + "strain rather than silently straining or ignoring it.");
+        List<String> csv = new ArrayList<>();
+        csv.add("quantity,value,unit");
+        csv.add(String.format(Locale.ROOT, "m,%d,int", twist.getM()));
+        csv.add(String.format(Locale.ROOT, "n,%d,int", twist.getN()));
+        csv.add(String.format(Locale.ROOT, "sigma,%d,int", twist.getSigma()));
+        csv.add(String.format(Locale.ROOT, "theta_deg,%.8f,deg", twist.getThetaDeg()));
+        csv.add(String.format(Locale.ROOT, "lattice_ratio,%.8f,1",
+                twist.getLatticeRatio()));
+        csv.add(String.format(Locale.ROOT, "moire_period_over_a1,%.8f,1",
+                twist.getMoireLength()));
+        csv.add(String.format(Locale.ROOT, "required_strain_layer2,%.8f,1",
+                twist.getRequiredStrainLayer2()));
         return new AnalysisReport(label, true, text.toString(), csv, null);
     }
 
