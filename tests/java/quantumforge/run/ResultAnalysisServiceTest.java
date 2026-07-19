@@ -18,6 +18,10 @@ import org.junit.jupiter.api.io.TempDir;
 import quantumforge.atoms.model.Atom;
 import quantumforge.atoms.model.Cell;
 import quantumforge.input.QEInput;
+import quantumforge.input.QESCFInput;
+import quantumforge.input.card.QEKPoints;
+import quantumforge.input.namelist.QENamelist;
+import quantumforge.input.namelist.QEValueBase;
 import quantumforge.project.Project;
 import quantumforge.project.property.ProjectProperty;
 import quantumforge.run.ResultAnalysisService.AnalysisKind;
@@ -60,6 +64,43 @@ class ResultAnalysisServiceTest {
             @Override public QEInput getQEInputDos() { return null; }
             @Override public QEInput getQEInputBand() { return null; }
             @Override public Cell getCell() { return cellOverride; }
+            @Override protected void loadQEInputs() { }
+            @Override public void resolveQEInputs() { }
+            @Override public void markQEInputs() { }
+            @Override public boolean isQEInputChanged() { return false; }
+            @Override public void saveQEInputs(String directoryPath) { }
+            @Override public void exportQEInputsTo(String directoryPath) { }
+            @Override public Project cloneProject(String directoryPath) { return null; }
+        };
+    }
+
+    /** Stub project whose geometry-mode current input and cell are real instances. */
+    private Project stubProjectWithInput(Path dir, QEInput input, Cell cell) {
+        return new Project(null, dir.toString()) {
+            @Override public void setNetProject(Project project) { }
+            @Override public boolean isValid() { return true; }
+            @Override public boolean isSameAs(Project project) { return false; }
+            @Override public ProjectProperty getProperty() {
+                return new ProjectProperty(dir.toString(), "espresso");
+            }
+            @Override public String getPrefixName() { return "espresso"; }
+            @Override public String getInpFileName(String ext) {
+                return ext == null || ext.isBlank() ? "espresso.in" : "espresso.in." + ext;
+            }
+            @Override public String getLogFileName(String ext) {
+                return ext == null || ext.isBlank() ? "espresso.log" : "espresso.log." + ext;
+            }
+            @Override public String getErrFileName(String ext) {
+                return ext == null || ext.isBlank() ? "espresso.err" : "espresso.err." + ext;
+            }
+            @Override public String getExitFileName() { return "espresso.EXIT"; }
+            @Override public QEInput getQEInputGeometry() { return input; }
+            @Override public QEInput getQEInputScf() { return null; }
+            @Override public QEInput getQEInputOptimiz() { return null; }
+            @Override public QEInput getQEInputMd() { return null; }
+            @Override public QEInput getQEInputDos() { return null; }
+            @Override public QEInput getQEInputBand() { return null; }
+            @Override public Cell getCell() { return cell; }
             @Override protected void loadQEInputs() { }
             @Override public void resolveQEInputs() { }
             @Override public void markQEInputs() { }
@@ -912,5 +953,117 @@ class ResultAnalysisServiceTest {
                 new ProjectProperty(), this.tempDir.toFile(), "si", "si.log", empty,
                 new AnalysisParameters());
         assertFalse(bad.isSuccess(), "A non-CASTEP file must fail closed");
+    }
+
+    @Test
+    void testInputDiffAgainstReferenceFile() throws IOException {
+        QESCFInput base = new QESCFInput();
+        QENamelist baseSystem = base.getNamelist(QEInput.NAMELIST_SYSTEM);
+        baseSystem.setValue(QEValueBase.getInstance("ecutwfc", "30.0"));
+        baseSystem.setValue(QEValueBase.getInstance("nat", "2"));
+
+        File reference = write("reference.in",
+                "&CONTROL\n   calculation = 'scf'\n/\n"
+                + "&SYSTEM\n   ibrav = 0, nat = 2, ntyp = 1, ecutwfc = 45.0\n/\n"
+                + "&ELECTRONS\n/\n");
+        AnalysisReport report = ResultAnalysisService.analyze(AnalysisKind.INPUT_DIFF,
+                stubProjectWithInput(this.tempDir, base, null), reference,
+                new AnalysisParameters());
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getCsvLines().stream()
+                .anyMatch(line -> line.contains("ecutwfc,MODIFIED,30.0,45.0")),
+                "ecutwfc change must appear in the CSV: " + report.getCsvLines());
+        assertTrue(report.getCsvLines().stream()
+                .anyMatch(line -> line.contains("ibrav,ADDED,,0")),
+                "ibrav add must appear in the CSV: " + report.getCsvLines());
+        assertTrue(report.getText().contains("Nothing in the project input is modified"),
+                report.getText());
+
+        AnalysisReport noFile = ResultAnalysisService.analyze(AnalysisKind.INPUT_DIFF,
+                stubProjectWithInput(this.tempDir, base, null), null, new AnalysisParameters());
+        assertFalse(noFile.isSuccess(), "A missing reference file must fail closed");
+
+        File garbage = write("garbage.in", "hello world, no namelists here\n");
+        AnalysisReport empty = ResultAnalysisService.analyze(AnalysisKind.INPUT_DIFF,
+                stubProjectWithInput(this.tempDir, base, null), garbage,
+                new AnalysisParameters());
+        assertFalse(empty.isSuccess(), "A reference with zero parsed namelist values is refused");
+
+        AnalysisReport noInput = ResultAnalysisService.analyze(AnalysisKind.INPUT_DIFF,
+                stubProject(this.tempDir), reference, new AnalysisParameters());
+        assertFalse(noInput.isSuccess(), "A project without a current input must fail closed");
+    }
+
+    @Test
+    void testKmeshQualityForAutomaticGammaAndMissing() {
+        Cell cell = new Cell(quantumforge.com.math.Matrix3D.unit(10.0));
+        cell.addAtom("Si", 0.0, 0.0, 0.0);
+
+        QESCFInput automatic = new QESCFInput();
+        QEKPoints points = automatic.getCard(QEKPoints.class);
+        points.setAutomatic();
+        points.setKGrid(new int[] {8, 8, 8});
+        points.setKOffset(new int[] {0, 0, 0});
+        AnalysisReport report = ResultAnalysisService.analyze(AnalysisKind.KMESH_QUALITY,
+                stubProjectWithInput(this.tempDir, automatic, cell), new AnalysisParameters());
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains("K_POINTS automatic: 8 8 8 with offset 0 0 0"),
+                report.getText());
+        assertTrue(report.getText().contains("0.078540"), report.getText());
+        assertTrue(report.getText().contains("RECOMMENDED"), report.getText());
+        assertTrue(report.getText().contains("not a convergence proof"), report.getText());
+        assertEquals(4, report.getCsvLines().size(), "header plus 3 directions");
+
+        QESCFInput gamma = new QESCFInput();
+        gamma.getCard(QEKPoints.class).setGamma();
+        AnalysisReport gammaReport = ResultAnalysisService.analyze(AnalysisKind.KMESH_QUALITY,
+                stubProjectWithInput(this.tempDir, gamma, cell), new AnalysisParameters());
+        assertTrue(gammaReport.isSuccess(), gammaReport.getText());
+        assertTrue(gammaReport.getText().contains("gamma (single k-point)"), gammaReport.getText());
+        assertTrue(gammaReport.getText().contains("never reported"), gammaReport.getText());
+
+        AnalysisReport noInput = ResultAnalysisService.analyze(AnalysisKind.KMESH_QUALITY,
+                stubProject(this.tempDir, cell), new AnalysisParameters());
+        assertFalse(noInput.isSuccess(), "A project without a current input must fail closed");
+    }
+
+    @Test
+    void testDefectPreviewVacancySubstitutionAndValidation() {
+        Cell cell = new Cell(quantumforge.com.math.Matrix3D.unit(10.0));
+        cell.addAtom("Si", 0.0, 0.0, 0.0);
+        cell.addAtom("Si", 0.25, 0.25, 0.25);
+
+        AnalysisReport vacancy = ResultAnalysisService.analyze(AnalysisKind.DEFECT_PREVIEW,
+                stubProject(this.tempDir, cell),
+                new AnalysisParameters().withDefectType("vacancy")
+                        .withAtomIndices(2, 0, 0, 0).withDefectCharge(1));
+        assertTrue(vacancy.isSuccess(), vacancy.getText());
+        assertTrue(vacancy.getText().contains("VACANCY"), vacancy.getText());
+        assertTrue(vacancy.getText().contains("NOTHING is applied"), vacancy.getText());
+        assertTrue(vacancy.getText().contains("10.0000 Ang"), vacancy.getText());
+        assertEquals(2, cell.numAtoms(), "The preview must not mutate the live cell");
+
+        AnalysisReport substitution = ResultAnalysisService.analyze(AnalysisKind.DEFECT_PREVIEW,
+                stubProject(this.tempDir, cell),
+                new AnalysisParameters().withDefectType("substitution")
+                        .withDefectElement("B").withAtomIndices(1, 0, 0, 0));
+        assertTrue(substitution.isSuccess(), substitution.getText());
+        assertTrue(substitution.getText().contains("SUBSTITUTION"), substitution.getText());
+
+        AnalysisReport badIndex = ResultAnalysisService.analyze(AnalysisKind.DEFECT_PREVIEW,
+                stubProject(this.tempDir, cell),
+                new AnalysisParameters().withDefectType("vacancy").withAtomIndices(99, 0, 0, 0));
+        assertFalse(badIndex.isSuccess(), "An out-of-range atom index must fail closed");
+
+        AnalysisReport blankElement = ResultAnalysisService.analyze(AnalysisKind.DEFECT_PREVIEW,
+                stubProject(this.tempDir, cell),
+                new AnalysisParameters().withDefectType("substitution").withDefectElement("")
+                        .withAtomIndices(1, 0, 0, 0));
+        assertFalse(blankElement.isSuccess(), "A substitution needs a replacement element");
+
+        AnalysisReport badType = ResultAnalysisService.analyze(AnalysisKind.DEFECT_PREVIEW,
+                stubProject(this.tempDir, cell),
+                new AnalysisParameters().withDefectType("interstitial").withAtomIndices(1, 0, 0, 0));
+        assertFalse(badType.isSuccess(), "Only vacancy/substitution are previewed here");
     }
 }

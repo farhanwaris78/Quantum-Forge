@@ -25,9 +25,15 @@ import quantumforge.atoms.model.Atom;
 import quantumforge.atoms.model.Cell;
 import quantumforge.builder.QECitationManager;
 import quantumforge.builder.QEHullThermodynamics;
+import quantumforge.builder.QEPointDefectBuilder;
 import quantumforge.input.QEInput;
+import quantumforge.input.QEInputDiffPreview;
+import quantumforge.input.QEKpointMeshAdvisor;
 import quantumforge.input.QEPpChargePotentialBuilder;
 import quantumforge.input.QEPpWavefunctionBuilder;
+import quantumforge.input.QESCFInput;
+import quantumforge.input.card.QEKPoints;
+import quantumforge.input.namelist.QENamelist;
 import quantumforge.input.validation.ValidationIssue;
 import quantumforge.input.validation.ValidationSeverity;
 import quantumforge.operation.OperationResult;
@@ -134,7 +140,10 @@ public final class ResultAnalysisService {
         SYMMETRY_KPATH("spglib standardization and SeeK-path"),
         XML_SUMMARY("QE XML output cross-check"),
         VASP_VASPRUN("vasprun.xml inspection (parser only)"),
-        CASTEP_LOG("CASTEP .castep log inspection (parser only)");
+        CASTEP_LOG("CASTEP .castep log inspection (parser only)"),
+        INPUT_DIFF("Input diff against reference input"),
+        KMESH_QUALITY("k-point mesh quality"),
+        DEFECT_PREVIEW("Point-defect preview (vacancy/substitution)");
 
         private final String label;
 
@@ -168,12 +177,13 @@ public final class ResultAnalysisService {
                     || this == SCRATCH_ESTIMATE || this == RESOURCE_ESTIMATE || this == RUN_MANIFEST
                     || this == GEOMETRY_MEASURE || this == MD_MSD || this == MAGNETIC_ORDER
                     || this == CITATIONS || this == BERRY_POLARIZATION
-                    || this == GEOMETRY_CONVERGENCE || this == PSEUDO_FAMILY || this == SYMMETRY_KPATH;
+                    || this == GEOMETRY_CONVERGENCE || this == PSEUDO_FAMILY || this == SYMMETRY_KPATH
+                    || this == INPUT_DIFF || this == KMESH_QUALITY || this == DEFECT_PREVIEW;
         }
 
         /** True for project-bound kinds that additionally parse a user data file. */
         public boolean needsDataFile() {
-            return this == MD_MSD;
+            return this == MD_MSD || this == INPUT_DIFF;
         }
     }
 
@@ -196,6 +206,9 @@ public final class ResultAnalysisService {
         private double forceThresholdRyBohr = 1.0e-3;
         private double pressureThresholdKbar = Double.NaN; // NaN means "no pressure check"
         private double symmetryTolerance = 1.0e-5;
+        private String defectType = "vacancy";
+        private String defectElement = "";
+        private int defectCharge = 0;
 
         public double getFermiEv() { return this.fermiEv; }
         public int getKpointIndex() { return this.kpointIndex; }
@@ -214,6 +227,9 @@ public final class ResultAnalysisService {
         public double getForceThresholdRyBohr() { return this.forceThresholdRyBohr; }
         public double getPressureThresholdKbar() { return this.pressureThresholdKbar; }
         public double getSymmetryTolerance() { return this.symmetryTolerance; }
+        public String getDefectType() { return this.defectType; }
+        public String getDefectElement() { return this.defectElement; }
+        public int getDefectCharge() { return this.defectCharge; }
 
         public AnalysisParameters withFermiEv(double value) { this.fermiEv = value; return this; }
         public AnalysisParameters withKpointIndex(int value) { this.kpointIndex = value; return this; }
@@ -251,6 +267,18 @@ public final class ResultAnalysisService {
         }
         public AnalysisParameters withSymmetryTolerance(double value) {
             this.symmetryTolerance = value;
+            return this;
+        }
+        public AnalysisParameters withDefectType(String value) {
+            this.defectType = value;
+            return this;
+        }
+        public AnalysisParameters withDefectElement(String value) {
+            this.defectElement = value;
+            return this;
+        }
+        public AnalysisParameters withDefectCharge(int value) {
+            this.defectCharge = value;
             return this;
         }
     }
@@ -371,6 +399,8 @@ public final class ResultAnalysisService {
             return name.contains("vasprun");
         case CASTEP_LOG:
             return name.endsWith(".castep");
+        case INPUT_DIFF:
+            return name.endsWith(".in") || name.endsWith(".inp") || name.contains(".in.");
         default:
             return false;
         }
@@ -529,6 +559,12 @@ public final class ResultAnalysisService {
                 return analyzePseudoFamily(project);
             case SYMMETRY_KPATH:
                 return analyzeSymmetryKpath(project, params);
+            case INPUT_DIFF:
+                return analyzeInputDiff(project, file);
+            case KMESH_QUALITY:
+                return analyzeKmesh(project);
+            case DEFECT_PREVIEW:
+                return analyzeDefectPreview(project, params);
             default:
                 return failure(kind.getLabel(), "This analysis kind is not implemented.");
             }
@@ -2496,6 +2532,218 @@ public final class ResultAnalysisService {
         text.append("\nThis is a parser-only inspection: no CASTEP input generation or "
                 + "execution exists, and use of CASTEP outputs requires your own license. "
                 + "Unparsed physics (dispersion, spin textures, band padding) is not claimed.");
+        return new AnalysisReport(label, true, text.toString(), List.of(), null);
+    }
+
+    /** Keyword-level diff between the project's current input and a user reference file. */
+    private static AnalysisReport analyzeInputDiff(Project project, File file) {
+        String label = AnalysisKind.INPUT_DIFF.getLabel();
+        QEInput base;
+        try {
+            project.resolveQEInputs();
+            base = project.getQEInputCurrent();
+        } catch (RuntimeException ex) {
+            return failure(label, "Resolving the current QE input failed: " + ex.getMessage());
+        }
+        if (base == null) {
+            return failure(label, "The project has no current QE input to compare.");
+        }
+        if (file == null || !file.isFile()) {
+            return failure(label, "No reference input file was selected. Choose a pw.x-family "
+                    + "input file to diff against the current input.");
+        }
+        QEInput modified;
+        try {
+            modified = new QESCFInput(file);
+        } catch (IOException | RuntimeException ex) {
+            return failure(label, "The reference file could not be parsed as a pw.x-family "
+                    + "input: " + ex.getMessage());
+        }
+        int parsedValues = 0;
+        for (String key : QEInput.listNamelistKeys()) {
+            QENamelist namelist = modified.getNamelist(key);
+            if (namelist != null) {
+                parsedValues += namelist.numValues();
+            }
+        }
+        if (parsedValues == 0) {
+            return failure(label, "The reference file parsed to an empty input: no pw.x-family "
+                    + "namelist values were recognized in " + file.getName() + ".");
+        }
+        List<QEInputDiffPreview.DiffItem> diffs = QEInputDiffPreview.compare(base, modified);
+        StringBuilder text = new StringBuilder();
+        text.append("Base: current project input; reference: ").append(file.getName())
+                .append('\n');
+        if (diffs.isEmpty()) {
+            text.append("No namelist/card differences were detected between the two inputs.\n");
+        } else {
+            int added = 0;
+            int removed = 0;
+            int changed = 0;
+            for (QEInputDiffPreview.DiffItem item : diffs) {
+                switch (item.getType()) {
+                case ADDED:
+                    added++;
+                    break;
+                case REMOVED:
+                    removed++;
+                    break;
+                default:
+                    changed++;
+                    break;
+                }
+            }
+            text.append(String.format(Locale.ROOT,
+                    "%d difference(s): %d added, %d removed, %d modified%n%n", diffs.size(),
+                    added, removed, changed));
+            int limit = Math.min(diffs.size(), 500);
+            for (int i = 0; i < limit; i++) {
+                text.append(" - ").append(diffs.get(i).toString()).append('\n');
+            }
+            if (diffs.size() > limit) {
+                text.append("Only the first ").append(limit)
+                        .append(" differences are shown; export the CSV for the full list.\n");
+            }
+        }
+        List<String> csv = new ArrayList<>();
+        csv.add("section,key,change,old_value,new_value");
+        for (QEInputDiffPreview.DiffItem item : diffs) {
+            csv.add(String.format(Locale.ROOT, "%s,%s,%s,%s,%s", item.getSection(), item.getKey(),
+                    item.getType(), item.getOldValue() == null ? "" : item.getOldValue(),
+                    item.getNewValue() == null ? "" : item.getNewValue()));
+        }
+        text.append("\nThe reference file is ingested with the standard pw.x-family reader "
+                + "(control/system/electrons(+ions/cell) namelists and the usual cards); "
+                + "numerically equivalent keyword spellings are treated as equal, and card "
+                + "payloads are compared as presence/line-count summaries, not per-line "
+                + "geometry. Nothing in the project input is modified.");
+        return new AnalysisReport(label, true, text.toString(), csv, null);
+    }
+
+    /** Automatic K_POINTS mesh spacing against the live cell; explicit modes reported as-is. */
+    private static AnalysisReport analyzeKmesh(Project project) {
+        String label = AnalysisKind.KMESH_QUALITY.getLabel();
+        QEContext context = requireInputAndCell(project, label);
+        if (context.failure != null) {
+            return context.failure;
+        }
+        QEKPoints kpoints = context.input.getCard(QEKPoints.class);
+        if (kpoints == null) {
+            return failure(label, "The current input has no K_POINTS card.");
+        }
+        StringBuilder text = new StringBuilder();
+        text.append("Input mode: ").append(context.input.getClass().getSimpleName()).append('\n');
+        if (kpoints.isGamma()) {
+            text.append("K_POINTS mode: gamma (single k-point).\n\n"
+                    + "A Gamma-only mesh samples the Brillouin zone at one point; it is "
+                    + "defensible for molecules or very large cells only and is never reported "
+                    + "here as converged for periodic metals.");
+            return new AnalysisReport(label, true, text.toString(), List.of(), null);
+        }
+        if (!kpoints.isAutomatic()) {
+            text.append("K_POINTS mode: explicit list (").append(kpoints.numKPoints())
+                    .append(" points).\n\nExplicit tpiba/crystal lists are reported as-is; "
+                    + "spacing quality is only defined for automatic meshes in this analysis.");
+            return new AnalysisReport(label, true, text.toString(), List.of(), null);
+        }
+        int[] grid = kpoints.getKGrid();
+        int[] offset = kpoints.getKOffset();
+        OperationResult<QEKpointMeshAdvisor.MeshReport> assessed =
+                QEKpointMeshAdvisor.assess(context.cell.copyLattice(), grid, offset);
+        if (!assessed.isSuccess() || assessed.getValue().isEmpty()) {
+            return failure(label, "k-mesh assessment failed closed: " + assessed.getMessage());
+        }
+        QEKpointMeshAdvisor.MeshReport report = assessed.getValue().orElseThrow();
+        text.append(String.format(Locale.ROOT, "K_POINTS automatic: %d %d %d with offset %d %d %d%n%n",
+                grid[0], grid[1], grid[2], offset[0], offset[1], offset[2]));
+        text.append(String.format(Locale.ROOT,
+                "%-2s %-6s %-12s %-14s %-12s %-12s%n", "i", "n_i", "|a_i| (Ang)",
+                "|b_i| (Ang^-1)", "spacing(Ang^-1)", "quality"));
+        List<String> csv = new ArrayList<>();
+        csv.add("direction,divisions,a_norm_ang,b_norm_inv_ang,spacing_inv_ang,range_ang,quality");
+        for (QEKpointMeshAdvisor.DirectionReport direction : report.getDirections()) {
+            text.append(String.format(Locale.ROOT,
+                    "%-2d %-6d %-12.6f %-14.6f %-12.6f %-12s (%s %.3f Ang)%n",
+                    direction.getIndex() + 1, direction.getDivisions(),
+                    direction.getLatticeVectorNormAng(), direction.getReciprocalNormInvAng(),
+                    direction.getSpacingInvAng(), direction.getQuality(), "range",
+                    direction.getRangeAng()));
+            csv.add(String.format(Locale.ROOT, "%d,%d,%.8f,%.8f,%.8f,%.8f,%s",
+                    direction.getIndex() + 1, direction.getDivisions(),
+                    direction.getLatticeVectorNormAng(), direction.getReciprocalNormInvAng(),
+                    direction.getSpacingInvAng(), direction.getRangeAng(),
+                    direction.getQuality()));
+        }
+        text.append(String.format(Locale.ROOT,
+                "%nOverall mesh quality (worst direction): %s; full grid points: %d%n",
+                report.getOverallQuality(), report.getTotalGridPoints()));
+        for (String note : report.getNotes()) {
+            text.append(" - ").append(note).append('\n');
+        }
+        text.append("\nSpacing is the exact |b_i|/n_i; the effective k-range 1/spacing is "
+                + "classified with the QE-school 12/24 Angstrom heuristic used by the input "
+                + "editor. This single-mesh label is not a convergence proof (roadmap #37).");
+        return new AnalysisReport(label, true, text.toString(), csv, null);
+    }
+
+    /** Defect planning preview: records the vacancy/substitution without touching the cell. */
+    private static AnalysisReport analyzeDefectPreview(Project project, AnalysisParameters params) {
+        String label = AnalysisKind.DEFECT_PREVIEW.getLabel();
+        Cell cell = project.getCell();
+        if (cell == null) {
+            return failure(label, "The project has no atomic cell to plan a defect in.");
+        }
+        int atomCount = cell.numAtoms();
+        if (atomCount < 1) {
+            return failure(label, "The project cell contains no atoms.");
+        }
+        String type = params.getDefectType() == null ? "vacancy"
+                : params.getDefectType().trim().toLowerCase(Locale.ROOT);
+        int atomIndex = params.getAtomIndexA(); // 1-based user input
+        if (atomIndex < 1 || atomIndex > atomCount) {
+            return failure(label, "Defect target atom index must be 1.." + atomCount
+                    + " (got " + atomIndex + ").");
+        }
+        QEPointDefectBuilder builder = new QEPointDefectBuilder(cell);
+        try {
+            if ("vacancy".equals(type)) {
+                builder.addVacancy(atomIndex - 1, params.getDefectCharge());
+            } else if ("substitution".equals(type)) {
+                String element = params.getDefectElement() == null ? ""
+                        : params.getDefectElement().trim();
+                if (element.isEmpty()) {
+                    return failure(label, "A substitution needs the replacement element "
+                            + "symbol (e.g. B, N, Al).");
+                }
+                builder.addSubstitution(atomIndex - 1, element, params.getDefectCharge());
+            } else {
+                return failure(label, "Defect type must be 'vacancy' or 'substitution' in this "
+                        + "preview (got '" + type + "'); interstitial placement stays an "
+                        + "explicit editor action.");
+            }
+        } catch (IllegalArgumentException | IndexOutOfBoundsException ex) {
+            return failure(label, "Defect planning failed closed: " + ex.getMessage());
+        }
+        StringBuilder text = new StringBuilder();
+        text.append("Defect plan for the live cell (").append(atomCount)
+                .append(" atoms; NOTHING is applied to the project):\n\n");
+        for (QEPointDefectBuilder.DefectRecord record : builder.getDefects()) {
+            text.append(" - ").append(record.toString()).append('\n');
+        }
+        double minVector = Double.POSITIVE_INFINITY;
+        double[][] lattice = cell.copyLattice();
+        for (int i = 0; i < 3; i++) {
+            double norm = Math.sqrt(lattice[i][0] * lattice[i][0] + lattice[i][1] * lattice[i][1]
+                    + lattice[i][2] * lattice[i][2]);
+            minVector = Math.min(minVector, norm);
+        }
+        text.append(String.format(Locale.ROOT,
+                "%nSmallest lattice-vector norm: %.4f Ang (upper-bound scale of the "
+                + "defect-defect periodic image spacing; the true minimum-image distance for "
+                + "skew supercells additionally depends on the cell shape).%n", minVector));
+        text.append("\nThe record is a preview only: symmetry-inequivalent defect enumeration "
+                + "(roadmap #84) needs the spglib path, and the recorded charge state is "
+                + "metadata - tot_charge is not rewritten into the input by this analysis.");
         return new AnalysisReport(label, true, text.toString(), List.of(), null);
     }
 }

@@ -247,10 +247,46 @@ public final class AnalysisAction {
             }
             break;
         }
+        case DEFECT_PREVIEW: {
+            String type = askText("Defect type: 'vacancy' or 'substitution'", "vacancy");
+            if (type == null) {
+                return null;
+            }
+            int defaultIndex = 1;
+            Integer index = askInteger("Target atom index (1-based)", defaultIndex);
+            if (index == null) {
+                return null;
+            }
+            parameters.withDefectType(type).withAtomIndices(index, 0, 0, 0);
+            if ("substitution".equals(type.trim().toLowerCase(java.util.Locale.ROOT))) {
+                String element = askText("Replacement element symbol (e.g. B, N, Al)", "B");
+                if (element == null) {
+                    return null;
+                }
+                parameters.withDefectElement(element);
+            }
+            Integer charge = askInteger("Defect charge state (metadata only, not written "
+                    + "into the input)", 0);
+            if (charge == null) {
+                return null;
+            }
+            parameters.withDefectCharge(charge);
+            break;
+        }
         default:
             break;
         }
         return parameters;
+    }
+
+    /** Free-text prompt; returns null on cancel. */
+    private String askText(String prompt, String defaultValue) {
+        TextInputDialog dialog = new TextInputDialog(defaultValue);
+        dialog.setTitle("Analysis parameter");
+        dialog.setHeaderText(prompt);
+        dialog.setContentText("Value:");
+        Optional<String> result = dialog.showAndWait();
+        return result.isEmpty() ? null : result.get();
     }
 
     /** Parses "A,B[,C[,D]]" 1-based atom indices; absent C/D become 0. */
