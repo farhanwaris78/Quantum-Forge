@@ -2249,4 +2249,46 @@ class ResultAnalysisServiceTest {
                 stubProject(this.tempDir), new AnalysisParameters().withSeriesKeyword(" "));
         assertFalse(blank.isSuccess(), "A blank keyword must fail closed");
     }
+
+    @Test
+    void testArraySweepPlanKindManifestAndRefusals() {
+        AnalysisReport report = ResultAnalysisService.analyze(AnalysisKind.ARRAY_SWEEP_PLAN,
+                stubProject(this.tempDir),
+                new AnalysisParameters().withSeriesKeyword("ecutwfc").withSeriesStart(30.0)
+                        .withSeriesStep(10.0).withSeriesCount(3).withJobBaseName("si-cut"));
+        assertTrue(report.isSuccess(), report.getText());
+        String manifest = report.getGeneratedInput();
+        assertTrue(manifest != null, "The JSONL manifest must require explicit save");
+        assertEquals(3, manifest.trim().split("\n").length);
+        assertTrue(manifest.contains("{\"task_index\":3,\"keyword\":\"ecutwfc\","
+                + "\"value\":50.0,\"directory\":\"si-cut-003\"}"), manifest);
+        assertTrue(report.getText().contains("exit 2  # REQUIRED-EDIT guard"),
+                report.getText());
+        assertTrue(report.getText().contains("#SBATCH --array=1-3"), report.getText());
+        assertTrue(report.getText().contains("nothing was submitted"), report.getText());
+        assertEquals(4, report.getCsvLines().size());
+        assertEquals("1,30.0,si-cut-001", report.getCsvLines().get(1));
+        assertEquals("3,50.0,si-cut-003", report.getCsvLines().get(3));
+
+        AnalysisReport badKeyword = ResultAnalysisService.analyze(
+                AnalysisKind.ARRAY_SWEEP_PLAN, stubProject(this.tempDir),
+                new AnalysisParameters().withSeriesKeyword("9bad"));
+        assertFalse(badKeyword.isSuccess(), "Malformed keywords must fail closed");
+
+        AnalysisReport zeroStep = ResultAnalysisService.analyze(
+                AnalysisKind.ARRAY_SWEEP_PLAN, stubProject(this.tempDir),
+                new AnalysisParameters().withSeriesKeyword("ecutwfc").withSeriesStep(0.0));
+        assertFalse(zeroStep.isSuccess(), "A zero step must fail closed");
+
+        AnalysisReport oneTask = ResultAnalysisService.analyze(
+                AnalysisKind.ARRAY_SWEEP_PLAN, stubProject(this.tempDir),
+                new AnalysisParameters().withSeriesKeyword("ecutwfc").withSeriesCount(1));
+        assertFalse(oneTask.isSuccess(), "One task is not an array sweep");
+
+        AnalysisReport badName = ResultAnalysisService.analyze(
+                AnalysisKind.ARRAY_SWEEP_PLAN, stubProject(this.tempDir),
+                new AnalysisParameters().withSeriesKeyword("ecutwfc")
+                        .withJobBaseName("bad name!"));
+        assertFalse(badName.isSuccess(), "Unsafe job base names must fail closed");
+    }
 }

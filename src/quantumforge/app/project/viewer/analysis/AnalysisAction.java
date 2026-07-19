@@ -432,6 +432,31 @@ public final class AnalysisAction {
             parameters.withConstraintSpec(spec).withConstraintMode(mode);
             break;
         }
+        case ARRAY_SWEEP_PLAN: {
+            String keyword = askText("QE keyword to sweep (e.g. ecutwfc)", "ecutwfc");
+            if (keyword == null) {
+                return null;
+            }
+            Double start = askDouble("Start value", "30.0");
+            if (start == null || !Double.isFinite(start)) {
+                return null;
+            }
+            Double step = askDouble("Step between tasks (non-zero)", "10.0");
+            if (step == null || !Double.isFinite(step)) {
+                return null;
+            }
+            Integer count = askInteger("Number of tasks (2-50)", 6);
+            if (count == null) {
+                return null;
+            }
+            String base = askText("Job base name ([A-Za-z0-9._-], 1-32 chars)", "sweep");
+            if (base == null) {
+                return null;
+            }
+            parameters.withSeriesKeyword(keyword).withSeriesStart(start)
+                    .withSeriesStep(step).withSeriesCount(count).withJobBaseName(base);
+            break;
+        }
         case KEYWORD_HELP: {
             String keyword = askText("pw.x namelist keyword to look up "
                     + "(e.g. ecutwfc, conv_thr)", "ecutwfc");

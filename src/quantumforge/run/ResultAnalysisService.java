@@ -40,6 +40,7 @@ import quantumforge.builder.QEDiffusionBarrierLink;
 import quantumforge.builder.QEThermochemistryMath;
 import quantumforge.builder.QEConstraintSpec;
 import quantumforge.builder.QEIonicConstraintManager;
+import quantumforge.hpc.ArraySweepPlanner;
 import quantumforge.hpc.SiteProfile;
 import quantumforge.hpc.SiteProfileValidator;
 import quantumforge.input.QEExxPlanner;
@@ -202,7 +203,8 @@ public final class ResultAnalysisService {
         TENSOR_EIGEN("Symmetric 3x3 tensor eigenanalysis"),
         PHONON_MODE_FRAMES("Phonon mode animation frames (multi-frame XYZ)"),
         HYPERFINE_LOOKUP("Hyperfine isotope g-factor + Fermi contact A_iso"),
-        KEYWORD_HELP("pw.x keyword reference (offline curated subset)");
+        KEYWORD_HELP("pw.x keyword reference (offline curated subset)"),
+        ARRAY_SWEEP_PLAN("Scheduler array sweep manifest (JSONL + sbatch preview)");
 
         private final String label;
 
@@ -243,7 +245,7 @@ public final class ResultAnalysisService {
                     || this == RO_CRATE || this == DEFECT_FORMATION || this == ADSORPTION_ENERGY
                     || this == BARRIER_DIFFUSION || this == CONSTRAINTS_PREVIEW
                     || this == PHONON_MODE_FRAMES || this == HYPERFINE_LOOKUP
-                    || this == KEYWORD_HELP;
+                    || this == KEYWORD_HELP || this == ARRAY_SWEEP_PLAN;
         }
 
         /** True for project-bound kinds that additionally parse a user data file. */
@@ -303,6 +305,7 @@ public final class ResultAnalysisService {
         private double nuclearSpinDensity = Double.NaN; // NaN = A_iso not requested
         private int modeIndex = 1;               // 1-based dynmat mode index
         private int frameCount = 12;             // frames per oscillation period
+        private String jobBaseName = "sweep";    // scheduler-array job base name
         private String constraintSpec = "";      // empty means "must be supplied"
         private String constraintMode = "relax"; // relax, vc-relax, or md
 
@@ -354,6 +357,7 @@ public final class ResultAnalysisService {
         public double getNuclearSpinDensity() { return this.nuclearSpinDensity; }
         public int getModeIndex() { return this.modeIndex; }
         public int getFrameCount() { return this.frameCount; }
+        public String getJobBaseName() { return this.jobBaseName; }
         public String getConstraintSpec() { return this.constraintSpec; }
         public String getConstraintMode() { return this.constraintMode; }
 
@@ -508,6 +512,11 @@ public final class ResultAnalysisService {
 
         public AnalysisParameters withFrameCount(int value) {
             this.frameCount = value;
+            return this;
+        }
+
+        public AnalysisParameters withJobBaseName(String value) {
+            this.jobBaseName = value == null ? "" : value;
             return this;
         }
 
@@ -1001,6 +1010,8 @@ public final class ResultAnalysisService {
                 return analyzeHyperfineLookup(params);
             case KEYWORD_HELP:
                 return analyzeKeywordHelp(project, params);
+            case ARRAY_SWEEP_PLAN:
+                return analyzeArraySweepPlan(params);
             default:
                 return failure(kind.getLabel(), "This analysis kind is not implemented.");
         }
@@ -3818,6 +3829,46 @@ public final class ResultAnalysisService {
         csv.add(String.format(Locale.ROOT, "%s,%s,%s", csvCell(entry.getName()),
                 csvCell(entry.getSection()), csvCell(entry.getSummary())));
         return new AnalysisReport(label, true, text.toString(), csv, null);
+    }
+
+    /**
+     * Roadmap #100 data layer: validates one keyword sweep into a JSONL task
+     * manifest (explicit save) plus a REQUIRED-EDIT-guarded sbatch preview in the
+     * report text. Nothing is submitted, no directory is created.
+     */
+    private static AnalysisReport analyzeArraySweepPlan(AnalysisParameters params) {
+        String label = AnalysisKind.ARRAY_SWEEP_PLAN.getLabel();
+        OperationResult<ArraySweepPlanner.SweepPlan> planned = ArraySweepPlanner.plan(
+                params.getSeriesKeyword(), params.getSeriesStart(), params.getSeriesStep(),
+                params.getSeriesCount(), params.getJobBaseName());
+        if (!planned.isSuccess() || planned.getValue().isEmpty()) {
+            return failure(label, "Sweep refused: " + planned.getMessage());
+        }
+        ArraySweepPlanner.SweepPlan plan = planned.getValue().get();
+        StringBuilder text = new StringBuilder();
+        text.append(String.format(Locale.ROOT,
+                "Keyword: %s; %d task(s) from %.8g in steps of %.8g%n", plan.getKeyword(),
+                plan.getValues().size(), plan.getValues().get(0),
+                plan.getValues().size() > 1
+                        ? plan.getValues().get(1) - plan.getValues().get(0) : 0.0));
+        text.append("Task directories: ").append(plan.taskDirectory(1)).append(" .. ")
+                .append(plan.taskDirectory(plan.getValues().size())).append("\n\n");
+        text.append("SLURM array preview (REVIEW ONLY - the guard refuses to run as-is):\n");
+        text.append(plan.sbatchPreview()).append('\n');
+        List<String> csv = new ArrayList<>();
+        csv.add("task_index,value,directory");
+        for (int i = 0; i < plan.getValues().size(); i++) {
+            csv.add(String.format(Locale.ROOT, "%d,%s,%s", i + 1,
+                    Double.toString(plan.getValues().get(i)), plan.taskDirectory(i + 1)));
+        }
+        text.append("Honesty boundary: the JSONL task manifest and the sbatch preview are "
+                + "drafts - nothing was submitted, no directory was created, and the script "
+                + "carries an exit-2 guard plus REQUIRED-EDIT lines so it cannot be queued "
+                + "without review. The sweep rewrites exactly one keyword; convergence "
+                + "claims come from analyzing the finished runs, not from the manifest. "
+                + "Per-task run manifests (#28) and scheduler submit integration (#93) "
+                + "remain the remaining #100 work.");
+        return new AnalysisReport(label, true, text.toString(), csv, plan.toJsonLines());
     }
 
     /** Ion-insertion voltage profile from a hull CSV; plateaus from hull vertices only. */

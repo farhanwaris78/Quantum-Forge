@@ -341,7 +341,8 @@ def main() -> int:
                   "EnergySeriesComparer", "TENSOR_EIGEN",
                   "PhononFrameSynthesis", "PHONON_MODE_FRAMES",
                   "HyperfineMapper", "HYPERFINE_LOOKUP",
-                  "QEKeywordHelp", "KEYWORD_HELP"]:
+                  "QEKeywordHelp", "KEYWORD_HELP",
+                  "ArraySweepPlanner", "ARRAY_SWEEP_PLAN"]:
         if token not in service:
             error(f"ResultAnalysisService is not bound to {token}")
     for rel in ["quantumforge/com/math/SymmetricEigen3.java",
@@ -351,7 +352,8 @@ def main() -> int:
                 "quantumforge/neural/ExtXyzDatasetValidator.java",
                 "quantumforge/run/parser/EnergySeriesComparer.java",
                 "quantumforge/run/parser/PhononFrameSynthesis.java",
-                "quantumforge/input/QEKeywordHelp.java"]:
+                "quantumforge/input/QEKeywordHelp.java",
+                "quantumforge/hpc/ArraySweepPlanner.java"]:
         text = (SRC / rel).read_text(encoding="utf-8")
         if "class " not in text:
             error(f"{rel} does not declare a type")
