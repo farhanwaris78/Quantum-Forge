@@ -55,13 +55,13 @@ public final class QEPhononFreqParser extends LogParser {
 
     @Override
     public void parse(File file) throws IOException {
-        if (file == null || !file.exists()) {
-            return;
-        }
-
         this.branches.clear();
         this.diagnostics.clear();
-        this.latticeStable = true;
+        this.latticeStable = false;
+        if (file == null || !file.isFile()) {
+            this.diagnostics.add("Phonon frequency file is missing or not a regular file.");
+            return;
+        }
 
         List<double[]> rows = new ArrayList<>();
 
@@ -78,17 +78,25 @@ public final class QEPhononFreqParser extends LogParser {
                     try {
                         double[] row = new double[tokens.length];
                         for (int i = 0; i < tokens.length; i++) {
-                            row[i] = Double.parseDouble(tokens[i]);
+                            row[i] = ScfConvergenceAnalyzer.parseFortranDouble(tokens[i]);
+                            if (!Double.isFinite(row[i])) {
+                                throw new NumberFormatException("non-finite frequency row");
+                            }
+                        }
+                        if (!rows.isEmpty() && row.length != rows.get(0).length) {
+                            this.diagnostics.add("Skipped phonon row with inconsistent branch count: " + trim);
+                            continue;
                         }
                         rows.add(row);
                     } catch (NumberFormatException e) {
-                        // Skip malformed lines
+                        this.diagnostics.add("Skipped malformed phonon row: " + trim);
                     }
                 }
             }
         }
 
         if (rows.isEmpty()) {
+            this.diagnostics.add("No valid q-path/frequency rows were found.");
             return;
         }
 
@@ -119,11 +127,12 @@ public final class QEPhononFreqParser extends LogParser {
 
         if (imaginaryModesCount > 0) {
             this.latticeStable = false;
-            this.diagnostics.add(String.format("Lattice mechanical instability detected: %d unstable imaginary modes found along the q-path.", imaginaryModesCount));
-            this.diagnostics.add(String.format("Maximum imaginary frequency: %.2f i cm-1. Your crystal is not at a global potential minimum; re-run geometry relaxation.", Math.abs(mostImaginaryCm1)));
+            this.diagnostics.add(String.format("Significant imaginary phonon frequencies: %d sampled q-path values below -0.1 cm-1.", imaginaryModesCount));
+            this.diagnostics.add(String.format("Most negative sampled frequency: %.2f cm-1. Check relaxation, acoustic sum rule, q-path/grid, and convergence before assigning a physical instability.", mostImaginaryCm1));
         } else {
             this.latticeStable = true;
-            this.diagnostics.add("Lattice mechanical stability verified: All phonon frequencies along the q-path are positive.");
+            this.diagnostics.add("No significant imaginary frequencies were found on the sampled q-path (tolerance 0.1 cm-1).");
+            this.diagnostics.add("This is not a full Brillouin-zone stability proof; q-grid, ASR, and convergence still require review.");
         }
     }
 }

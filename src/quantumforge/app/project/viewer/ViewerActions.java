@@ -46,6 +46,7 @@ import quantumforge.run.parser.FinalGeometryUpdater;
 import quantumforge.run.parser.QEErrorKnowledgeBase;
 import quantumforge.run.parser.QETimingResourceParser;
 import quantumforge.run.parser.QEPdosParser;
+import quantumforge.run.parser.QEPhononFreqParser;
 import quantumforge.run.parser.ScfConvergenceAnalyzer;
 import quantumforge.run.QECommandDag;
 import quantumforge.run.RunningType;
@@ -188,6 +189,9 @@ public class ViewerActions extends ProjectActions<Node> {
 
             } else if (item == this.itemSet.getPdosItem()) {
                 this.actions.put(item, controller2 -> this.actionInspectPdos(controller2));
+
+            } else if (item == this.itemSet.getPhononItem()) {
+                this.actions.put(item, controller2 -> this.actionInspectPhonons(controller2));
 
             } else if (item == this.itemSet.getXcrysdenItem()) {
                 this.actions.put(item, controller2 -> this.actionXcrysden(controller2));
@@ -469,6 +473,60 @@ public class ViewerActions extends ProjectActions<Node> {
         alert.setTitle("Quantum ESPRESSO band-gap analysis");
         alert.setHeaderText(type == AlertType.WARNING ? "Band gap undetermined" : "Band-gap summary");
         alert.setContentText(message);
+        alert.showAndWait();
+    }
+
+    /** Inspects one explicit matdyn q-path frequency table without claiming full-BZ stability. */
+    private void actionInspectPhonons(QEFXProjectController controller) {
+        if (controller == null || this.project.getDirectory() == null) {
+            showPhonons("No project directory is available for phonon-frequency inspection.", AlertType.WARNING);
+            return;
+        }
+        File[] candidates = this.project.getDirectory().listFiles(file -> file.isFile()
+                && (file.getName().equals("matdyn.freq") || file.getName().endsWith(".freq.gp")
+                || file.getName().endsWith(".freq")));
+        if (candidates == null || candidates.length == 0) {
+            showPhonons("No matdyn frequency file was found. Expected matdyn.freq or *.freq.gp.", AlertType.WARNING);
+            return;
+        }
+        java.util.Arrays.sort(candidates, java.util.Comparator.comparing(File::getName));
+        QEPhononFreqParser parser = new QEPhononFreqParser(this.project.getProperty());
+        try {
+            parser.parse(candidates[0]);
+        } catch (IOException ex) {
+            showPhonons("Could not parse phonon frequencies: " + ex.getMessage(), AlertType.ERROR);
+            return;
+        }
+        if (parser.getBranches().isEmpty()) {
+            showPhonons(String.join("\n", parser.getDiagnostics()), AlertType.WARNING);
+            return;
+        }
+        double min = Double.POSITIVE_INFINITY;
+        double max = Double.NEGATIVE_INFINITY;
+        for (QEPhononFreqParser.PhononBranch branch : parser.getBranches()) {
+            for (double frequency : branch.getFrequencyCm1()) {
+                min = Math.min(min, frequency);
+                max = Math.max(max, frequency);
+            }
+        }
+        StringBuilder message = new StringBuilder();
+        message.append("File: ").append(candidates[0].getName()).append('\n');
+        message.append("Branches: ").append(parser.getBranches().size()).append('\n');
+        message.append(String.format(java.util.Locale.ROOT, "Sampled frequency range: %.4f to %.4f cm-1%n", min, max));
+        message.append("Significant imaginary values: ").append(!parser.isLatticeStable()).append("\n\n");
+        for (String diagnostic : parser.getDiagnostics()) {
+            message.append(diagnostic).append('\n');
+        }
+        showPhonons(message.toString(), parser.isLatticeStable() ? AlertType.INFORMATION : AlertType.WARNING);
+    }
+
+    private void showPhonons(String message, AlertType type) {
+        Alert alert = new Alert(type);
+        alert.setTitle("Phonon frequency inspection");
+        alert.setHeaderText(type == AlertType.WARNING ? "Phonon stability needs review" : "Sampled phonon q-path");
+        alert.setContentText(message);
+        alert.getDialogPane().setPrefWidth(850.0);
+        alert.setResizable(true);
         alert.showAndWait();
     }
 

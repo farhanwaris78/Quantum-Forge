@@ -477,3 +477,11 @@ The **twenty-second** batch fully connects validated PDOS parsing to a read-only
 | 48/49 | **GUI wired Partial** | **Inspect projected DOS** discovers validated `projwfc.x` component files, displays atom/orbital/spin-label metadata, raw emitted energy range, and nonuniform trapezoidal ∫PDOS dE per component. It rejects headerless/ambiguous files and explicitly says the integral is not an electron count without Fermi/occupation convention. |
 | 49 | **Stronger** | `QEPdosParser.integratePdos` validates equal nonuniform grids, finite non-negative density, and strictly increasing energies before integration; a regression test covers a nonuniform grid. |
 | 16 | **Verified** | PDOS viewer wiring and integration have structural/regression checks; static/structural checks and fixtures pass. Full Maven/JUnit remains pending a Java/Maven-enabled runner. |
+
+The **twenty-third** batch connects conservative phonon q-path inspection to the project GUI:
+
+| # | Status after batch 23 | What landed |
+|---:|---|---|
+| 51 | **GUI wired Partial** | **Inspect phonon frequencies** discovers an explicit `matdyn.freq`/`*.freq.gp` file, parses branches, reports sampled range/branch count, and surfaces significant negative sampled frequencies with convergence/ASR/q-grid caveats. It explicitly does not call a sampled path a full-Brillouin-zone stability proof. |
+| 51/16 | **Stronger** | Phonon parsing now resets stale state, fails closed on missing data, accepts Fortran `D` exponents, rejects inconsistent branch-row widths, and has regression coverage for state reset and D notation. |
+| 16 | **Verified** | GUI action wiring, parser tests, static/structural checks, and fixtures pass. Full Maven/JUnit remains pending a Java/Maven-enabled runner. |

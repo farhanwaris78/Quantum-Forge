@@ -32,6 +32,7 @@ public class ViewerItemSet {
     private ViewerItem bandGapItem;
     private ViewerItem finalGeometryItem;
     private ViewerItem pdosItem;
+    private ViewerItem phononItem;
 
     public ViewerItemSet() {
         this.atomsViewerItem = new ViewerItem(SVGData.ATOMS, "Show atoms");
@@ -51,6 +52,7 @@ public class ViewerItemSet {
         this.bandGapItem = new ViewerItem(SVGData.RESULT, "Analyze band gap from QE log");
         this.finalGeometryItem = new ViewerItem(SVGData.ATOMS, "Preview final geometry");
         this.pdosItem = new ViewerItem(SVGData.RESULT, "Inspect projected DOS");
+        this.phononItem = new ViewerItem(SVGData.RESULT, "Inspect phonon frequencies");
         this.xcrysdenItem = new ViewerItem(SVGData.CRYSTAL, "Open in XCrySDen");
     }
 
@@ -72,6 +74,7 @@ public class ViewerItemSet {
                 this.bandGapItem,
                 this.finalGeometryItem,
                 this.pdosItem,
+                this.phononItem,
                 this.exportWorkflowItem,
                 this.xcrysdenItem
         };
@@ -143,6 +146,10 @@ public ViewerItem getSaveAsFileItem() {
 
     public ViewerItem getPdosItem() {
         return this.pdosItem;
+    }
+
+    public ViewerItem getPhononItem() {
+        return this.phononItem;
     }
 
     public ViewerItem getXcrysdenItem() {

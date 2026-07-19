@@ -43,7 +43,21 @@ class QEPhononFreqParserTest {
         assertEquals(241.0, branches.get(1).getFrequencyCm1()[1], 1e-6);
 
         assertTrue(parser.isLatticeStable());
-        assertTrue(parser.getDiagnostics().get(0).contains("stability verified"));
+        assertTrue(parser.getDiagnostics().get(0).contains("No significant imaginary"));
+    }
+
+    @Test
+    void acceptsFortranExponentFrequenciesAndClearsStateForMissingFile() throws IOException {
+        File tempFile = File.createTempFile("matdyn-freq-d", ".freq");
+        try (FileWriter writer = new FileWriter(tempFile)) {
+            writer.write("0.0D+00 1.0D+02 2.0D+02\\n");
+        }
+        QEPhononFreqParser parser = new QEPhononFreqParser(new ProjectProperty());
+        parser.parse(tempFile);
+        assertEquals(2, parser.getBranches().size());
+        parser.parse(new File(tempFile.getParentFile(), "missing.freq"));
+        assertTrue(parser.getBranches().isEmpty());
+        assertFalse(parser.isLatticeStable());
     }
 
     @Test
@@ -62,7 +76,7 @@ class QEPhononFreqParserTest {
         parser.parse(tempFile);
 
         assertFalse(parser.isLatticeStable(), "Lattice must be unstable because of imaginary negative modes");
-        assertTrue(parser.getDiagnostics().get(0).contains("mechanical instability"));
-        assertTrue(parser.getDiagnostics().get(1).contains("re-run geometry relaxation"));
+        assertTrue(parser.getDiagnostics().get(0).contains("Significant imaginary"));
+        assertTrue(parser.getDiagnostics().get(1).contains("Check relaxation"));
     }
 }
