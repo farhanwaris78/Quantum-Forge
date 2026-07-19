@@ -40,6 +40,7 @@ import quantumforge.builder.QEDiffusionBarrierLink;
 import quantumforge.builder.SupercellMatrixValidator;
 import quantumforge.builder.QEThermochemistryMath;
 import quantumforge.builder.ExtXyzCellExporter;
+import quantumforge.builder.PoscarStructureReader;
 import quantumforge.builder.QEConstraintSpec;
 import quantumforge.builder.QEIonicConstraintManager;
 import quantumforge.hpc.ArraySweepPlanner;
@@ -222,7 +223,8 @@ public final class ResultAnalysisService {
         HUBBARD_HP_DRAFT("hp.x input draft (existing DFT+U context required)"),
         TIMING_RESOURCE("pw.x timing/resource table (CPU/WALL per routine)"),
         WORKSPACE_SEARCH("Light workspace catalogue (project dir, status markers)"),
-        TEMPLATE_LIBRARY("Curated workflow templates (with prerequisites/pitfalls)");
+        TEMPLATE_LIBRARY("Curated workflow templates (with prerequisites/pitfalls)"),
+        POSCAR_REVIEW("POSCAR structure review (VASP 4/5, fail-closed parser)");
 
         private final String label;
 
@@ -824,6 +826,9 @@ public final class ResultAnalysisService {
                     || name.endsWith(".out");
         case PHONON_MODE_FRAMES:
             return name.contains("dynmat") || name.contains("modes");
+        case POSCAR_REVIEW:
+            return name.contains("poscar") || name.contains("contcar")
+                    || name.endsWith(".vasp");
         default:
             return false;
         }
@@ -961,6 +966,8 @@ public final class ResultAnalysisService {
                 return analyzeTimingResource(source);
             case SITE_PROFILE_CHECK:
                 return analyzeSiteProfile(source);
+            case POSCAR_REVIEW:
+                return analyzePoscarReview(source);
             default:
                 return failure(kind.getLabel(), "This analysis kind is not implemented.");
             }
@@ -5434,6 +5441,122 @@ public final class ResultAnalysisService {
                 + "universal defaults. ecutwfc/ecutrho/k-mesh/smearing choices must come "
                 + "from your convergence workflows (#36/#37/#38) for the specific "
                 + "material; a template cannot certify a result.");
+        return new AnalysisReport(label, true, text.toString(), csv, null);
+    }
+
+    /**
+     * Roadmap #76: fail-closed POSCAR/CONTCAR review. Nothing is imported into
+     * the project and nothing is written; the parsed geometry is presented for
+     * cross-checking only.
+     */
+    private static AnalysisReport analyzePoscarReview(File source) {
+        String label = AnalysisKind.POSCAR_REVIEW.getLabel();
+        OperationResult<PoscarStructureReader.PoscarStructure> parsed =
+                PoscarStructureReader.parse(source.toPath());
+        if (!parsed.isSuccess() || parsed.getValue().isEmpty()) {
+            return failure(label, "POSCAR review refused the file " + source.getName()
+                    + ":\\n[" + parsed.getCode() + "] " + parsed.getMessage());
+        }
+        PoscarStructureReader.PoscarStructure structure = parsed.getValue().get();
+        double[][] lattice = structure.getLattice();
+        double[][] positions = structure.getPositionsAng();
+        double volume = Math.abs(
+                  lattice[0][0] * (lattice[1][1] * lattice[2][2] - lattice[1][2] * lattice[2][1])
+                - lattice[0][1] * (lattice[1][0] * lattice[2][2] - lattice[1][2] * lattice[2][0])
+                + lattice[0][2] * (lattice[1][0] * lattice[2][1] - lattice[1][1] * lattice[2][0]));
+        double[] lo = {Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY,
+                Double.POSITIVE_INFINITY};
+        double[] hi = {Double.NEGATIVE_INFINITY, Double.NEGATIVE_INFINITY,
+                Double.NEGATIVE_INFINITY};
+        for (double[] pos : positions) {
+            for (int axis = 0; axis < 3; axis++) {
+                lo[axis] = Math.min(lo[axis], pos[axis]);
+                hi[axis] = Math.max(hi[axis], pos[axis]);
+            }
+        }
+        StringBuilder text = new StringBuilder();
+        text.append("File: ").append(source.getName()).append('\n');
+        text.append("Comment line: ").append(structure.getComment()).append("\n\n");
+        if (structure.isVolumeScaled()) {
+            text.append(String.format(Locale.ROOT,
+                    "Scale factor: %s written -> VOLUME-scaled: linear factor (|s|/V_raw)^(1/3)"
+                            + " = %.10f applied to lattice and Cartesian coordinates.%n",
+                    Double.toString(structure.getScaleWritten()), structure.getScaleApplied()));
+        } else {
+            text.append(String.format(Locale.ROOT,
+                    "Scale factor: %s (linear, applied to lattice and Cartesian coordinates).%n",
+                    Double.toString(structure.getScaleWritten())));
+        }
+        text.append(String.format(Locale.ROOT, "%nLattice rows (Angstrom, scale applied):%n"));
+        for (int i = 0; i < 3; i++) {
+            text.append(String.format(Locale.ROOT, "  %18.10f %18.10f %18.10f%n",
+                    lattice[i][0], lattice[i][1], lattice[i][2]));
+        }
+        text.append(String.format(Locale.ROOT, "Cell volume: %.6f Angstrom^3%n%n", volume));
+        text.append(String.format(Locale.ROOT,
+                "Species: %s%n", structure.getSpecies().isEmpty()
+                        ? "ABSENT (VASP 4 layout - the POTCAR order applies and is NOT "
+                                + "knowable from this file)"
+                        : structure.getSpecies().toString()));
+        text.append(String.format(Locale.ROOT,
+                "Counts (in order): %d species, %d atoms total; composition %s%n",
+                structure.getCounts().length, structure.getTotalAtoms(),
+                structure.composition()));
+        text.append(String.format(Locale.ROOT, "Coordinate frame: %s%s%n",
+                structure.isDirectFrame() ? "Direct (fractional)" : "Cartesian (Angstrom)",
+                structure.isSelectiveDynamics() ? ", Selective dynamics ON" : ""));
+        if (structure.getOutOfCellCount() > 0) {
+            text.append(String.format(Locale.ROOT,
+                    "WARNING: %d atom(s) carry DIRECT coordinates outside [0,1) - reported "
+                            + "verbatim, never wrapped.%n",
+                    structure.getOutOfCellCount()));
+        }
+        if (structure.isSelectiveDynamics()) {
+            int fixed = 0;
+            for (boolean flag : structure.getFullyFixed()) {
+                if (flag) {
+                    fixed += 1;
+                }
+            }
+            text.append(String.format(Locale.ROOT,
+                    "Fully fixed atoms (F F F): %d of %d%n", fixed, structure.getTotalAtoms()));
+        }
+        text.append(String.format(Locale.ROOT,
+                "%nCartesian positions (Angstrom) bounding box:%n  min %10.4f %10.4f %10.4f%n"
+                        + "  max %10.4f %10.4f %10.4f%n",
+                lo[0], lo[1], lo[2], hi[0], hi[1], hi[2]));
+        if (structure.getTrailingNote() != null) {
+            text.append('\n').append(structure.getTrailingNote()).append('\n');
+        }
+        text.append("\nHonesty boundary: this is a REVIEW only - the structure was NOT "
+                + "applied to the live project cell, and nothing was written anywhere. "
+                + "Species/group ordering is exactly as written (VASP 4 names stay "
+                + "anonymous); disordered/partial-occupancy sites have no POSCAR encoding "
+                + "and are out of scope; velocities and predictor-corrector blocks are "
+                + "reported but not parsed. Cross-check against ASE/pymatgen "
+                + "(Roadmap #76 acceptance) must precede any production import path.");
+        List<String> csv = new ArrayList<>();
+        csv.add("index,species,x_ang,y_ang,z_ang,fully_fixed");
+        boolean[] fixedFlags = structure.getFullyFixed();
+        int rowLimit = 20000;
+        int atom = 0;
+        int[] counts = structure.getCounts();
+        List<String> species = structure.getSpecies();
+        outer: for (int s = 0; s < counts.length; s++) {
+            String name = s < species.size() ? species.get(s) : ("#" + (s + 1));
+            for (int k = 0; k < counts[s]; k++) {
+                if (atom >= rowLimit) {
+                    csv.add("# truncated at " + rowLimit + " atom rows (cap)");
+                    break outer;
+                }
+                double[] pos = positions[atom];
+                csv.add(String.format(Locale.ROOT, "%d,%s,%.10f,%.10f,%.10f,%s",
+                        atom + 1, csvCell(name), pos[0], pos[1], pos[2],
+                        structure.isSelectiveDynamics()
+                                ? (fixedFlags[atom] ? "F" : "T") : ""));
+                atom += 1;
+            }
+        }
         return new AnalysisReport(label, true, text.toString(), csv, null);
     }
 

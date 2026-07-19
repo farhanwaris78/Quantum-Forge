@@ -2765,4 +2765,59 @@ class ResultAnalysisServiceTest {
         assertTrue(refused.getText().contains("scf-basic"),
                 "The refusal must list the curated set: " + refused.getText());
     }
+
+    @Test
+    void testPoscarReviewKindParsesAndRefuses() throws IOException {
+        File poscar = write("POSCAR_quartz",
+                "SiO2 quartz cell\n"
+                + "1.0\n"
+                + "4.9 0.0 0.0\n"
+                + "-2.45 4.24352 0.0\n"
+                + "0.0 0.0 5.4\n"
+                + "Si O\n"
+                + "1 2\n"
+                + "Direct\n"
+                + "0.0 0.0 0.0\n"
+                + "0.33 0.33 0.33\n"
+                + "0.5 0.5 0.0\n");
+        AnalysisReport report = ResultAnalysisService.analyze(AnalysisKind.POSCAR_REVIEW,
+                new ProjectProperty(), this.tempDir.toFile(), "si", "si.log", poscar,
+                new AnalysisParameters());
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains("SiO2 quartz cell"), report.getText());
+        assertTrue(report.getText().contains("Cell volume: 112.283539"), report.getText());
+        assertTrue(report.getText().contains("composition Si=1,O=2"), report.getText());
+        assertTrue(report.getText().contains("Direct (fractional)"), report.getText());
+        assertTrue(report.getText().contains("REVIEW only"), report.getText());
+        assertTrue(report.getText().contains("NOT applied"), report.getText());
+        assertEquals(4, report.getCsvLines().size(), "header + 3 atoms");
+        assertEquals("2,O,0.8085000000,1.4003616000,1.7820000000,",
+                report.getCsvLines().get(2));
+
+        File vasp4 = write("Fe.vasp",
+                "bcc Fe volume-scaled\n"
+                + "-27.0\n"
+                + "3.0 0.0 0.0\n"
+                + "0.0 3.0 0.0\n"
+                + "0.0 0.0 3.0\n"
+                + "2\n"
+                + "Cartesian\n"
+                + "1.0 1.0 1.0\n"
+                + "2.0 2.0 2.0\n");
+        AnalysisReport scaled = ResultAnalysisService.analyze(AnalysisKind.POSCAR_REVIEW,
+                new ProjectProperty(), this.tempDir.toFile(), "fe", "fe.log", vasp4,
+                new AnalysisParameters());
+        assertTrue(scaled.isSuccess(), scaled.getText());
+        assertTrue(scaled.getText().contains("VOLUME-scaled"), scaled.getText());
+        assertTrue(scaled.getText().contains("= 1.0000000000 applied"), scaled.getText());
+        assertTrue(scaled.getText().contains("ABSENT (VASP 4 layout"), scaled.getText());
+
+        File broken = write("POSCAR_bad",
+                "c\n0.0\n1 0 0\n0 1 0\n0 0 1\nH\n1\nDirect\n0 0 0\n");
+        AnalysisReport refused = ResultAnalysisService.analyze(AnalysisKind.POSCAR_REVIEW,
+                new ProjectProperty(), this.tempDir.toFile(), "h", "h.log", broken,
+                new AnalysisParameters());
+        assertFalse(refused.isSuccess(), "A zero scale factor must fail closed");
+        assertTrue(refused.getText().contains("[POSCAR_SCALE]"), refused.getText());
+    }
 }
