@@ -88,11 +88,115 @@ def check_file(path: Path, source_root: Path) -> None:
         error(f"public type {public.group(1)} != file {path.name}")
 
 
+def build_type_index(files):
+    """Maps repo simple type names (top-level and nested) to (package, owner) tuples.
+
+    Nested types are registered both on their own name and are considered
+    accessible when their top-level owner is accessible (Outer.Inner usage).
+    """
+    index: dict[str, list[tuple[str, str | None]]] = {}
+    for path in files:
+        root = SRC if SRC in path.parents else TESTS
+        rel = path.relative_to(root).with_suffix("")
+        package = ".".join(rel.parent.parts)
+        raw = path.read_text(encoding="utf-8", errors="replace")
+        text = strip_strings_and_comments(raw)
+        top = None
+        for match in re.finditer(r"(?:^|[}\s])(?:class|interface|enum|record)\s+([A-Za-z_][A-Za-z0-9_]*)", text):
+            name = match.group(1)
+            if top is None:
+                top = name
+                owner = None
+            else:
+                owner = top
+            index.setdefault(name, []).append((package, owner))
+        if top is None:
+            index.setdefault(path.stem, []).append((package, None))
+    return index
+
+
+def check_repo_type_imports(files, index):
+    """Flags references to same-repository types that are not imported or otherwise
+    accessible. External (JDK/JavaFX/third-party) types cannot be resolved without
+    javac and are intentionally skipped.
+
+    A name is accessible when any of these holds:
+      * the file itself declares it (top-level or nested);
+      * it lives in the same package;
+      * it is imported exactly, or via a wildcard import of its package;
+      * it is a nested type whose top-level owner is accessible by these rules;
+      * an explicit non-repo import shadows the simple name.
+    """
+    java_lang = {
+        "Boolean", "Byte", "Character", "Class", "Double", "Enum", "Exception",
+        "Float", "IllegalArgumentException", "IllegalStateException", "Integer",
+        "InterruptedException", "Long", "Math", "NullPointerException", "Number",
+        "NumberFormatException", "Object", "Override", "RuntimeException",
+        "Short", "String", "StringBuilder", "SuppressWarnings", "System",
+        "Thread", "Throwable", "Void",
+    }
+    for path in files:
+        root = SRC if SRC in path.parents else TESTS
+        package = ".".join(path.relative_to(root).parent.parts)
+        raw = path.read_text(encoding="utf-8", errors="replace")
+        text = strip_strings_and_comments(raw)
+
+        own_names = set(re.findall(r"(?:class|interface|enum|record)\s+([A-Za-z_][A-Za-z0-9_]*)", text))
+        exact_imports: set[str] = set()
+        wildcard_packages: set[str] = set()
+        for imp in re.findall(r"(?m)^import\s+(?:static\s+)?([\w.]+?)(\.\*)?;", text):
+            target, star = imp
+            if star:
+                wildcard_packages.add(target)
+            else:
+                exact_imports.add(target.rsplit(".", 1)[-1])
+
+        # Inline fully-qualified uses (parseTree.Java types embedded in code)
+        # need no import; remove them before token scanning.
+        code = re.sub(r"\bquantumforge(?:\.[A-Za-z_]\w*)+", " ", text)
+        code = re.sub(r"(?m)^\s*(?:import|package)\s+[\w.]+\s*;.*$", " ", code)
+
+        declared = own_names | {path.stem}
+
+        def accessible(name: str, depth: int = 0) -> bool:
+            if name in declared or name in exact_imports or name in java_lang:
+                return True
+            entries = index.get(name)
+            if not entries:
+                return True  # external type: cannot verify here
+            for pkg, owner in entries:
+                if pkg == package or pkg in wildcard_packages:
+                    return True
+            if depth < 1:
+                for pkg, owner in entries:
+                    if owner and accessible(owner, depth + 1):
+                        return True
+            return False
+
+        for token in set(re.findall(r"\b([A-Z][A-Za-z0-9_]{2,})\b", code)):
+            entries = index.get(token)
+            if not entries:
+                continue  # not a repo type; JDK/JavaFX names are unverifiable here
+            # Dot-qualified member uses (Outer.Inner, Map.Entry, FQN chains) are
+            # resolved through their owner; only standalone uses need an import.
+            if all(m.start() > 0 and code[m.start() - 1] == "."
+                   for m in re.finditer(rf"(?<![\w]){re.escape(token)}\b", code)):
+                continue
+            if not accessible(token):
+                locations = ", ".join(sorted({pkg for pkg, _ in entries}))
+                error(
+                    f"{path.relative_to(ROOT)} references repository type '{token}' "
+                    f"(declared in {locations}) without an import or same-package access"
+                )
+
+
 def main() -> int:
     files = list(SRC.rglob("*.java")) + list(TESTS.rglob("*.java"))
+    type_index = build_type_index(files)
     for path in files:
         root = SRC if SRC in path.parents else TESTS
         check_file(path, root)
+    check_repo_type_imports(files, type_index)
 
     project = (SRC / "quantumforge/project/Project.java").read_text(encoding="utf-8")
     if "exportQEInputsTo" not in project:
@@ -156,8 +260,25 @@ def main() -> int:
             or "actionValidateInput" not in actions or "actionDiagnoseLog" not in actions
             or "actionAnalyzeBandGap" not in actions or "actionPreviewFinalGeometry" not in actions
             or "actionInspectPdos" not in actions or "actionInspectPhonons" not in actions
-            or "actionInspectSpectra" not in actions or "actionDensityDifference" not in actions):
-        error("ViewerActions missing required export, validation, diagnosis, band-gap, geometry-preview, PDOS, phonon, spectra, or density actions")
+            or "actionInspectSpectra" not in actions or "actionDensityDifference" not in actions
+            or "actionAnalyzeResults" not in actions):
+        error("ViewerActions missing required export, validation, diagnosis, band-gap, geometry-preview, PDOS, phonon, spectra, density, or result-analysis actions")
+    for rel in [
+        "quantumforge/run/ResultAnalysisService.java",
+        "quantumforge/app/project/viewer/analysis/AnalysisAction.java",
+    ]:
+        text = (SRC / rel).read_text(encoding="utf-8")
+        if "class " not in text and "enum " not in text:
+            error(f"{rel} does not declare a type")
+    service = (SRC / "quantumforge/run/ResultAnalysisService.java").read_text(encoding="utf-8")
+    for token in ["QEBandsDataParser", "QEMagneticMomentParser", "QEBornChargeDielectricParser",
+                  "QEHubbardHpParser", "QETurboSpectrumParser", "QEXSpectraXanesParser",
+                  "QEGipawNmrParser", "QEPwcondConductanceParser", "QEWannier90SpreadParser",
+                  "QEThermoPwEosParser", "QEPhono3pyKappaParser", "QEEliashbergTcCalculator",
+                  "QEPpChargePotentialBuilder", "QEPpWavefunctionBuilder",
+                  "QEAcousticSumRuleValidator"]:
+        if token not in service:
+            error(f"ResultAnalysisService is not bound to {token}")
     node = (SRC / "quantumforge/run/RunningNode.java").read_text(encoding="utf-8")
     if "DryRunPreflight" not in node or "ArtifactScanner" not in node or "QECommandDag" not in node:
         error("RunningNode is not wired to dry-run/DAG/artifact scanning")

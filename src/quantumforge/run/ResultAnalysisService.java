@@ -1,0 +1,815 @@
+/*
+ * Copyright (C) 2025-2026 QuantumForge Development Team.
+ */
+
+package quantumforge.run;
+
+import java.io.File;
+import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Locale;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+import quantumforge.input.QEPpChargePotentialBuilder;
+import quantumforge.input.QEPpWavefunctionBuilder;
+import quantumforge.project.property.ProjectEnergies;
+import quantumforge.project.property.ProjectProperty;
+import quantumforge.run.parser.QEAcousticSumRuleValidator;
+import quantumforge.run.parser.QEBandsDataParser;
+import quantumforge.run.parser.QEBornChargeDielectricParser;
+import quantumforge.run.parser.QEEliashbergTcCalculator;
+import quantumforge.run.parser.QEGipawNmrParser;
+import quantumforge.run.parser.QEHubbardHpParser;
+import quantumforge.run.parser.QEMagneticMomentParser;
+import quantumforge.run.parser.QEPhono3pyKappaParser;
+import quantumforge.run.parser.QEPwcondConductanceParser;
+import quantumforge.run.parser.QEThermoPwEosParser;
+import quantumforge.run.parser.QETurboSpectrumParser;
+import quantumforge.run.parser.QEWannier90SpreadParser;
+import quantumforge.run.parser.QEXSpectraXanesParser;
+
+/**
+ * Deterministic, read-only result-analysis service bound to existing, individually
+ * tested parser backends (roadmap items 46, 55, 58, 59, 61, 63, 64, 65, 66, 68,
+ * 69, 106, 108, and 165). This class owns no process execution and writes nothing:
+ * produced reports are returned to the caller (GUI or CLI) which decides what to
+ * persist. Every report states units, source-file provenance, and the analysis'
+ * limitations instead of presenting parsed numbers as validation evidence.
+ */
+public final class ResultAnalysisService {
+
+    /** Maximum number of bytes read when scanning a log for the Fermi energy. */
+    private static final long LOG_SCAN_BYTES = 2L * 1024L * 1024L;
+
+    private static final Pattern FERMI_LINE = Pattern.compile(
+            "the\\s+Fermi\\s+energy\\s+is\\s+([-+0-9.DdEe]+)\\s+ev", Pattern.CASE_INSENSITIVE);
+
+    /**
+     * Result-analysis kinds exposed through the project viewer. Labels are shown
+     * to the user; every kind maps to a tested parser or input builder.
+     */
+    public enum AnalysisKind {
+        BANDS_DATA("Band structure data (bands.x)"),
+        PP_CHARGE_INPUT("pp.x charge-density input preview"),
+        PP_POTENTIAL_INPUT("pp.x electrostatic-potential input preview"),
+        PP_WAVEFUNCTION_INPUT("pp.x wavefunction input preview"),
+        MAGNETIZATION("Magnetization from pw.x log"),
+        BORN_DIELECTRIC("Born charges and dielectric tensor"),
+        HUBBARD_HP("Hubbard U from hp.x output"),
+        TDDFT_SPECTRUM("TDDFT dipole spectrum"),
+        XANES("XANES cross section"),
+        NMR_SHIELDING("NMR (GIPAW) shielding tensors"),
+        PWCOND_TRANSMISSION("PWcond transmission"),
+        WANNIER90_SPREAD("Wannier90 spread convergence"),
+        THERMOPW_EOS("thermo_pw equation of state"),
+        PHONO3PY_KAPPA("phono3py lattice thermal conductivity"),
+        ELIASHBERG_TC("Allen-Dynes Tc from alpha2F");
+
+        private final String label;
+
+        AnalysisKind(String label) {
+            this.label = label;
+        }
+
+        public String getLabel() {
+            return this.label;
+        }
+
+        /** Human-readable label for GUI selection lists. */
+        @Override
+        public String toString() {
+            return this.label;
+        }
+
+        /** True when this kind normally reads the primary pw.x project log. */
+        public boolean usesProjectLog() {
+            return this == MAGNETIZATION || this == BORN_DIELECTRIC || this == THERMOPW_EOS;
+        }
+
+        /** True when the analysis synthesizes a pp.x input instead of parsing output. */
+        public boolean isInputPreview() {
+            return this == PP_CHARGE_INPUT || this == PP_POTENTIAL_INPUT || this == PP_WAVEFUNCTION_INPUT;
+        }
+    }
+
+    /** Optional, explicitly supplied analysis parameters. Defaults stay physical. */
+    public static final class AnalysisParameters {
+        private double fermiEv = Double.NaN;
+        private int kpointIndex = 1;
+        private int bandIndex = 1;
+        private int spinComponent = 0;
+        private boolean lsign = false;
+        private double muStar = 0.10;
+
+        public double getFermiEv() { return this.fermiEv; }
+        public int getKpointIndex() { return this.kpointIndex; }
+        public int getBandIndex() { return this.bandIndex; }
+        public int getSpinComponent() { return this.spinComponent; }
+        public boolean isLsign() { return this.lsign; }
+        public double getMuStar() { return this.muStar; }
+
+        public AnalysisParameters withFermiEv(double value) { this.fermiEv = value; return this; }
+        public AnalysisParameters withKpointIndex(int value) { this.kpointIndex = value; return this; }
+        public AnalysisParameters withBandIndex(int value) { this.bandIndex = value; return this; }
+        public AnalysisParameters withSpinComponent(int value) { this.spinComponent = value; return this; }
+        public AnalysisParameters withLsign(boolean value) { this.lsign = value; return this; }
+        public AnalysisParameters withMuStar(double value) { this.muStar = value; return this; }
+    }
+
+    /** A completed, self-describing analysis result. */
+    public static final class AnalysisReport {
+        private final String title;
+        private final boolean success;
+        private final String text;
+        private final List<String> csvLines;
+        private final String generatedInput;
+
+        public AnalysisReport(String title, boolean success, String text,
+                              List<String> csvLines, String generatedInput) {
+            this.title = title == null ? "Result analysis" : title;
+            this.success = success;
+            this.text = text == null ? "" : text;
+            this.csvLines = csvLines == null ? List.of() : List.copyOf(csvLines);
+            this.generatedInput = generatedInput;
+        }
+
+        public String getTitle() { return this.title; }
+        public boolean isSuccess() { return this.success; }
+        public String getText() { return this.text; }
+        public List<String> getCsvLines() { return this.csvLines; }
+        public String getGeneratedInput() { return this.generatedInput; }
+        public boolean hasCsv() { return !this.csvLines.isEmpty(); }
+    }
+
+    private ResultAnalysisService() {
+        // Service class.
+    }
+
+    /**
+     * Finds bounded candidate files for an analysis kind inside the project
+     * directory. Discovery is name-based and conservative: a wrong candidate is
+     * rejected again later by the parser itself, so nothing is silently analyzed.
+     */
+    public static List<File> discover(AnalysisKind kind, File projectDir, String logFileName) {
+        List<File> candidates = new ArrayList<>();
+        if (kind == null || projectDir == null || !projectDir.isDirectory()) {
+            return candidates;
+        }
+
+        if (kind.usesProjectLog() && logFileName != null && !logFileName.isBlank()) {
+            File log = new File(projectDir, logFileName);
+            if (log.isFile()) {
+                candidates.add(log);
+            }
+        }
+
+        File[] files = projectDir.listFiles(File::isFile);
+        if (files == null) {
+            return candidates;
+        }
+        Arrays.sort(files, Comparator.comparing(File::getName));
+        for (File file : files) {
+            if (candidates.contains(file)) {
+                continue;
+            }
+            if (matches(kind, file.getName().toLowerCase(Locale.ROOT))) {
+                candidates.add(file);
+            }
+        }
+        return candidates;
+    }
+
+    /** Lowercased filename matching, one place per analysis kind. */
+    private static boolean matches(AnalysisKind kind, String name) {
+        switch (kind) {
+        case BANDS_DATA:
+            return name.endsWith(".dat.gnu") || (name.startsWith("bands") && name.endsWith(".dat"));
+        case HUBBARD_HP:
+            return name.contains("hp") && (name.endsWith(".out") || name.endsWith(".log"));
+        case TDDFT_SPECTRUM:
+            return name.contains("plot_chi") || name.contains("turbospectrum")
+                    || (name.contains("chi") && name.endsWith(".dat"));
+        case XANES:
+            return name.contains("xanes") || name.endsWith(".xmu");
+        case NMR_SHIELDING:
+            return name.contains("gipaw") && (name.endsWith(".out") || name.endsWith(".log"));
+        case PWCOND_TRANSMISSION:
+            return name.contains("pwcond") || name.contains("trans") || name.contains("conductance");
+        case WANNIER90_SPREAD:
+            return name.endsWith(".wout");
+        case THERMOPW_EOS:
+            return name.contains("eos") || name.contains("thermo");
+        case PHONO3PY_KAPPA:
+            return name.startsWith("kappa") || name.contains("thermal_conductivity");
+        case ELIASHBERG_TC:
+            return name.endsWith(".a2f") || name.contains("alpha2f") || name.contains("a2f");
+        default:
+            return false;
+        }
+    }
+
+    /**
+     * Runs one analysis. The caller passes an already-resolved file when the
+     * discovery list was presented to the user; otherwise the first discovered
+     * candidate is used. No file is ever created or modified here.
+     */
+    public static AnalysisReport analyze(AnalysisKind kind, ProjectProperty property,
+            File projectDir, String prefix, String logFileName, File file, AnalysisParameters parameters) {
+        if (kind == null) {
+            return failure("Result analysis", "No analysis type was selected.");
+        }
+        if (property == null) {
+            return failure(kind.getLabel(), "Project property data is unavailable.");
+        }
+        AnalysisParameters params = parameters == null ? new AnalysisParameters() : parameters;
+
+        if (kind.isInputPreview()) {
+            return analyzeInputPreview(kind, prefix, projectDir, params);
+        }
+
+        File source = file != null ? file : firstCandidate(kind, projectDir, logFileName);
+        if (source == null || !source.isFile()) {
+            return failure(kind.getLabel(), "No usable data file was found for '"
+                    + kind.getLabel() + "'.\nLooked in the project directory for the standard "
+                    + "names of this analysis; pass the file explicitly if your engine named "
+                    + "it differently.");
+        }
+
+        try {
+            switch (kind) {
+            case BANDS_DATA:
+                return analyzeBands(property, projectDir, logFileName, source, params);
+            case MAGNETIZATION:
+                return analyzeMagnetization(property, source);
+            case BORN_DIELECTRIC:
+                return analyzeBornDielectric(property, source);
+            case HUBBARD_HP:
+                return analyzeHubbard(property, source);
+            case TDDFT_SPECTRUM:
+                return analyzeTddft(property, source);
+            case XANES:
+                return analyzeXanes(property, source);
+            case NMR_SHIELDING:
+                return analyzeNmr(property, source);
+            case PWCOND_TRANSMISSION:
+                return analyzePwcond(property, source);
+            case WANNIER90_SPREAD:
+                return analyzeWannier90(property, source);
+            case THERMOPW_EOS:
+                return analyzeEos(property, source);
+            case PHONO3PY_KAPPA:
+                return analyzeKappa(property, source);
+            case ELIASHBERG_TC:
+                return analyzeTc(property, source, params);
+            default:
+                return failure(kind.getLabel(), "This analysis kind is not implemented.");
+            }
+        } catch (IOException | RuntimeException ex) {
+            return failure(kind.getLabel(), "Analysis of " + source.getName()
+                    + " failed closed: " + ex.getMessage());
+        }
+    }
+
+    private static File firstCandidate(AnalysisKind kind, File projectDir, String logFileName) {
+        List<File> candidates = discover(kind, projectDir, logFileName);
+        return candidates.isEmpty() ? null : candidates.get(0);
+    }
+
+    private static AnalysisReport failure(String title, String message) {
+        return new AnalysisReport(title, false, message, List.of(), null);
+    }
+
+    private static AnalysisReport analyzeBands(ProjectProperty property, File projectDir,
+            String logFileName, File source, AnalysisParameters params) throws IOException {
+        FermiReference fermi = resolveFermi(property, projectDir, logFileName, params.getFermiEv());
+        QEBandsDataParser parser = new QEBandsDataParser(property);
+        parser.parseWithFermi(source, fermi.valueEv);
+        List<QEBandsDataParser.Band> bands = parser.getBands();
+        if (bands.isEmpty()) {
+            String diagnostics = parser.getDiagnostics().isEmpty()
+                    ? "No monotonic band blocks were parsed." : String.join("\n", parser.getDiagnostics());
+            return failure(AnalysisKind.BANDS_DATA.getLabel(), "Band parsing produced no bands in "
+                    + source.getName() + ":\n" + diagnostics);
+        }
+        double minE = Double.POSITIVE_INFINITY;
+        double maxE = Double.NEGATIVE_INFINITY;
+        int kPoints = 0;
+        List<String> csv = new ArrayList<>();
+        csv.add("band_index,k_distance,dE_minus_reference_eV");
+        for (int b = 0; b < bands.size(); b++) {
+            QEBandsDataParser.Band band = bands.get(b);
+            kPoints = Math.max(kPoints, band.size());
+            double[] ks = band.getKDistance();
+            double[] es = band.getEnergyEv();
+            for (int i = 0; i < band.size(); i++) {
+                minE = Math.min(minE, es[i]);
+                maxE = Math.max(maxE, es[i]);
+                csv.add(String.format(Locale.ROOT, "%d,%.8f,%.8f", b + 1, ks[i], es[i]));
+            }
+        }
+        StringBuilder text = new StringBuilder();
+        text.append("Source: ").append(source.getName()).append('\n');
+        text.append("Bands: ").append(bands.size()).append("; max k-points per band: ")
+                .append(kPoints).append('\n');
+        text.append("Energy reference: ").append(fermi.description).append('\n');
+        text.append(String.format(Locale.ROOT,
+                "Energy range after referencing: %.6f to %.6f eV%n%n", minE, maxE));
+        if (!parser.getDiagnostics().isEmpty()) {
+            text.append("Parser notes:\n");
+            for (String diagnostic : parser.getDiagnostics()) {
+                text.append(" - ").append(diagnostic).append('\n');
+            }
+            text.append('\n');
+        }
+        text.append("Inspection only: no gap/directness claim is made from a path plot; "
+                + "verify occupations and k-mesh convergence for quantitative use.");
+        return new AnalysisReport(AnalysisKind.BANDS_DATA.getLabel(), true, text.toString(), csv, null);
+    }
+
+    /** Fermi energy is taken from the explicit override, stored property values, or a read-only log scan. */
+    private static final class FermiReference {
+        private final double valueEv;
+        private final String description;
+
+        FermiReference(double valueEv, String description) {
+            this.valueEv = valueEv;
+            this.description = description;
+        }
+    }
+
+    private static FermiReference resolveFermi(ProjectProperty property, File projectDir,
+            String logFileName, double explicitEv) {
+        if (Double.isFinite(explicitEv)) {
+            return new FermiReference(explicitEv, String.format(Locale.ROOT,
+                    "%.6f eV (explicitly provided for this analysis)", explicitEv));
+        }
+        if (property != null) {
+            ProjectEnergies stored = property.getFermiEnergies();
+            if (stored != null && stored.numEnergies() > 0) {
+                double value = stored.getEnergy(stored.numEnergies() - 1);
+                if (Double.isFinite(value)) {
+                    return new FermiReference(value, String.format(Locale.ROOT,
+                            "%.6f eV (last Fermi energy stored by an earlier result parse)", value));
+                }
+            }
+        }
+        if (projectDir != null && logFileName != null) {
+            File log = new File(projectDir, logFileName);
+            if (log.isFile()) {
+                try {
+                    String tail = readTailUtf8(log.toPath(), LOG_SCAN_BYTES);
+                    String found = null;
+                    Matcher matcher = FERMI_LINE.matcher(tail);
+                    while (matcher.find()) {
+                        found = matcher.group(1);
+                    }
+                    if (found != null) {
+                        double value = Double.parseDouble(normalizeExponent(found));
+                        return new FermiReference(value, String.format(Locale.ROOT,
+                                "%.6f eV (last 'Fermi energy' line in the project log tail)", value));
+                    }
+                } catch (IOException | RuntimeException ignored) {
+                    // Fall through to the unreferenced default below.
+                }
+            }
+        }
+        return new FermiReference(0.0,
+                "0.0 (no stored Fermi energy was found; columns contain raw bands.x energies)");
+    }
+
+    static String normalizeExponent(String token) {
+        return token == null ? "" : token.replace('D', 'E').replace('d', 'E');
+    }
+
+    static String readTailUtf8(Path path, long maximumBytes) throws IOException {
+        long size = Files.size(path);
+        long start = Math.max(0L, size - maximumBytes);
+        int count = (int) (size - start);
+        ByteBuffer bytes = ByteBuffer.allocate(count);
+        try (FileChannel channel = FileChannel.open(path, StandardOpenOption.READ)) {
+            channel.position(start);
+            while (bytes.hasRemaining() && channel.read(bytes) >= 0) {
+                // Read until EOF or the requested bounded tail.
+            }
+        }
+        String text = StandardCharsets.UTF_8.decode((ByteBuffer) bytes.flip()).toString();
+        if (start > 0L) {
+            int firstNewline = text.indexOf('\n');
+            text = firstNewline >= 0 ? text.substring(firstNewline + 1) : "";
+        }
+        return text;
+    }
+
+    private static AnalysisReport analyzeMagnetization(ProjectProperty property, File source)
+            throws IOException {
+        QEMagneticMomentParser parser = new QEMagneticMomentParser(property);
+        parser.parse(source);
+        List<QEMagneticMomentParser.AtomicMoment> moments = parser.getAtomicMoments();
+        if (moments.isEmpty() && parser.getTotalMagnetizationBohr() == 0.0
+                && parser.getAbsoluteMagnetizationBohr() == 0.0) {
+            return failure(AnalysisKind.MAGNETIZATION.getLabel(),
+                    "No magnetization records were found in " + source.getName()
+                    + ". Confirm the calculation used spin polarization (nspin>=2 or noncollinear).");
+        }
+        double[] vector = parser.getTotalMagnetizationVector();
+        StringBuilder text = new StringBuilder();
+        text.append("Source: ").append(source.getName()).append('\n');
+        text.append("Noncollinear output detected: ").append(parser.isNoncollinear()).append('\n');
+        text.append(String.format(Locale.ROOT,
+                "Total magnetization: %.5f Bohr mag/cell; absolute: %.5f Bohr mag/cell%n",
+                parser.getTotalMagnetizationBohr(), parser.getAbsoluteMagnetizationBohr()));
+        text.append(String.format(Locale.ROOT,
+                "Total magnetization vector: [%.5f, %.5f, %.5f] Bohr mag/cell%n%n",
+                vector[0], vector[1], vector[2]));
+        List<String> csv = new ArrayList<>();
+        csv.add("atom_index,mx_bohr_mag,my_bohr_mag,mz_bohr_mag,magnitude");
+        int limit = Math.min(moments.size(), 100);
+        for (int i = 0; i < limit; i++) {
+            QEMagneticMomentParser.AtomicMoment moment = moments.get(i);
+            text.append(String.format(Locale.ROOT, "atom %3d local moment: [% .5f % .5f % .5f]%n",
+                    moment.getAtomIndex(), moment.getMx(), moment.getMy(), moment.getMz()));
+            csv.add(String.format(Locale.ROOT, "%d,%.6f,%.6f,%.6f,%.6f", moment.getAtomIndex(),
+                    moment.getMx(), moment.getMy(), moment.getMz(), moment.getMagnitude()));
+        }
+        if (moments.size() > limit) {
+            text.append("Only the first ").append(limit).append(" atomic moments are shown.\n");
+        }
+        text.append("\nValues are raw pw.x records; ordering follows the log, and a converged "
+                + "magnetic state is not implied by successful parsing.");
+        return new AnalysisReport(AnalysisKind.MAGNETIZATION.getLabel(), true,
+                text.toString(), csv, null);
+    }
+
+    private static AnalysisReport analyzeBornDielectric(ProjectProperty property, File source)
+            throws IOException {
+        QEBornChargeDielectricParser parser = new QEBornChargeDielectricParser(property);
+        parser.parse(source);
+        QEAcousticSumRuleValidator asr = new QEAcousticSumRuleValidator(property);
+        asr.parse(source);
+        List<QEBornChargeDielectricParser.BornCharge> charges = parser.getBornCharges();
+        double[][] dielectric = parser.getDielectricTensor();
+        if (charges.isEmpty() && dielectric == null) {
+            return failure(AnalysisKind.BORN_DIELECTRIC.getLabel(),
+                    "No Born effective-charge or dielectric blocks were found in "
+                    + source.getName() + ". These tensors require a DFPT (ph.x eps=.true.) route.");
+        }
+        StringBuilder text = new StringBuilder();
+        text.append("Source: ").append(source.getName()).append('\n');
+        if (dielectric != null) {
+            text.append("Electronic dielectric tensor (dimensionless):\n");
+            appendMatrix(text, dielectric);
+        }
+        text.append("Born effective-charge tensors: ").append(charges.size()).append('\n');
+        List<String> csv = new ArrayList<>();
+        csv.add("atom_index,z_xx,z_xy,z_xz,z_yx,z_yy,z_yz,z_zx,z_zy,z_zz");
+        for (QEBornChargeDielectricParser.BornCharge charge : charges) {
+            double[][] t = charge.getTensor();
+            text.append("atom ").append(charge.getAtomIndex()).append(":\n");
+            appendMatrix(text, t);
+            csv.add(String.format(Locale.ROOT, "%d,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f",
+                    charge.getAtomIndex(), t[0][0], t[0][1], t[0][2], t[1][0], t[1][1], t[1][2],
+                    t[2][0], t[2][1], t[2][2]));
+        }
+        text.append("\nBorn-charge acoustic sum rule satisfied: ")
+                .append(parser.isAcsrPassed()).append('\n');
+        text.append("Gamma acoustic-mode sum rule satisfied: ")
+                .append(asr.isAsrCompliant()).append('\n');
+        for (String diagnostic : parser.getDiagnostics()) {
+            text.append(" - ").append(diagnostic).append('\n');
+        }
+        text.append("\nTensor values are engine-unit records with symmetry/sum-rule checks; "
+                + "they are not a substitute for k/q-mesh convergence evidence.");
+        boolean ok = parser.isAcsrPassed() && (!charges.isEmpty() || dielectric != null);
+        return new AnalysisReport(AnalysisKind.BORN_DIELECTRIC.getLabel(), ok,
+                text.toString(), csv, null);
+    }
+
+    private static void appendMatrix(StringBuilder text, double[][] matrix) {
+        for (double[] row : matrix) {
+            text.append(String.format(Locale.ROOT, "   [% .5f % .5f % .5f]%n", row[0], row[1], row[2]));
+        }
+    }
+
+    private static AnalysisReport analyzeHubbard(ProjectProperty property, File source)
+            throws IOException {
+        QEHubbardHpParser parser = new QEHubbardHpParser(property);
+        parser.parse(source);
+        List<QEHubbardHpParser.ParsedHubbardU> values = parser.getParsedParameters();
+        if (values.isEmpty()) {
+            return failure(AnalysisKind.HUBBARD_HP.getLabel(),
+                    "No 'Hubbard U for atom ...' records were found in " + source.getName()
+                    + ". Run hp.x (linear response) first and keep its standard output.");
+        }
+        StringBuilder text = new StringBuilder();
+        text.append("Source: ").append(source.getName()).append('\n');
+        List<String> csv = new ArrayList<>();
+        csv.add("atom_index,element,shell,u_ev");
+        for (QEHubbardHpParser.ParsedHubbardU value : values) {
+            text.append(String.format(Locale.ROOT, "atom %d (%s, %s shell): U = %.4f eV%n",
+                    value.getAtomIndex(), value.getElement(), value.getShell(), value.getUValueEv()));
+            csv.add(String.format(Locale.ROOT, "%d,%s,%s,%.6f", value.getAtomIndex(),
+                    value.getElement(), value.getShell(), value.getUValueEv()));
+        }
+        String card = parser.generateHubbardCard();
+        if (!card.isEmpty()) {
+            text.append("\nSuggested HUBBARD card for subsequent pw.x runs (review before use):\n")
+                    .append(card);
+        }
+        text.append("\nU values apply to the same structure/pseudopotential/projector set; "
+                + "self-consistent U iteration history is reported by hp.x, not inferred here.");
+        return new AnalysisReport(AnalysisKind.HUBBARD_HP.getLabel(), true,
+                text.toString(), csv, null);
+    }
+
+    private static AnalysisReport analyzeTddft(ProjectProperty property, File source)
+            throws IOException {
+        QETurboSpectrumParser parser = new QETurboSpectrumParser(property);
+        parser.parse(source);
+        List<QETurboSpectrumParser.SpectrumPoint> points = parser.getSpectrumPoints();
+        if (points.isEmpty()) {
+            return failure(AnalysisKind.TDDFT_SPECTRUM.getLabel(),
+                    "No turboSpectrum chi data rows were found in " + source.getName() + ".");
+        }
+        int peak = 0;
+        for (int i = 1; i < points.size(); i++) {
+            if (points.get(i).getIsotropicAbsorption() > points.get(peak).getIsotropicAbsorption()) {
+                peak = i;
+            }
+        }
+        StringBuilder text = new StringBuilder();
+        text.append("Source: ").append(source.getName()).append('\n');
+        text.append("Spectrum points: ").append(points.size()).append('\n');
+        text.append(String.format(Locale.ROOT, "Energy range: %.5f to %.5f eV%n",
+                points.get(0).getEnergyEv(), points.get(points.size() - 1).getEnergyEv()));
+        text.append(String.format(Locale.ROOT,
+                "Largest isotropic absorption at %.5f eV (Im alpha average = %.6g)%n%n",
+                points.get(peak).getEnergyEv(), points.get(peak).getIsotropicAbsorption()));
+        List<String> csv = new ArrayList<>();
+        csv.add("energy_ev,im_alpha_xx,im_alpha_yy,im_alpha_zz,isotropic_absorption");
+        for (QETurboSpectrumParser.SpectrumPoint point : points) {
+            csv.add(String.format(Locale.ROOT, "%.6f,%.8g,%.8g,%.8g,%.8g", point.getEnergyEv(),
+                    point.getImAlphaXx(), point.getImAlphaYy(), point.getImAlphaZz(),
+                    point.getIsotropicAbsorption()));
+        }
+        text.append("Raw turbo_lanczos/turbo_spectrum data are shown without extra broadening; "
+                + "convergence with Lanczos iterations and empty states remains your responsibility.");
+        return new AnalysisReport(AnalysisKind.TDDFT_SPECTRUM.getLabel(), true,
+                text.toString(), csv, null);
+    }
+
+    private static AnalysisReport analyzeXanes(ProjectProperty property, File source)
+            throws IOException {
+        QEXSpectraXanesParser parser = new QEXSpectraXanesParser(property);
+        parser.parse(source);
+        List<QEXSpectraXanesParser.XanesPoint> points = parser.getSpectrum();
+        if (points.isEmpty()) {
+            return failure(AnalysisKind.XANES.getLabel(),
+                    "No two-column XANES (energy, sigma) rows were found in " + source.getName() + ".");
+        }
+        int peak = 0;
+        for (int i = 1; i < points.size(); i++) {
+            if (points.get(i).getCrossSectionMb() > points.get(peak).getCrossSectionMb()) {
+                peak = i;
+            }
+        }
+        StringBuilder text = new StringBuilder();
+        text.append("Source: ").append(source.getName()).append('\n');
+        text.append("Spectrum points: ").append(points.size()).append('\n');
+        text.append(String.format(Locale.ROOT,
+                "Edge peak at %.5f eV with sigma = %.6g Mb%n%n",
+                points.get(peak).getEnergyEv(), points.get(peak).getCrossSectionMb()));
+        List<String> csv = new ArrayList<>();
+        csv.add("energy_ev,sigma_mb");
+        for (QEXSpectraXanesParser.XanesPoint point : points) {
+            csv.add(String.format(Locale.ROOT, "%.6f,%.8g", point.getEnergyEv(),
+                    point.getCrossSectionMb()));
+        }
+        text.append("Cross sections are raw xspectra.x values; polarization, broadening, and "
+                + "core-hole convergence choices remain under user control.");
+        return new AnalysisReport(AnalysisKind.XANES.getLabel(), true, text.toString(), csv, null);
+    }
+
+    private static AnalysisReport analyzeNmr(ProjectProperty property, File source)
+            throws IOException {
+        QEGipawNmrParser parser = new QEGipawNmrParser(property);
+        parser.parse(source);
+        List<QEGipawNmrParser.NmrShielding> shieldings = parser.getShieldings();
+        if (shieldings.isEmpty()) {
+            return failure(AnalysisKind.NMR_SHIELDING.getLabel(),
+                    "No GIPAW shielding tensors were found in " + source.getName()
+                    + ". A gipaw.x run with GIPAW-capable pseudopotentials is required.");
+        }
+        StringBuilder text = new StringBuilder();
+        text.append("Source: ").append(source.getName()).append('\n');
+        List<String> csv = new ArrayList<>();
+        csv.add("atom_index,element,sigma_iso_ppm,anisotropy_ppm,asymmetry");
+        for (QEGipawNmrParser.NmrShielding shielding : shieldings) {
+            text.append(String.format(Locale.ROOT,
+                    "atom %d (%s): sigma_iso=%.4f ppm, anisotropy=%.4f ppm, eta=%.4f%n",
+                    shielding.getAtomIndex(), shielding.getElement(), shielding.getIsotropicPpm(),
+                    shielding.getAnisotropyPpm(), shielding.getAsymmetry()));
+            csv.add(String.format(Locale.ROOT, "%d,%s,%.6f,%.6f,%.6f", shielding.getAtomIndex(),
+                    shielding.getElement(), shielding.getIsotropicPpm(), shielding.getAnisotropyPpm(),
+                    shielding.getAsymmetry()));
+        }
+        text.append("\nShielding-to-chemical-shift conversion needs an explicit reference; "
+                + "no reference convention is applied silently here.");
+        return new AnalysisReport(AnalysisKind.NMR_SHIELDING.getLabel(), true,
+                text.toString(), csv, null);
+    }
+
+    private static AnalysisReport analyzePwcond(ProjectProperty property, File source)
+            throws IOException {
+        QEPwcondConductanceParser parser = new QEPwcondConductanceParser(property);
+        parser.parse(source);
+        List<QEPwcondConductanceParser.ConductancePoint> points = parser.getConductancePoints();
+        if (points.isEmpty()) {
+            return failure(AnalysisKind.PWCOND_TRANSMISSION.getLabel(),
+                    "No transmission rows were found in " + source.getName() + ".");
+        }
+        StringBuilder text = new StringBuilder();
+        text.append("Source: ").append(source.getName()).append('\n');
+        text.append("Transmission points: ").append(points.size()).append('\n');
+        text.append(String.format(Locale.ROOT, "Energy range: %.5f to %.5f eV%n%n",
+                points.get(0).getEnergyEv(), points.get(points.size() - 1).getEnergyEv()));
+        List<String> csv = new ArrayList<>();
+        csv.add("energy_ev,transmission,conductance_g0");
+        for (QEPwcondConductanceParser.ConductancePoint point : points) {
+            csv.add(String.format(Locale.ROOT, "%.6f,%.8g,%.8g", point.getEnergyEv(),
+                    point.getTransmission(), point.getConductanceInG0()));
+        }
+        text.append("Landauer conductance G = (2e^2/h) T(E); ballistic channels only, "
+                + "verified lead/scattering-region setup remains required.");
+        return new AnalysisReport(AnalysisKind.PWCOND_TRANSMISSION.getLabel(), true,
+                text.toString(), csv, null);
+    }
+
+    private static AnalysisReport analyzeWannier90(ProjectProperty property, File source)
+            throws IOException {
+        QEWannier90SpreadParser parser = new QEWannier90SpreadParser(property);
+        parser.parse(source);
+        List<QEWannier90SpreadParser.WannierSpreadFrame> frames = parser.getConvergenceHistory();
+        if (frames.isEmpty()) {
+            return failure(AnalysisKind.WANNIER90_SPREAD.getLabel(),
+                    "No 'CYCLE ... Spreads' records were found in " + source.getName() + ".");
+        }
+        QEWannier90SpreadParser.WannierSpreadFrame last = frames.get(frames.size() - 1);
+        StringBuilder text = new StringBuilder();
+        text.append("Source: ").append(source.getName()).append('\n');
+        text.append("Minimization cycles parsed: ").append(frames.size()).append('\n');
+        text.append(String.format(Locale.ROOT, "Final total spread: %.6f Ang^2; converged: %s%n",
+                last.getTotalSpreadAng2(), parser.isConverged()));
+        List<String> csv = new ArrayList<>();
+        csv.add("cycle,total_spread_ang2");
+        for (QEWannier90SpreadParser.WannierSpreadFrame frame : frames) {
+            csv.add(String.format(Locale.ROOT, "%d,%.8f", frame.getCycle(), frame.getTotalSpreadAng2()));
+        }
+        for (String diagnostic : parser.getDiagnostics()) {
+            text.append(" - ").append(diagnostic).append('\n');
+        }
+        text.append("\nSpread convergence is a Wannierization-quality signal; “Wannier90-ready” "
+                + "interpolation still needs a DFT-overlay error estimate before quantitative use.");
+        return new AnalysisReport(AnalysisKind.WANNIER90_SPREAD.getLabel(),
+                parser.isConverged(), text.toString(), csv, null);
+    }
+
+    private static AnalysisReport analyzeEos(ProjectProperty property, File source)
+            throws IOException {
+        QEThermoPwEosParser parser = new QEThermoPwEosParser(property);
+        parser.parse(source);
+        QEThermoPwEosParser.EosResult result = parser.getResult();
+        if (!result.isSuccess()) {
+            return failure(AnalysisKind.THERMOPW_EOS.getLabel(),
+                    "No thermo_pw 'V0 = ..., B0 = ..., B'0 = ..., E0 = ...' summary with explicit "
+                    + "volume units was found in " + source.getName() + ".");
+        }
+        StringBuilder text = new StringBuilder();
+        text.append("Source: ").append(source.getName()).append('\n');
+        text.append(String.format(Locale.ROOT, "Equilibrium volume V0: %.6f Ang^3%n",
+                result.getEquilibriumVolumeAng3()));
+        text.append(String.format(Locale.ROOT, "Bulk modulus B0: %.4f GPa%n", result.getBulkModulusGpa()));
+        text.append(String.format(Locale.ROOT, "Pressure derivative B'0: %.5f%n",
+                result.getBulkModulusDerivative()));
+        text.append(String.format(Locale.ROOT, "Minimum energy E0: %.8f Ry%n",
+                result.getMinimumEnergyRy()));
+        text.append(String.format(Locale.ROOT, "Self-check E(V0): %.8f Ry (must equal E0)%n%n",
+                result.evaluateEnergyRy(result.getEquilibriumVolumeAng3())));
+        text.append("Third-order Birch-Murnaghan parameters are evaluated in documented Ang^3/Ry "
+                + "units; quasi-harmonic finite-temperature quantities are not derived here.");
+        return new AnalysisReport(AnalysisKind.THERMOPW_EOS.getLabel(), true,
+                text.toString(), List.of(), null);
+    }
+
+    private static AnalysisReport analyzeKappa(ProjectProperty property, File source)
+            throws IOException {
+        QEPhono3pyKappaParser parser = new QEPhono3pyKappaParser(property);
+        parser.parse(source);
+        List<QEPhono3pyKappaParser.ThermalConductivityPoint> points = parser.getKappaData();
+        if (points.isEmpty()) {
+            return failure(AnalysisKind.PHONO3PY_KAPPA.getLabel(),
+                    "No phono3py 'Temp (K) kappa_xx ...' table was found in " + source.getName() + ".");
+        }
+        StringBuilder text = new StringBuilder();
+        text.append("Source: ").append(source.getName()).append('\n');
+        text.append("Temperature points: ").append(points.size()).append('\n');
+        text.append("1/T single-mode relaxation-time scaling check: ")
+                .append(parser.isPhysicalScaling() ? "consistent" : "VIOLATED - review anharmonic model")
+                .append('\n');
+        List<String> csv = new ArrayList<>();
+        csv.add("temperature_k,kappa_xx_w_mk,kappa_yy_w_mk,kappa_zz_w_mk,kappa_iso_w_mk");
+        for (QEPhono3pyKappaParser.ThermalConductivityPoint point : points) {
+            csv.add(String.format(Locale.ROOT, "%.2f,%.6f,%.6f,%.6f,%.6f", point.getTemperatureK(),
+                    point.getKappaXx(), point.getKappaYy(), point.getKappaZz(),
+                    point.getIsotropicKappa()));
+        }
+        for (String diagnostic : parser.getDiagnostics()) {
+            text.append(" - ").append(diagnostic).append('\n');
+        }
+        text.append("\nTensor values are the raw phono3py records; mesh/supercell/isotope/scattering "
+                + "convergence evidence is not inferred from this table.");
+        return new AnalysisReport(AnalysisKind.PHONO3PY_KAPPA.getLabel(),
+                parser.isPhysicalScaling(), text.toString(), csv, null);
+    }
+
+    private static AnalysisReport analyzeTc(ProjectProperty property, File source, AnalysisParameters params)
+            throws IOException {
+        QEEliashbergTcCalculator calculator = new QEEliashbergTcCalculator(property);
+        calculator.parse(source);
+        List<QEEliashbergTcCalculator.EliashbergPoint> function = calculator.getSpectralFunction();
+        if (function.size() < 2) {
+            return failure(AnalysisKind.ELIASHBERG_TC.getLabel(),
+                    "Fewer than two alpha2F(frequency) rows were found in " + source.getName()
+                    + "; Tc is not estimated from incomplete data.");
+        }
+        double muStar = params.getMuStar();
+        if (!Double.isFinite(muStar) || muStar < 0.0 || muStar > 0.3) {
+            return failure(AnalysisKind.ELIASHBERG_TC.getLabel(),
+                    "mu* must be a finite number in [0, 0.3]; received " + muStar
+                    + ". No Tc was estimated.");
+        }
+        QEEliashbergTcCalculator.TcResult result = calculator.calculateTc(muStar);
+        StringBuilder text = new StringBuilder();
+        text.append("Source: ").append(source.getName()).append('\n');
+        text.append(result.getSummary()).append("\n\n");
+        List<String> csv = new ArrayList<>();
+        csv.add("frequency_cm1,alpha2f");
+        for (QEEliashbergTcCalculator.EliashbergPoint point : function) {
+            csv.add(String.format(Locale.ROOT, "%.6f,%.8g", point.frequencyCm1, point.alpha2F));
+        }
+        text.append("Tc comes from the McMillan/Allen-Dynes formula on the parsed alpha2F only; "
+                + "converged q/k meshes and a justified mu* are required before publication use.");
+        boolean finiteTc = Double.isFinite(result.getTcKelvin()) && result.getTcKelvin() >= 0.0;
+        return new AnalysisReport(AnalysisKind.ELIASHBERG_TC.getLabel(), finiteTc,
+                text.toString(), csv, null);
+    }
+
+    private static AnalysisReport analyzeInputPreview(AnalysisKind kind, String prefix,
+            File projectDir, AnalysisParameters params) {
+        String safePrefix = prefix == null || prefix.isBlank() ? "espresso" : prefix.trim();
+        String outdir = ".";
+        StringBuilder text = new StringBuilder();
+        String input;
+        if (kind == AnalysisKind.PP_WAVEFUNCTION_INPUT) {
+            if (params.getKpointIndex() <= 0 || params.getBandIndex() <= 0) {
+                return failure(kind.getLabel(),
+                        "k-point and band indices must be positive (1-based). No input was generated.");
+            }
+            if (params.getSpinComponent() < 0 || params.getSpinComponent() > 2) {
+                return failure(kind.getLabel(),
+                        "Spin component must be 0 (unpolarized), 1, or 2. No input was generated.");
+            }
+            QEPpWavefunctionBuilder builder = new QEPpWavefunctionBuilder(safePrefix, outdir,
+                    params.getKpointIndex(), params.getBandIndex(), params.getSpinComponent(),
+                    params.isLsign(), safePrefix + "-psi.cube");
+            input = builder.generateInput();
+            text.append("pp.x wavefunction input (plot_num=7):\n");
+            text.append(String.format(Locale.ROOT,
+                    "k-point %d, band %d, spin component %d, lsign=%s%n%n",
+                    builder.getKpointIndex(), builder.getBandIndex(), builder.getSpinComponent(),
+                    builder.isLsign()));
+        } else {
+            boolean potential = kind == AnalysisKind.PP_POTENTIAL_INPUT;
+            QEPpChargePotentialBuilder builder = new QEPpChargePotentialBuilder(safePrefix, outdir,
+                    potential, safePrefix + (potential ? "-potential.cube" : "-charge.cube"));
+            input = builder.generateInput();
+            text.append(potential
+                    ? "pp.x electrostatic-potential input (plot_num=11):\n\n"
+                    : "pp.x charge-density input (plot_num=0):\n\n");
+        }
+        text.append(input).append('\n');
+        text.append("\nThis is a preview synthesized from the project prefix with outdir='.'; "
+                + "no file is written unless you explicitly save it, and the pp.x run itself is "
+                + "not launched by this viewer.");
+        return new AnalysisReport(kind.getLabel(), true, text.toString(), List.of(), input);
+    }
+}

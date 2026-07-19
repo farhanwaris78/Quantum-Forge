@@ -8,6 +8,7 @@ import java.io.IOException;
 
 import org.junit.jupiter.api.Test;
 import quantumforge.input.QEInput;
+import quantumforge.input.QEInputReader;
 import quantumforge.input.namelist.QENamelist;
 
 class QENebInputCorrecterTest {

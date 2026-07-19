@@ -35,6 +35,7 @@ public class ViewerItemSet {
     private ViewerItem phononItem;
     private ViewerItem spectraItem;
     private ViewerItem densityDifferenceItem;
+    private ViewerItem analyzeResultsItem;
 
     public ViewerItemSet() {
         this.atomsViewerItem = new ViewerItem(SVGData.ATOMS, "Show atoms");
@@ -57,6 +58,7 @@ public class ViewerItemSet {
         this.phononItem = new ViewerItem(SVGData.RESULT, "Inspect phonon frequencies");
         this.spectraItem = new ViewerItem(SVGData.RESULT, "Inspect Raman / IR modes");
         this.densityDifferenceItem = new ViewerItem(SVGData.RESULT, "Compute CUBE density difference");
+        this.analyzeResultsItem = new ViewerItem(SVGData.RESULT, "Analyze QE results");
         this.xcrysdenItem = new ViewerItem(SVGData.CRYSTAL, "Open in XCrySDen");
     }
 
@@ -81,6 +83,7 @@ public class ViewerItemSet {
                 this.phononItem,
                 this.spectraItem,
                 this.densityDifferenceItem,
+                this.analyzeResultsItem,
                 this.exportWorkflowItem,
                 this.xcrysdenItem
         };
@@ -164,6 +167,10 @@ public ViewerItem getSaveAsFileItem() {
 
     public ViewerItem getDensityDifferenceItem() {
         return this.densityDifferenceItem;
+    }
+
+    public ViewerItem getAnalyzeResultsItem() {
+        return this.analyzeResultsItem;
     }
 
     public ViewerItem getXcrysdenItem() {

@@ -4,6 +4,8 @@
 
 package quantumforge.symmetry;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
 import quantumforge.atoms.model.Atom;
 import quantumforge.atoms.model.Cell;
@@ -135,7 +137,4 @@ public final class MagneticSpaceGroupDetector {
         }
         return String.format("%s (Shubnikov %s)", report.getDescription(), report.getShubnikovTypeGuess());
     }
-
-    // Custom List implementation inside file to avoid dependencies
-    private static class ArrayList<E> extends java.util.ArrayList<E> {}
 }

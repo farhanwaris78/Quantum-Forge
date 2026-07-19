@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
+import java.util.List;
 
 import org.junit.jupiter.api.Test;
 
@@ -42,6 +43,4 @@ class QECitationManagerTest {
         assertTrue(tempFile.exists());
         assertTrue(Files.size(tempFile.toPath()) > 500);
     }
-
-    private static class List<E> extends java.util.ArrayList<E> {}
 }

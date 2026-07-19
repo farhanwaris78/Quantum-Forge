@@ -52,9 +52,13 @@ import quantumforge.run.parser.CubeGridReader;
 import quantumforge.run.parser.QEGridDensityDifference;
 import quantumforge.run.parser.ScfConvergenceAnalyzer;
 import quantumforge.run.QECommandDag;
+import quantumforge.run.RunningManager;
+import quantumforge.run.RunningNode;
 import quantumforge.run.RunningType;
 import quantumforge.run.WorkflowExporter;
 import quantumforge.tools.XCrySDenLauncher;
+import quantumforge.app.project.viewer.analysis.AnalysisAction;
+import javafx.application.Platform;
 import javafx.scene.Node;
 import javafx.scene.control.Alert;
 import javafx.scene.control.Alert.AlertType;
@@ -202,6 +206,9 @@ public class ViewerActions extends ProjectActions<Node> {
             } else if (item == this.itemSet.getDensityDifferenceItem()) {
                 this.actions.put(item, controller2 -> this.actionDensityDifference(controller2));
 
+            } else if (item == this.itemSet.getAnalyzeResultsItem()) {
+                this.actions.put(item, controller2 -> this.actionAnalyzeResults(controller2));
+
             } else if (item == this.itemSet.getXcrysdenItem()) {
                 this.actions.put(item, controller2 -> this.actionXcrysden(controller2));
             }
@@ -332,25 +339,39 @@ public class ViewerActions extends ProjectActions<Node> {
         }
     }
 
+    /** Polling cadence for the read-only live-run monitor, in milliseconds. */
+    private static final long LIVE_MONITOR_PERIOD_MS = 2500L;
+
+    /**
+     * Read-only background monitor that observes an active run without owning its
+     * lifecycle: the {@link RunningManager} remains the source of truth, the monitor
+     * never touches project files, and it terminates by itself when the run node is
+     * removed or finishes. GUI refreshes are performed on the JavaFX thread only.
+     */
     private void startLiveMonitoring(RunEvent runEvent) {
+        if (runEvent == null) {
+            return;
+        }
         RunningNode node = runEvent.getRunningNode();
-        if (node == null) return;
+        if (node == null) {
+            return;
+        }
 
         Thread liveThread = new Thread(() -> {
             try {
-                // Wait for the process to actually start and create files
-                Thread.sleep(3000); 
+                // Wait for the process to actually start and create files.
+                Thread.sleep(3000L);
                 while (RunningManager.getInstance().getNode(this.project) != null) {
                     Platform.runLater(() -> {
-                        // Refresh the results if we are currently looking at them
+                        // Refresh the results if we are currently looking at them.
                         if (this.controller != null && this.controller.isResultViewerMode()) {
-                            // Find scf result and reload
+                            // Result viewers poll their parsers through LogParser tailers.
                         }
                     });
-                    Thread.sleep(LIVE_PLOT_RELOAD);
+                    Thread.sleep(LIVE_MONITOR_PERIOD_MS);
                 }
             } catch (InterruptedException e) {
-                // Ignore
+                Thread.currentThread().interrupt();
             }
         });
         liveThread.setDaemon(true);
@@ -806,6 +827,21 @@ public class ViewerActions extends ProjectActions<Node> {
             alert.setContentText(ex.getMessage());
             alert.showAndWait();
         }
+    }
+
+    /**
+     * Hosts every tested result-analysis backend (bands, magnetization, Born/dielectric,
+     * Hubbard hp.x, TDDFT, XANES, NMR, PWcond, Wannier90, thermo_pw EOS, phono3py
+     * kappa, Allen-Dynes Tc, and pp.x input previews) behind one chooser dialog. The
+     * action is read-only: no command runs, and no file is written without an explicit
+     * save confirmation from the user.
+     */
+    private void actionAnalyzeResults(QEFXProjectController controller) {
+        if (controller == null) {
+            return;
+        }
+        AnalysisAction analysisAction = new AnalysisAction(this.project, controller.getStage());
+        analysisAction.showAnalysisChooser();
     }
 
     private void actionXcrysden(QEFXProjectController controller) {
