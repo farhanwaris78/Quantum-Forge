@@ -333,6 +333,66 @@ public final class AnalysisAction {
             parameters.withExxNqGrid(nq1, nq2, nq3);
             break;
         }
+        case DEFECT_FORMATION: {
+            Double defect = askDouble("Total energy of the DEFECT cell (eV)", "");
+            if (defect == null || !Double.isFinite(defect)) {
+                return null;
+            }
+            Double host = askDouble("Total energy of the pristine HOST cell (eV)", "");
+            if (host == null || !Double.isFinite(host)) {
+                return null;
+            }
+            Double chem = askDouble("Chemical-potential sum sum(n_i*mu_i) in eV "
+                    + "(your own consistent references)", "");
+            if (chem == null || !Double.isFinite(chem)) {
+                return null;
+            }
+            Integer charge = askInteger("Defect charge state q (electrons)", 0);
+            if (charge == null) {
+                return null;
+            }
+            parameters.withDefectEnergyEv(defect).withHostEnergyEv(host)
+                    .withChemPotSumEv(chem).withDefectCharge(charge);
+            if (charge != 0) {
+                Double vbm = askDouble("Host VBM energy in eV", "");
+                if (vbm == null || !Double.isFinite(vbm)) {
+                    return null;
+                }
+                Double fermi = askDouble("Fermi shift dE_F above the host VBM (eV)", "0.0");
+                if (fermi == null) {
+                    return null;
+                }
+                parameters.withVbmEv(vbm).withFermiEv(fermi);
+            }
+            Double corr = askDouble("Correction term E_corr in eV "
+                    + "(finite-size/alignment; 0 = none)", "0.0");
+            if (corr == null) {
+                return null;
+            }
+            parameters.withCorrectionsEv(corr);
+            break;
+        }
+        case ADSORPTION_ENERGY: {
+            Double total = askDouble("Total energy of the slab+adsorbate cell (eV)", "");
+            if (total == null || !Double.isFinite(total)) {
+                return null;
+            }
+            Double slab = askDouble("Total energy of the bare slab (eV)", "");
+            if (slab == null || !Double.isFinite(slab)) {
+                return null;
+            }
+            Double molecule = askDouble("Total energy of the free molecule (eV)", "");
+            if (molecule == null || !Double.isFinite(molecule)) {
+                return null;
+            }
+            Double corr = askDouble("Correction term (dZPE - T*dS) in eV (0 = none)", "0.0");
+            if (corr == null) {
+                return null;
+            }
+            parameters.withDefectEnergyEv(total).withHostEnergyEv(slab)
+                    .withMoleculeEnergyEv(molecule).withCorrectionsEv(corr);
+            break;
+        }
         case DEFECT_PREVIEW: {
             String type = askText("Defect type: 'vacancy' or 'substitution'", "vacancy");
             if (type == null) {

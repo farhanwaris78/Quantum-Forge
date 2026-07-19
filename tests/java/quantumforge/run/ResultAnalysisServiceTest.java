@@ -1649,4 +1649,52 @@ class ResultAnalysisServiceTest {
                 stubProject(empty), new AnalysisParameters());
         assertFalse(emptyReport.isSuccess(), "An empty project directory must fail closed");
     }
+
+    @Test
+    void testDefectFormationKindExplicitTerms() {
+        AnalysisReport report = ResultAnalysisService.analyze(AnalysisKind.DEFECT_FORMATION,
+                stubProject(this.tempDir), new AnalysisParameters()
+                        .withDefectEnergyEv(-151.0).withHostEnergyEv(-100.0)
+                        .withChemPotSumEv(10.0).withDefectCharge(2)
+                        .withVbmEv(2.0).withFermiEv(0.5).withCorrectionsEv(0.1));
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains("E_form = -55.900000 eV"), report.getText());
+        assertTrue(report.getText().contains("not a defect concentration"), report.getText());
+        assertTrue(report.getText().contains("(E_VBM 2.000000 + dE_F 0.500000)"),
+                report.getText());
+
+        AnalysisReport neutral = ResultAnalysisService.analyze(AnalysisKind.DEFECT_FORMATION,
+                stubProject(this.tempDir), new AnalysisParameters()
+                        .withDefectEnergyEv(-60.0).withHostEnergyEv(-55.0)
+                        .withChemPotSumEv(-0.75).withDefectCharge(0));
+        assertTrue(neutral.isSuccess(), neutral.getText());
+        assertTrue(neutral.getText().contains("E_form = -4.250000 eV"), neutral.getText());
+
+        AnalysisReport chargedMissingFermi = ResultAnalysisService.analyze(
+                AnalysisKind.DEFECT_FORMATION, stubProject(this.tempDir),
+                new AnalysisParameters().withDefectEnergyEv(-60.0).withHostEnergyEv(-55.0)
+                        .withChemPotSumEv(0.0).withDefectCharge(-1));
+        assertFalse(chargedMissingFermi.isSuccess(),
+                "Charged defects without VBM/dE_F must fail closed");
+
+        AnalysisReport nan = ResultAnalysisService.analyze(AnalysisKind.DEFECT_FORMATION,
+                stubProject(this.tempDir), new AnalysisParameters().withChemPotSumEv(0.0));
+        assertFalse(nan.isSuccess(), "Unsupplied energies stay NaN and must fail closed");
+    }
+
+    @Test
+    void testAdsorptionEnergyKindExplicitTerms() {
+        AnalysisReport report = ResultAnalysisService.analyze(AnalysisKind.ADSORPTION_ENERGY,
+                stubProject(this.tempDir), new AnalysisParameters()
+                        .withDefectEnergyEv(-233.0).withHostEnergyEv(-200.0)
+                        .withMoleculeEnergyEv(-30.0).withCorrectionsEv(-0.05));
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains("E_ads = -3.050000 eV"), report.getText());
+        assertTrue(report.getText().contains("negative = binding"), report.getText());
+        assertTrue(report.getText().contains("coverage effects"), report.getText());
+
+        AnalysisReport missing = ResultAnalysisService.analyze(AnalysisKind.ADSORPTION_ENERGY,
+                stubProject(this.tempDir), new AnalysisParameters());
+        assertFalse(missing.isSuccess(), "Unsupplied energies must fail closed");
+    }
 }

@@ -32,6 +32,7 @@ import quantumforge.builder.QEHullThermodynamics;
 import quantumforge.builder.QEPointDefectBuilder;
 import quantumforge.export.MethodsTextBuilder;
 import quantumforge.export.RoCrateExporter;
+import quantumforge.builder.QEThermochemistryMath;
 import quantumforge.hpc.SiteProfile;
 import quantumforge.hpc.SiteProfileValidator;
 import quantumforge.input.QEExxPlanner;
@@ -173,7 +174,9 @@ public final class ResultAnalysisService {
         DOS_INTEGRATION("Projected DOS integration (projwfc.x)"),
         ELASTIC_DIRECTIONAL("Directional Young\u0027s modulus (elastic tensor)"),
         METHODS_TEXT("Methods-section draft (input transcription)"),
-        RO_CRATE("RO-Crate metadata draft (artifact checksums)");
+        RO_CRATE("RO-Crate metadata draft (artifact checksums)"),
+        DEFECT_FORMATION("Defect formation energy (explicit terms, eV)"),
+        ADSORPTION_ENERGY("Adsorption energy (explicit terms, eV)");
 
         private final String label;
 
@@ -211,7 +214,7 @@ public final class ResultAnalysisService {
                     || this == INPUT_DIFF || this == KMESH_QUALITY || this == DEFECT_PREVIEW
                     || this == SERIES_PLAN || this == ADSORPTION_PREVIEW || this == ML_MODEL_CHECK
                     || this == EXX_GUIDANCE || this == BZ_GEOMETRY || this == METHODS_TEXT
-                    || this == RO_CRATE;
+                    || this == RO_CRATE || this == DEFECT_FORMATION || this == ADSORPTION_ENERGY;
         }
 
         /** True for project-bound kinds that additionally parse a user data file. */
@@ -255,6 +258,12 @@ public final class ResultAnalysisService {
         private int exxNq1 = 0; // 0 means "must be supplied explicitly"
         private int exxNq2 = 0;
         private int exxNq3 = 0;
+        private double defectEnergyEv = Double.NaN;   // NaN means "must be supplied"
+        private double hostEnergyEv = Double.NaN;
+        private double moleculeEnergyEv = Double.NaN;
+        private double chemPotSumEv = Double.NaN;
+        private double vbmEv = Double.NaN;
+        private double correctionsEv = 0.0;
 
         public double getFermiEv() { return this.fermiEv; }
         public int getKpointIndex() { return this.kpointIndex; }
@@ -289,6 +298,12 @@ public final class ResultAnalysisService {
         public int getExxNq1() { return this.exxNq1; }
         public int getExxNq2() { return this.exxNq2; }
         public int getExxNq3() { return this.exxNq3; }
+        public double getDefectEnergyEv() { return this.defectEnergyEv; }
+        public double getHostEnergyEv() { return this.hostEnergyEv; }
+        public double getMoleculeEnergyEv() { return this.moleculeEnergyEv; }
+        public double getChemPotSumEv() { return this.chemPotSumEv; }
+        public double getVbmEv() { return this.vbmEv; }
+        public double getCorrectionsEv() { return this.correctionsEv; }
 
         public AnalysisParameters withFermiEv(double value) { this.fermiEv = value; return this; }
         public AnalysisParameters withKpointIndex(int value) { this.kpointIndex = value; return this; }
@@ -384,6 +399,30 @@ public final class ResultAnalysisService {
             this.exxNq1 = q1;
             this.exxNq2 = q2;
             this.exxNq3 = q3;
+            return this;
+        }
+        public AnalysisParameters withDefectEnergyEv(double value) {
+            this.defectEnergyEv = value;
+            return this;
+        }
+        public AnalysisParameters withHostEnergyEv(double value) {
+            this.hostEnergyEv = value;
+            return this;
+        }
+        public AnalysisParameters withMoleculeEnergyEv(double value) {
+            this.moleculeEnergyEv = value;
+            return this;
+        }
+        public AnalysisParameters withChemPotSumEv(double value) {
+            this.chemPotSumEv = value;
+            return this;
+        }
+        public AnalysisParameters withVbmEv(double value) {
+            this.vbmEv = value;
+            return this;
+        }
+        public AnalysisParameters withCorrectionsEv(double value) {
+            this.correctionsEv = value;
             return this;
         }
     }
@@ -820,6 +859,10 @@ public final class ResultAnalysisService {
                 return analyzeMethodsText(project);
             case RO_CRATE:
                 return analyzeRoCrate(project);
+            case DEFECT_FORMATION:
+                return analyzeDefectFormation(params);
+            case ADSORPTION_ENERGY:
+                return analyzeAdsorptionEnergy(params);
             default:
                 return failure(kind.getLabel(), "This analysis kind is not implemented.");
         }
@@ -3933,5 +3976,83 @@ public final class ResultAnalysisService {
                 + "here (Roadmap #135 remainder).");
         return new AnalysisReport(label, !crate.getEntries().isEmpty(), text.toString(),
                 List.of(), crate.getJson());
+    }
+
+    /**
+     * Defect formation energy from fully explicit terms (Roadmap #152, formulation
+     * layer). The Fermi level is supplied relative to the host VBM. Charged states
+     * require both terms; neutral states ignore them.
+     */
+    private static AnalysisReport analyzeDefectFormation(AnalysisParameters params) {
+        String label = AnalysisKind.DEFECT_FORMATION.getLabel();
+        int charge = params.getDefectCharge();
+        double vbm = params.getVbmEv();
+        double fermiShift = params.getFermiEv(); // Documented as dE_F above the host VBM here.
+        if (charge != 0 && (!Double.isFinite(vbm) || !Double.isFinite(fermiShift))) {
+            return failure(label, "A charged defect (q != 0) requires the host VBM energy "
+                    + "and the Fermi shift dE_F above it (both in eV, explicit).");
+        }
+        if (charge == 0) {
+            vbm = 0.0;
+            fermiShift = 0.0;
+        }
+        OperationResult<Double> result = QEThermochemistryMath.defectFormationEnergy(
+                params.getDefectEnergyEv(), params.getHostEnergyEv(), params.getChemPotSumEv(),
+                charge, vbm, fermiShift, params.getCorrectionsEv());
+        if (!result.isSuccess() || result.getValue().isEmpty()) {
+            return failure(label, "Formation energy refused: " + result.getMessage());
+        }
+        double value = result.getValue().orElseThrow();
+        StringBuilder text = new StringBuilder();
+        text.append("E_form = E_defect - E_host - sum(n_i*mu_i) + q*(E_VBM + dE_F) "
+                + "+ E_corr\n\n");
+        text.append(String.format(Locale.ROOT,
+                "  E_defect   = %.6f eV%n  E_host     = %.6f eV%n  sum(n_i*mu_i) = %.6f eV%n",
+                params.getDefectEnergyEv(), params.getHostEnergyEv(), params.getChemPotSumEv()));
+        text.append(String.format(Locale.ROOT,
+                "  q          = %d (E_VBM %.6f + dE_F %.6f)%n  E_corr     = %.6f eV%n%n",
+                charge, vbm, fermiShift, params.getCorrectionsEv()));
+        text.append(String.format(Locale.ROOT, "E_form = %.6f eV%n", value));
+        text.append(String.format(Locale.ROOT, "       = %.6e J per defect%n",
+                value * 1.602176634e-19));
+        text.append("\nAssumptions (not validated numerically here): the chemical-potential "
+                + "sum uses one consistent reference set; finite-size (FNV/LK) and potential-"
+                + "alignment corrections are included ONLY inside E_corr; vibrational "
+                + "contributions are neglected unless included in E_corr. A formation energy "
+                + "is not a defect concentration (that needs the full equilibrium equation "
+                + "and charge-state surface).");
+        return new AnalysisReport(label, true, text.toString(), List.of(), null);
+    }
+
+    /**
+     * Adsorption energy from fully explicit terms (Roadmap #153, formulation
+     * layer): E_ads = E_total - E_slab - E_molecule + E_corr where E_corr may
+     * carry the caller's (dZPE - T*dS) term.
+     */
+    private static AnalysisReport analyzeAdsorptionEnergy(AnalysisParameters params) {
+        String label = AnalysisKind.ADSORPTION_ENERGY.getLabel();
+        OperationResult<Double> result = QEThermochemistryMath.adsorptionEnergy(
+                params.getDefectEnergyEv(), params.getHostEnergyEv(),
+                params.getMoleculeEnergyEv(), params.getCorrectionsEv());
+        if (!result.isSuccess() || result.getValue().isEmpty()) {
+            return failure(label, "Adsorption energy refused: " + result.getMessage());
+        }
+        double value = result.getValue().orElseThrow();
+        StringBuilder text = new StringBuilder();
+        text.append("E_ads = E_total - E_slab - E_molecule + E_corr\n\n");
+        text.append(String.format(Locale.ROOT,
+                "  E_total    = %.6f eV%n  E_slab     = %.6f eV%n  E_molecule = %.6f eV%n"
+                        + "  E_corr     = %.6f eV%n%n",
+                params.getDefectEnergyEv(), params.getHostEnergyEv(),
+                params.getMoleculeEnergyEv(), params.getCorrectionsEv()));
+        text.append(String.format(Locale.ROOT, "E_ads = %.6f eV  (negative = binding)%n",
+                value));
+        text.append(String.format(Locale.ROOT, "       = %.6f kJ/mol%n",
+                value * 96.48533212331002));
+        text.append("\nAssumptions (not validated numerically here): all three total energies "
+                + "come from the same cell, cutoff, and smearing; gas-phase reference quality "
+                + "and entropy are the caller's responsibility unless included in E_corr; "
+                + "coverage effects require additional terms beyond this three-energy form.");
+        return new AnalysisReport(label, true, text.toString(), List.of(), null);
     }
 }
