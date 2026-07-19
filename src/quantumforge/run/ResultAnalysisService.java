@@ -226,7 +226,8 @@ public final class ResultAnalysisService {
         WORKSPACE_SEARCH("Light workspace catalogue (project dir, status markers)"),
         TEMPLATE_LIBRARY("Curated workflow templates (with prerequisites/pitfalls)"),
         POSCAR_REVIEW("POSCAR structure review (VASP 4/5, fail-closed parser)"),
-        ELASTIC_ELATE_DRAFT("ELATE elastic tensor draft (Voigt, stability-gated)");
+        ELASTIC_ELATE_DRAFT("ELATE elastic tensor draft (Voigt, stability-gated)"),
+        SPIN_CUBE_MAGNETIZATION("Spin magnetization from paired up/down CUBE files");
 
         private final String label;
 
@@ -270,14 +271,15 @@ public final class ResultAnalysisService {
                     || this == KEYWORD_HELP || this == ARRAY_SWEEP_PLAN
                     || this == CELL_EXTXYZ_EXPORT || this == DENSITY_DIFFERENCE
                     || this == SUPERCELL_PREVIEW || this == HUBBARD_HP_DRAFT
-                    || this == WORKSPACE_SEARCH || this == TEMPLATE_LIBRARY;
+                    || this == WORKSPACE_SEARCH || this == TEMPLATE_LIBRARY
+                    || this == SPIN_CUBE_MAGNETIZATION;
         }
 
         /** True for project-bound kinds that additionally parse a user data file. */
         public boolean needsDataFile() {
             return this == MD_MSD || this == INPUT_DIFF || this == ML_MODEL_CHECK
                     || this == PHONOPY_DATA_REVIEW || this == PHONON_MODE_FRAMES
-                    || this == DENSITY_DIFFERENCE;
+                    || this == DENSITY_DIFFERENCE || this == SPIN_CUBE_MAGNETIZATION;
         }
     }
 
@@ -823,6 +825,10 @@ public final class ResultAnalysisService {
             return name.contains("tensor") || name.contains("direction");
         case DENSITY_DIFFERENCE:
             return name.endsWith(".cube");
+        case SPIN_CUBE_MAGNETIZATION:
+            return (name.endsWith(".cube") || name.endsWith(".cub"))
+                    && (name.contains("up") || name.contains("spin")
+                            || name.contains("rho") || name.contains("charge"));
         case TIMING_RESOURCE:
             return name.contains("timing") || name.endsWith(".log")
                     || name.endsWith(".out");
@@ -1115,6 +1121,8 @@ public final class ResultAnalysisService {
                 return analyzeWorkspaceSearch(project);
             case TEMPLATE_LIBRARY:
                 return analyzeTemplateLibrary(params);
+            case SPIN_CUBE_MAGNETIZATION:
+                return analyzeSpinCubeMagnetization(project, file);
             default:
                 return failure(kind.getLabel(), "This analysis kind is not implemented.");
         }
@@ -5447,6 +5455,167 @@ public final class ResultAnalysisService {
                 + "universal defaults. ecutwfc/ecutrho/k-mesh/smearing choices must come "
                 + "from your convergence workflows (#36/#37/#38) for the specific "
                 + "material; a template cannot certify a result.");
+        return new AnalysisReport(label, true, text.toString(), csv, null);
+    }
+
+    /**
+     * Roadmap #59: collinear spin magnetization from a paired up/down CUBE set.
+     * The user-selected file is the MAJORITY (up) density; the one other .cube
+     * is the minority (down). m(r) = rho_up - rho_down integrates to the spin
+     * excess = total moment in Bohr magnetons per cell (electron counting
+     * identity, g ~= 2). No vector/non-collinear handling.
+     */
+    private static AnalysisReport analyzeSpinCubeMagnetization(Project project, File file) {
+        String label = AnalysisKind.SPIN_CUBE_MAGNETIZATION.getLabel();
+        if (file == null) {
+            return failure(label, "Select the MAJORITY (up-spin) cube explicitly; the "
+                    + "minority (down-spin) cube must be the one other .cube in the "
+                    + "project directory.");
+        }
+        File projectDir = project.getDirectory();
+        String sourceCanonical;
+        try {
+            sourceCanonical = file.getCanonicalPath();
+        } catch (IOException ex) {
+            return failure(label, "Resolving the selected file failed: " + ex.getMessage());
+        }
+        File[] others = projectDir == null ? new File[0]
+                : projectDir.listFiles(candidate -> {
+                    if (!candidate.isFile()
+                            || !candidate.getName().toLowerCase(Locale.ROOT)
+                                    .endsWith(".cube")) {
+                        return false;
+                    }
+                    try {
+                        return !candidate.getCanonicalPath().equals(sourceCanonical);
+                    } catch (IOException ex) {
+                        return false;
+                    }
+                });
+        if (others == null || others.length == 0) {
+            return failure(label, "No minority cube found: place exactly one other .cube "
+                    + "(the down-spin density) in the project directory.");
+        }
+        if (others.length > 1) {
+            StringBuilder names = new StringBuilder();
+            for (File other : others) {
+                names.append(' ').append(other.getName()).append(';');
+            }
+            return failure(label, "Ambiguous minority choice - " + others.length
+                    + " candidate cube(s) besides the selected majority:" + names
+                    + " Leave exactly one, or rename the others; no silent choice is "
+                    + "made (a wrong pairing fabricates a moment).");
+        }
+        File minorityFile = others[0];
+        OperationResult<QEGridDensityDifference.Grid3D> upRead =
+                CubeGridReader.read(file.toPath());
+        if (!upRead.isSuccess() || upRead.getValue().isEmpty()) {
+            return failure(label, "Majority cube refused: " + upRead.getMessage());
+        }
+        OperationResult<QEGridDensityDifference.Grid3D> downRead =
+                CubeGridReader.read(minorityFile.toPath());
+        if (!downRead.isSuccess() || downRead.getValue().isEmpty()) {
+            return failure(label, "Minority cube refused: " + downRead.getMessage());
+        }
+        QEGridDensityDifference.Grid3D up = upRead.getValue().orElseThrow();
+        QEGridDensityDifference.Grid3D down = downRead.getValue().orElseThrow();
+        double tolerance = 1.0e-4;
+        QEGridDensityDifference.DiffResult magnetization =
+                QEGridDensityDifference.computeDifference(up, List.of(down), tolerance);
+        if (!magnetization.isCompatible() || magnetization.getDifferenceGrid() == null) {
+            return failure(label, "The up/down grids are NOT compatible - no moment is "
+                    + "computed from misaligned data. Reason: "
+                    + magnetization.getDiagnosticMessage());
+        }
+        QEGridDensityDifference.Grid3D mGrid = magnetization.getDifferenceGrid();
+        double nUp = up.integrate();
+        double nDown = down.integrate();
+        double excessFromSums = nUp - nDown;
+        double excessFromDiff = magnetization.getIntegratedChargeDifference();
+        double excessFromGrid = mGrid.integrate();
+        double deviation = Math.max(Math.abs(excessFromSums - excessFromDiff),
+                Math.abs(excessFromSums - excessFromGrid));
+        double scale = Math.max(1.0, Math.abs(excessFromSums));
+        if (deviation > 1.0e-6 * scale) {
+            return failure(label, "The three magnetization integrals disagree by "
+                    + String.format(Locale.ROOT, "%.3e", deviation)
+                    + " (> 1e-6 relative); refusing to pick one silently.");
+        }
+        double[][][] values = mGrid.getValues();
+        double min = Double.POSITIVE_INFINITY;
+        double max = Double.NEGATIVE_INFINITY;
+        long negative = 0L;
+        long count = 0L;
+        for (double[][] plane : values) {
+            for (double[] row : plane) {
+                for (double value : row) {
+                    if (!Double.isFinite(value)) {
+                        return failure(label, "The magnetization grid contains a "
+                                + "non-finite value; refusing to summarize it.");
+                    }
+                    min = Math.min(min, value);
+                    max = Math.max(max, value);
+                    if (value < 0.0) {
+                        negative++;
+                    }
+                    count++;
+                }
+            }
+        }
+        double totalCharge = nUp + nDown;
+        double polarization = totalCharge != 0.0 ? excessFromSums / totalCharge : 0.0;
+        StringBuilder text = new StringBuilder();
+        text.append("Pairing (stated exactly once and applied literally):\n");
+        text.append("  m(r) = MAJORITY - MINORITY\n");
+        text.append("  MAJORITY (up)   = ").append(file.getName()).append('\n');
+        text.append("  MINORITY (down) = ").append(minorityFile.getName())
+                .append("\n\n");
+        text.append(String.format(Locale.ROOT,
+                "Grid: %d x %d x %d voxels; cell volume %.6f Ang^3 (lattices matched "
+                        + "within %.1e)%n",
+                mGrid.getNx(), mGrid.getNy(), mGrid.getNz(), mGrid.getVolume(), tolerance));
+        text.append(String.format(Locale.ROOT,
+                "Integrated electrons: N_up = %.6f, N_down = %.6f, total = %.6f "
+                        + "(cube payload units; QE pp.x prints e/bohr^3)%n",
+                nUp, nDown, totalCharge));
+        text.append(String.format(Locale.ROOT,
+                "Spin excess (N_up - N_down) = %.6f electrons%n", excessFromSums));
+        text.append(String.format(Locale.ROOT,
+                "  cross-checks: difference-grid integral %.6f, component-difference "
+                        + "integral %.6f (max deviation %.3e)%n",
+                excessFromGrid, excessFromDiff, deviation));
+        text.append(String.format(Locale.ROOT,
+                "TOTAL MAGNETIZATION = %.6f mu_B per cell (spin-1/2 counting identity, "
+                        + "g ~= 2; sign follows the up/down choice above)%n",
+                excessFromSums));
+        text.append(String.format(Locale.ROOT,
+                "Spin polarization of the charge = %.4f%n", polarization));
+        text.append(String.format(Locale.ROOT,
+                "m(r) extrema: min %.6f, max %.6f; minority-sign voxels: %d of %d "
+                        + "(%.2f%% - spatial moment reversal is physical information, "
+                        + "not an error)%n",
+                min, max, negative, count, 100.0 * negative / (double) Math.max(1, count)));
+        text.append("\nHonesty boundary: this is the COLLINEAR two-file protocol only; "
+                + "non-collinear vector magnetization needs the four mx/my/mz/charge "
+                + "grids (pp.x plot_num variants) and remains the remaining #59 work. "
+                + "The mu_B figure is a counting identity from the grid sums - no "
+                + "orbital/relativistic contribution is included, and the cube payload "
+                + "convention is the file's own (a non-charge payload integrates to a "
+                + "meaningless number; interpret accordingly). Rendering m(r) as an "
+                + "isosurface is the #56 volumetric work.");
+        List<String> csv = new ArrayList<>();
+        csv.add("quantity,value,unit");
+        csv.add(String.format(Locale.ROOT, "n_up,%.8f,electrons", nUp));
+        csv.add(String.format(Locale.ROOT, "n_down,%.8f,electrons", nDown));
+        csv.add(String.format(Locale.ROOT, "total_charge,%.8f,electrons", totalCharge));
+        csv.add(String.format(Locale.ROOT, "spin_excess,%.8f,electrons", excessFromSums));
+        csv.add(String.format(Locale.ROOT, "magnetization_per_cell,%.8f,mu_B",
+                excessFromSums));
+        csv.add(String.format(Locale.ROOT, "spin_polarization,%.8f,1", polarization));
+        csv.add(String.format(Locale.ROOT, "m_min,%.8e,payload_unit", min));
+        csv.add(String.format(Locale.ROOT, "m_max,%.8e,payload_unit", max));
+        csv.add(String.format(Locale.ROOT, "minority_voxel_fraction,%.8f,1",
+                negative / (double) Math.max(1, count)));
         return new AnalysisReport(label, true, text.toString(), csv, null);
     }
 

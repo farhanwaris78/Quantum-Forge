@@ -2514,9 +2514,10 @@ class ResultAnalysisServiceTest {
         assertTrue(ok.getText().contains("max 0.50000000"), ok.getText());
         assertTrue(ok.getText().contains("mean|delta| 0.50000000"), ok.getText());
         assertTrue(ok.getText().contains("negative fraction 0.000000"), ok.getText());
-        // sum(delta)*V/2 = 1.0 * (16*bohr^3 in A^3)/2 = 2.3709554 (cross-checked)
-        assertTrue(ok.getText().contains("Integrated difference: 2.3709554"), ok.getText());
-        assertEquals("integrated_delta,2.3709554", ok.getCsvLines().get(5));
+        // sum(delta)*V/N = 1.0 * (16*bohr^3 in A^3)/2 voxels = 1.1854777 (repaired pin:
+        // the previous 2.3709554 figure was the cell volume, not the V/N integral)
+        assertTrue(ok.getText().contains("Integrated difference: 1.1854777"), ok.getText());
+        assertEquals("integrated_delta,1.1854777", ok.getCsvLines().get(5));
         assertTrue(ok.getText().contains("NO alignment, resampling or unit conversion"),
                 ok.getText());
 
@@ -2877,5 +2878,64 @@ class ResultAnalysisServiceTest {
                 this.tempDir.toFile(), "si", "si.log", none, new AnalysisParameters());
         assertFalse(noBlock.isSuccess());
         assertTrue(noBlock.getText().contains("[ELATE_BLOCK]"), noBlock.getText());
+    }
+
+    @Test
+    void testSpinCubeMagnetizationKindMomentAndRefusals() throws IOException {
+        String header = "comment\\ncomment\\n1 0 0 0\\n2 2 0 0\\n1 0 2 0\\n1 0 0 2\\n"
+                + "1 0 0 0 0\\n";
+        Path pair = Files.createDirectories(this.tempDir.resolve("spin-ok"));
+        Files.writeString(pair.resolve("spin_up.cube"), header + "3.0 1.0\\n");
+        Files.writeString(pair.resolve("spin_down.cube"), header + "1.0 1.0\\n");
+        AnalysisReport report = ResultAnalysisService.analyze(
+                AnalysisKind.SPIN_CUBE_MAGNETIZATION, stubProject(pair),
+                pair.resolve("spin_up.cube").toFile(), new AnalysisParameters());
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains("MAJORITY (up)   = spin_up.cube"),
+                report.getText());
+        assertTrue(report.getText().contains("MINORITY (down) = spin_down.cube"),
+                report.getText());
+        // N_up = (2.3709554/2) * 4.0 = 4.74191077 ; N_down = *2.0 = 2.37095538
+        assertTrue(report.getText().contains("N_up = 4.741911"), report.getText());
+        assertTrue(report.getText().contains("N_down = 2.370955"), report.getText());
+        assertTrue(report.getText().contains("Spin excess (N_up - N_down) = 2.370955"),
+                report.getText());
+        assertTrue(report.getText().contains("TOTAL MAGNETIZATION = 2.370955 mu_B"),
+                report.getText());
+        assertTrue(report.getText().contains("Spin polarization of the charge = 0.3333"),
+                report.getText());
+        assertTrue(report.getText().contains("min 0.000000, max 2.000000"),
+                report.getText());
+        assertTrue(report.getText().contains("minority-sign voxels: 0 of 2 (0.00%"),
+                report.getText());
+        assertTrue(report.getText().contains("COLLINEAR two-file protocol"),
+                report.getText());
+        assertEquals("magnetization_per_cell,2.37095538,mu_B", report.getCsvLines().get(5));
+        assertEquals("total_charge,7.11286615,electrons", report.getCsvLines().get(3));
+
+        // Sign-honest reversed pairing: excess goes negative, moment sign follows.
+        AnalysisReport reversed = ResultAnalysisService.analyze(
+                AnalysisKind.SPIN_CUBE_MAGNETIZATION, stubProject(pair),
+                pair.resolve("spin_down.cube").toFile(), new AnalysisParameters());
+        assertTrue(reversed.isSuccess(), reversed.getText());
+        assertTrue(reversed.getText().contains("TOTAL MAGNETIZATION = -2.370955 mu_B"),
+                reversed.getText());
+
+        // Three cubes: the minority choice is ambiguous and must refuse.
+        Files.writeString(pair.resolve("third.cube"), header + "0.0 0.0\\n");
+        AnalysisReport ambiguous = ResultAnalysisService.analyze(
+                AnalysisKind.SPIN_CUBE_MAGNETIZATION, stubProject(pair),
+                pair.resolve("spin_up.cube").toFile(), new AnalysisParameters());
+        assertFalse(ambiguous.isSuccess(), "2 leftover candidates must refuse, not guess");
+        assertTrue(ambiguous.getText().contains("Ambiguous minority choice"),
+                ambiguous.getText());
+
+        // One cube only: no minority partner.
+        Path solo = Files.createDirectories(this.tempDir.resolve("spin-solo"));
+        Files.writeString(solo.resolve("spin_up.cube"), header + "3.0 1.0\\n");
+        AnalysisReport lonely = ResultAnalysisService.analyze(
+                AnalysisKind.SPIN_CUBE_MAGNETIZATION, stubProject(solo),
+                solo.resolve("spin_up.cube").toFile(), new AnalysisParameters());
+        assertFalse(lonely.isSuccess(), "No minority cube must fail closed");
     }
 }

@@ -353,7 +353,8 @@ def main() -> int:
                   "WorkspaceLightIndex", "WORKSPACE_SEARCH",
                   "QEWorkflowTemplateLibrary", "TEMPLATE_LIBRARY",
                   "PoscarStructureReader", "POSCAR_REVIEW",
-                  "ELateTensorDraft", "ELASTIC_ELATE_DRAFT"]:
+                  "ELateTensorDraft", "ELASTIC_ELATE_DRAFT",
+                  "SPIN_CUBE_MAGNETIZATION"]:
         if token not in service:
             error(f"ResultAnalysisService is not bound to {token}")
     for rel in ["quantumforge/com/math/SymmetricEigen3.java",
