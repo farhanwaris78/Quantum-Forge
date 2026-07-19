@@ -36,6 +36,8 @@ import quantumforge.export.MethodsTextBuilder;
 import quantumforge.export.RoCrateExporter;
 import quantumforge.builder.QEDiffusionBarrierLink;
 import quantumforge.builder.QEThermochemistryMath;
+import quantumforge.builder.QEConstraintSpec;
+import quantumforge.builder.QEIonicConstraintManager;
 import quantumforge.hpc.SiteProfile;
 import quantumforge.hpc.SiteProfileValidator;
 import quantumforge.input.QEExxPlanner;
@@ -181,7 +183,8 @@ public final class ResultAnalysisService {
         DEFECT_FORMATION("Defect formation energy (explicit terms, eV)"),
         ADSORPTION_ENERGY("Adsorption energy (explicit terms, eV)"),
         BARRIER_DIFFUSION("Barrier-based diffusivity estimate (Arrhenius hop)"),
-        EFFECTIVE_MASS("Effective-mass tensor fit (k,E series)");
+        EFFECTIVE_MASS("Effective-mass tensor fit (k,E series)"),
+        CONSTRAINTS_PREVIEW("Ionic constraint preview (if_pos flags)");
 
         private final String label;
 
@@ -274,6 +277,8 @@ public final class ResultAnalysisService {
         private double hopAngstrom = Double.NaN;
         private double attemptThz = Double.NaN;
         private int hopDimension = 3;
+        private String constraintSpec = "";      // empty means "must be supplied"
+        private String constraintMode = "relax"; // relax, vc-relax, or md
 
         public double getFermiEv() { return this.fermiEv; }
         public int getKpointIndex() { return this.kpointIndex; }
@@ -318,6 +323,8 @@ public final class ResultAnalysisService {
         public double getHopAngstrom() { return this.hopAngstrom; }
         public double getAttemptThz() { return this.attemptThz; }
         public int getHopDimension() { return this.hopDimension; }
+        public String getConstraintSpec() { return this.constraintSpec; }
+        public String getConstraintMode() { return this.constraintMode; }
 
         public AnalysisParameters withFermiEv(double value) { this.fermiEv = value; return this; }
         public AnalysisParameters withKpointIndex(int value) { this.kpointIndex = value; return this; }
@@ -453,6 +460,14 @@ public final class ResultAnalysisService {
         }
         public AnalysisParameters withHopDimension(int value) {
             this.hopDimension = value;
+            return this;
+        }
+        public AnalysisParameters withConstraintSpec(String value) {
+            this.constraintSpec = value == null ? "" : value;
+            return this;
+        }
+        public AnalysisParameters withConstraintMode(String value) {
+            this.constraintMode = value == null ? "relax" : value;
             return this;
         }
     }
@@ -899,6 +914,8 @@ public final class ResultAnalysisService {
                 return analyzeAdsorptionEnergy(params);
             case BARRIER_DIFFUSION:
                 return analyzeBarrierDiffusion(params);
+            case CONSTRAINTS_PREVIEW:
+                return analyzeConstraintsPreview(project, params);
             default:
                 return failure(kind.getLabel(), "This analysis kind is not implemented.");
         }
@@ -3027,6 +3044,35 @@ public final class ResultAnalysisService {
         text.append(String.format(Locale.ROOT,
                 "%nOverall mesh quality (worst direction): %s; full grid points: %d%n",
                 report.getOverallQuality(), report.getTotalGridPoints()));
+        // Batch 56: cross-check the mesh spacings against the zone's own geometry.
+        double worstSpacing = 0.0;
+        for (QEKpointMeshAdvisor.DirectionReport direction : report.getDirections()) {
+            worstSpacing = Math.max(worstSpacing, direction.getSpacingInvAng());
+        }
+        OperationResult<QEBrillouinZoneGeometry.BzReport> zone =
+                QEBrillouinZoneGeometry.compute(context.cell.copyLattice());
+        if (zone.isSuccess() && zone.getValue().isPresent()
+                && zone.getValue().get().isConsistent()
+                && Double.isFinite(zone.getValue().get().getNearestFacetDistanceInvAng())) {
+            double facet = zone.getValue().get().getNearestFacetDistanceInvAng();
+            text.append(String.format(Locale.ROOT,
+                    "%nZone-geometry check: nearest BZ facet distance d* = %.6f Ang^-1 "
+                            + "(validated Wigner-Seitz construction). Worst mesh spacing = "
+                            + "%.6f Ang^-1.%n", facet, worstSpacing));
+            String verdict = worstSpacing < facet
+                    ? "every axis samples finer than the nearest facet scale"
+                    : "an axis spacing is COARSER than the nearest facet scale - the mesh "
+                            + "cannot resolve the zone boundary there; refine it";
+            text.append("Verdict: ").append(verdict).append('\n');
+            csv.add(String.format(Locale.ROOT, "zone_facet_distance_inv_ang,%.8f", facet));
+            csv.add(String.format(Locale.ROOT,
+                    "worst_spacing_ang_inverse_vs_facet,%.8f,%.8f", worstSpacing, facet));
+        } else {
+            text.append("\nZone-geometry check: the validated Wigner-Seitz construction "
+                    + "failed closed on this cell (" + zone.getMessage() + "); the "
+                    + "facet-resolution cross-check is UNAVAILABLE - the spacing table above "
+                    + "stands on its own and no zone claim is made.\n");
+        }
         for (String note : report.getNotes()) {
             text.append(" - ").append(note).append('\n');
         }
@@ -3988,6 +4034,70 @@ public final class ResultAnalysisService {
                 + "hybrid calculation, does not estimate wall time from a universal factor, "
                 + "and leaves input_dft/ecutfock/exxdiv_treatment as explicit physics choices.");
         return new AnalysisReport(label, guidance.isUsable(), text.toString(), csv, null);
+    }
+
+    /**
+     * Ionic constraint preview (Roadmap #80, data layer): validates a compact
+     * constraint specification through the tested {@link QEConstraintSpec},
+     * then renders the ATOMIC_POSITIONS block the tested
+     * {@link QEIonicConstraintManager} would emit. The text is a generated
+     * preview only - the GUI saves it only on explicit user action and the cell
+     * and the input are never modified.
+     */
+    private static AnalysisReport analyzeConstraintsPreview(Project project,
+            AnalysisParameters params) {
+        String label = AnalysisKind.CONSTRAINTS_PREVIEW.getLabel();
+        Cell cell = project.getCell();
+        if (cell == null || cell.numAtoms() <= 0) {
+            return failure(label, "The project has no atoms to constrain.");
+        }
+        int natoms = cell.numAtoms();
+        String mode = params.getConstraintMode() == null
+                ? "relax" : params.getConstraintMode().trim().toLowerCase(Locale.ROOT);
+        if (!"relax".equals(mode) && !"vc-relax".equals(mode) && !"md".equals(mode)) {
+            return failure(label, "If_pos flags are only interpreted in relax, vc-relax and md "
+                    + "calculations; the requested mode \"" + mode + "\" would silently drop "
+                    + "them. Choose one of the three modes.");
+        }
+        OperationResult<QEConstraintSpec> parsed =
+                QEConstraintSpec.parse(params.getConstraintSpec(), natoms);
+        if (!parsed.isSuccess() || parsed.getValue().isEmpty()) {
+            return failure(label, "Constraint specification refused: " + parsed.getMessage());
+        }
+        QEConstraintSpec spec = parsed.getValue().orElseThrow();
+        QEIonicConstraintManager manager = new QEIonicConstraintManager();
+        for (QEConstraintSpec.Entry entry : spec.getEntries()) {
+            manager.setConstraint(entry.getAtomIndex0(), entry.getIfX(), entry.getIfY(),
+                    entry.getIfZ());
+        }
+        StringBuilder block = new StringBuilder();
+        block.append("ATOMIC_POSITIONS angstrom\n");
+        List<String> csv = new ArrayList<>();
+        csv.add("atom_index,element,if_pos_x,if_pos_y,if_pos_z,frozen");
+        Atom[] atoms = cell.listAtoms();
+        for (int i = 0; i < atoms.length; i++) {
+            block.append(manager.formatAtomPositionLine(atoms[i], i, mode)).append('\n');
+            QEIonicConstraintManager.ConstraintRecord record = manager.getConstraint(i);
+            csv.add(String.format(Locale.ROOT, "%d,%s,%d,%d,%d,%s", i + 1,
+                    csvCell(atoms[i].getName()), record.getIfX(), record.getIfY(),
+                    record.getIfZ(), record.getIfX() == 0 || record.getIfY() == 0
+                            || record.getIfZ() == 0));
+        }
+        StringBuilder text = new StringBuilder();
+        text.append(String.format(Locale.ROOT,
+                "Mode (flags appended only in relax/vc-relax/md): %s%n", mode));
+        text.append(String.format(Locale.ROOT,
+                "Atoms: %d; explicitly constrained: %d; with any frozen axis: %d%n%n",
+                natoms, spec.getEntries().size(), spec.frozenCount()));
+        text.append("Preview block (angstrom coordinates from the live cell model):\n");
+        text.append(block);
+        text.append("\nHonesty boundary: this is a PREVIEW FOR REVIEW ONLY. Nothing was "
+                + "applied to the cell or input; explicit save is the only way out. "
+                + "Coordinates are printed in angstrom exactly as the live cell model holds "
+                + "them - if your input uses a different ATOMIC_POSITIONS option (bohr, "
+                + "crystal, alat), re-express them there. Unlisted atoms render fully free "
+                + "(1 1 1), matching QE's default. if_pos semantics: " + QEConstraintSpec.DOCS);
+        return new AnalysisReport(label, true, text.toString(), csv, block.toString());
     }
 
     /**

@@ -47,10 +47,12 @@ public final class QEBrillouinZoneGeometry {
         private final int shellsUsed;
         private final boolean consistent;
         private final List<String> notes;
+        private final double nearestFacetDistanceInvAng;
 
         private BzReport(double[][] reciprocalRows, List<double[]> vertices, int faceCount,
                          int edgeCount, double volumeInvAng3, double expectedVolumeInvAng3,
-                         int shellsUsed, boolean consistent, List<String> notes) {
+                         int shellsUsed, boolean consistent, List<String> notes,
+                         double nearestFacetDistanceInvAng) {
             this.reciprocalRows = reciprocalRows;
             this.vertices = vertices;
             this.faceCount = faceCount;
@@ -63,6 +65,7 @@ public final class QEBrillouinZoneGeometry {
             this.shellsUsed = shellsUsed;
             this.consistent = consistent;
             this.notes = notes;
+            this.nearestFacetDistanceInvAng = nearestFacetDistanceInvAng;
         }
 
         public double[][] getReciprocalRows() { return this.reciprocalRows; }
@@ -74,6 +77,13 @@ public final class QEBrillouinZoneGeometry {
         public double getExpectedVolumeInvAng3() { return this.expectedVolumeInvAng3; }
         public double getVolumeRelativeDeviation() { return this.volumeRelativeDeviation; }
         public int getShellsUsed() { return this.shellsUsed; }
+
+        /**
+         * Distance from the zone centre to the nearest accepted facet plane
+         * (Angstrom^-1), i.e. the smallest half-norm of a Bragg plane that is a
+         * true face - redundant planes are excluded. NaN when no face exists.
+         */
+        public double getNearestFacetDistanceInvAng() { return this.nearestFacetDistanceInvAng; }
 
         /** True only when the volume identity AND Euler characteristic both hold. */
         public boolean isConsistent() { return this.consistent; }
@@ -170,8 +180,21 @@ public final class QEBrillouinZoneGeometry {
                                         + "suspicious zone.", deviation, euler),
                         null);
             }
+            double nearestFacet = Double.POSITIVE_INFINITY;
+            for (int face = 0; face < poly.faces.size(); face++) {
+                int planeIndex = poly.facePlaneIndex.get(face);
+                double[] g = shellVectors.vectors.get(planeIndex);
+                nearestFacet = Math.min(nearestFacet, 0.5 * Math.sqrt(dot(g, g)));
+            }
+            if (poly.faces.isEmpty()) {
+                nearestFacet = Double.NaN;
+            }
+            notes.add(String.format(java.util.Locale.ROOT,
+                    "Nearest facet distance from the zone centre d* = %.8f Ang^-1 "
+                            + "(smallest half-norm of an accepted Bragg-plane face).",
+                    nearestFacet));
             report = new BzReport(b, poly.vertices, poly.faceCount(), poly.edgeCount, measured,
-                    expected, shell, true, notes);
+                    expected, shell, true, notes, nearestFacet);
         }
         if (report == null) {
             return OperationResult.failed("BZ_NO_CONVERGENCE",

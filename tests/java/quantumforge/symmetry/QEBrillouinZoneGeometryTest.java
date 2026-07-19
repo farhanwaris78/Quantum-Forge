@@ -32,6 +32,25 @@ class QEBrillouinZoneGeometryTest {
         assertTrue(report.getVolumeRelativeDeviation() < 1.0e-9,
                 "Volume identity deviation " + report.getVolumeRelativeDeviation());
         assertTrue(report.isConsistent());
+        // Cube a = 10 Ang: the six facets are the face planes |b_i|/2 = pi/10.
+        assertEquals(Math.PI / 10.0, report.getNearestFacetDistanceInvAng(), 1.0e-9,
+                "Cubic nearest facet at half the reciprocal-cell edge");
+    }
+
+    @Test
+    void testSkewZoneNearestFacetDistance() {
+        // a=10, b=12, c=8 with gamma=60 deg: a1=(10,0,0),
+        // a2=(6, 12 sin60, 0), a3=(0,0,8).
+        double sg = Math.sin(Math.toRadians(60.0));
+        double cg = Math.cos(Math.toRadians(60.0));
+        OperationResult<BzReport> result = QEBrillouinZoneGeometry.compute(
+                new double[][] {{10, 0, 0}, {12 * cg, 12 * sg, 0}, {0, 0, 8}});
+        assertTrue(result.isSuccess(), result.getMessage());
+        BzReport report = result.getValue().orElseThrow();
+        assertTrue(report.isConsistent());
+        // Python-verified Wigner-Seitz half-norm minimum for this lattice.
+        assertEquals(0.302299894, report.getNearestFacetDistanceInvAng(), 1.0e-6,
+                "Skew-cell nearest facet distance");
     }
 
     @Test

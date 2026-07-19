@@ -418,6 +418,20 @@ public final class AnalysisAction {
                     .withTemperatureK(temperature).withHopDimension(dimension);
             break;
         }
+        case CONSTRAINTS_PREVIEW: {
+            String spec = askText("Constraint spec, e.g. 1:000; 2-4:110 "
+                    + "(1-based atoms, 0=frozen/1=free)", "");
+            if (spec == null) {
+                return null;
+            }
+            String mode = askText("Calculation mode that uses if_pos "
+                    + "(relax, vc-relax, md)", "relax");
+            if (mode == null) {
+                return null;
+            }
+            parameters.withConstraintSpec(spec).withConstraintMode(mode);
+            break;
+        }
         case DEFECT_PREVIEW: {
             String type = askText("Defect type: 'vacancy' or 'substitution'", "vacancy");
             if (type == null) {

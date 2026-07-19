@@ -1787,4 +1787,59 @@ class ResultAnalysisServiceTest {
         assertFalse(tooFew.isSuccess(), "Fewer than 7 rows must fail closed");
         assertTrue(tooFew.getText().contains("needs >= 7"), tooFew.getText());
     }
+
+    @Test
+    void testConstraintsPreviewKindExactFlagsAndValidation() {
+        Cell cell = new Cell(quantumforge.com.math.Matrix3D.unit(10.0));
+        cell.addAtom("Si", 0.0, 0.0, 0.0);
+        cell.addAtom("Si", 0.15, 0.0, 0.0);
+        cell.addAtom("Si", 0.15, 0.20, 0.0);
+        cell.addAtom("Si", 0.15, 0.20, 0.30);
+
+        AnalysisReport report = ResultAnalysisService.analyze(AnalysisKind.CONSTRAINTS_PREVIEW,
+                stubProject(this.tempDir, cell), new AnalysisParameters()
+                        .withConstraintSpec("1:000; 2-3:110").withConstraintMode("relax"));
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getGeneratedInput() != null
+                && report.getGeneratedInput().startsWith("ATOMIC_POSITIONS angstrom"),
+                report.getGeneratedInput());
+        // Atom 1 fully frozen, atoms 2-3 fixed in z, atom 4 default free.
+        String[] blockLines = report.getGeneratedInput().split("\n");
+        assertEquals(5, blockLines.length, "header plus 4 position lines");
+        assertTrue(blockLines[1].endsWith("   0  0  0"), blockLines[1]);
+        assertTrue(blockLines[2].endsWith("   1  1  0"), blockLines[2]);
+        assertTrue(blockLines[3].endsWith("   1  1  0"), blockLines[3]);
+        assertTrue(blockLines[4].endsWith("   1  1  1"), blockLines[4]);
+        assertTrue(report.getText().contains("explicitly constrained: 3"), report.getText());
+        assertTrue(report.getText().contains("with any frozen axis: 3"), report.getText());
+        assertTrue(report.getText().contains("PREVIEW FOR REVIEW ONLY"), report.getText());
+        assertEquals(5, report.getCsvLines().size(), "header plus 4 atom rows");
+        assertTrue(report.getCsvLines().get(1).startsWith("1,Si,0,0,0,true"),
+                report.getCsvLines().get(1));
+        assertTrue(report.getCsvLines().get(4).startsWith("4,Si,1,1,1,false"),
+                report.getCsvLines().get(4));
+
+        AnalysisReport duplicates = ResultAnalysisService.analyze(AnalysisKind.CONSTRAINTS_PREVIEW,
+                stubProject(this.tempDir, cell), new AnalysisParameters()
+                        .withConstraintSpec("1:000; 1:111").withConstraintMode("relax"));
+        assertFalse(duplicates.isSuccess(), "Duplicated atom indices must fail closed");
+
+        AnalysisReport outOfRange = ResultAnalysisService.analyze(AnalysisKind.CONSTRAINTS_PREVIEW,
+                stubProject(this.tempDir, cell), new AnalysisParameters()
+                        .withConstraintSpec("5:000"));
+        assertFalse(outOfRange.isSuccess(), "Index beyond the cell must fail closed");
+
+        AnalysisReport badMode = ResultAnalysisService.analyze(AnalysisKind.CONSTRAINTS_PREVIEW,
+                stubProject(this.tempDir, cell), new AnalysisParameters()
+                        .withConstraintSpec("1:000").withConstraintMode("scf"));
+        assertFalse(badMode.isSuccess(), "scf does not interpret if_pos; must be refused");
+
+        AnalysisReport emptySpec = ResultAnalysisService.analyze(AnalysisKind.CONSTRAINTS_PREVIEW,
+                stubProject(this.tempDir, cell), new AnalysisParameters());
+        assertFalse(emptySpec.isSuccess(), "An empty specification must fail closed");
+
+        AnalysisReport noCell = ResultAnalysisService.analyze(AnalysisKind.CONSTRAINTS_PREVIEW,
+                stubProject(this.tempDir), new AnalysisParameters().withConstraintSpec("1:000"));
+        assertFalse(noCell.isSuccess(), "A project without a cell must fail closed");
+    }
 }
