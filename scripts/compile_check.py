@@ -343,7 +343,8 @@ def main() -> int:
                   "HyperfineMapper", "HYPERFINE_LOOKUP",
                   "QEKeywordHelp", "KEYWORD_HELP",
                   "ArraySweepPlanner", "ARRAY_SWEEP_PLAN",
-                  "ExtXyzCellExporter", "CELL_EXTXYZ_EXPORT"]:
+                  "ExtXyzCellExporter", "CELL_EXTXYZ_EXPORT",
+                  "QERamanIRSpectraParser", "RAMAN_IR_SPECTRUM"]:
         if token not in service:
             error(f"ResultAnalysisService is not bound to {token}")
     for rel in ["quantumforge/com/math/SymmetricEigen3.java",

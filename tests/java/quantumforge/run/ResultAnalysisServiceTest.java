@@ -2316,4 +2316,75 @@ class ResultAnalysisServiceTest {
                 stubProject(this.tempDir), new AnalysisParameters());
         assertFalse(noCell.isSuccess(), "A project without atoms must fail closed");
     }
+
+    @Test
+    void testRamanIrSpectrumKindSelfCheckAndRefusals() throws IOException {
+        File modes = write("dynmat.spectra.out",
+                "      mode   1   freq    120.45 cm-1   IR intensity    0.5000"
+                        + "   Raman activity    1.2412\n"
+                + "      mode   2   freq    -50.00 cm-1   IR intensity    0.3000"
+                        + "   Raman activity    2.0000\n"
+                + "      mode   3   freq    300.00 cm-1   IR intensity    0.0000"
+                        + "   Raman activity    0.0000\n"
+                + "      mode   4   freq    500.00 cm-1   IR intensity    1.0000"
+                        + "   Raman activity    0.2500\n");
+
+        AnalysisReport ir = ResultAnalysisService.analyze(AnalysisKind.RAMAN_IR_SPECTRUM,
+                new ProjectProperty(), this.tempDir.toFile(), "si", "si.log", modes,
+                new AnalysisParameters().withSpectrumChannel("ir").withFwhmCm1(5.0));
+        assertTrue(ir.isSuccess(), ir.getText());
+        assertTrue(ir.getText().contains("Channel: IR"), ir.getText());
+        assertTrue(ir.getText().contains("included (real frequency, positive IR activity): 2"),
+                ir.getText());
+        assertTrue(ir.getText().contains("imaginary (skipped): 1"), ir.getText());
+        assertTrue(ir.getText().contains("zero-activity (skipped): 1"), ir.getText());
+        assertTrue(ir.getText().contains("-50.0000"), ir.getText());
+        assertTrue(ir.getText().contains("total included activity 1.50000000"), ir.getText());
+        assertTrue(ir.getText().contains("SELF-CHECK - grid integral"), ir.getText());
+        // Grid: max(0, 120.45-50) = 70.45 .. 550.0, step 0.5 -> 960 points + header.
+        assertEquals(961, ir.getCsvLines().size(), "header plus 960 grid points");
+        assertTrue(ir.getText().contains("DISPLAY choice"), ir.getText());
+        assertTrue(ir.getText().contains("NO Bose-Einstein"), ir.getText());
+
+        AnalysisReport raman = ResultAnalysisService.analyze(AnalysisKind.RAMAN_IR_SPECTRUM,
+                new ProjectProperty(), this.tempDir.toFile(), "si", "si.log", modes,
+                new AnalysisParameters().withSpectrumChannel("raman").withFwhmCm1(5.0));
+        assertTrue(raman.isSuccess(), raman.getText());
+        assertTrue(raman.getText().contains("Channel: RAMAN"), raman.getText());
+        // 1.2412 + 0.2500 = 1.4912
+        assertTrue(raman.getText().contains("total included activity 1.49120000"),
+                raman.getText());
+        assertEquals("frequency_cm1,intensity_raman", raman.getCsvLines().get(0));
+
+        AnalysisReport badChannel = ResultAnalysisService.analyze(
+                AnalysisKind.RAMAN_IR_SPECTRUM, new ProjectProperty(), this.tempDir.toFile(),
+                "si", "si.log", modes,
+                new AnalysisParameters().withSpectrumChannel("green"));
+        assertFalse(badChannel.isSuccess(), "Unknown channels must fail closed");
+
+        AnalysisReport badFwhm = ResultAnalysisService.analyze(AnalysisKind.RAMAN_IR_SPECTRUM,
+                new ProjectProperty(), this.tempDir.toFile(), "si", "si.log", modes,
+                new AnalysisParameters().withFwhmCm1(0.0));
+        assertFalse(badFwhm.isSuccess(), "A zero FWHM must fail closed");
+
+        AnalysisReport hugeFwhm = ResultAnalysisService.analyze(
+                AnalysisKind.RAMAN_IR_SPECTRUM, new ProjectProperty(), this.tempDir.toFile(),
+                "si", "si.log", modes,
+                new AnalysisParameters().withFwhmCm1(500.0));
+        assertFalse(hugeFwhm.isSuccess(), "FWHM beyond the 200 cm-1 cap must fail closed");
+
+        File noModes = write("empty.spectra.out", "nothing spectroscopic here\n");
+        AnalysisReport empty = ResultAnalysisService.analyze(AnalysisKind.RAMAN_IR_SPECTRUM,
+                new ProjectProperty(), this.tempDir.toFile(), "si", "si.log", noModes,
+                new AnalysisParameters());
+        assertFalse(empty.isSuccess(), "A file without mode rows must fail closed");
+
+        File allSkipped = write("allzero.spectra.out",
+                "      mode   1   freq    120.45 cm-1   IR intensity    0.0000"
+                        + "   Raman activity    0.0000\n");
+        AnalysisReport none = ResultAnalysisService.analyze(AnalysisKind.RAMAN_IR_SPECTRUM,
+                new ProjectProperty(), this.tempDir.toFile(), "si", "si.log", allSkipped,
+                new AnalysisParameters().withSpectrumChannel("ir"));
+        assertFalse(none.isSuccess(), "Zero-activity files must fail closed, not plot zeros");
+    }
 }

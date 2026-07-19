@@ -76,6 +76,7 @@ import quantumforge.run.parser.QEBornChargeDielectricParser;
 import quantumforge.run.parser.QECarParrinelloParser;
 import quantumforge.run.parser.QECastepLogParser;
 import quantumforge.run.parser.QEDynmatModesParser;
+import quantumforge.run.parser.QERamanIRSpectraParser;
 import quantumforge.run.parser.PhononFrameSynthesis;
 import quantumforge.run.parser.QEElasticStabilityValidator;
 import quantumforge.run.parser.QEEliashbergTcCalculator;
@@ -206,7 +207,8 @@ public final class ResultAnalysisService {
         HYPERFINE_LOOKUP("Hyperfine isotope g-factor + Fermi contact A_iso"),
         KEYWORD_HELP("pw.x keyword reference (offline curated subset)"),
         ARRAY_SWEEP_PLAN("Scheduler array sweep manifest (JSONL + sbatch preview)"),
-        CELL_EXTXYZ_EXPORT("Extended-XYZ export of the live cell (geometry only)");
+        CELL_EXTXYZ_EXPORT("Extended-XYZ export of the live cell (geometry only)"),
+        RAMAN_IR_SPECTRUM("Powder IR/Raman spectrum (Lorentzian broadening)");
 
         private final String label;
 
@@ -309,6 +311,8 @@ public final class ResultAnalysisService {
         private int modeIndex = 1;               // 1-based dynmat mode index
         private int frameCount = 12;             // frames per oscillation period
         private String jobBaseName = "sweep";    // scheduler-array job base name
+        private double fwhmCm1 = 5.0;            // Lorentzian full width at half maximum
+        private String spectrumChannel = "ir";   // "ir" or "raman"
         private String constraintSpec = "";      // empty means "must be supplied"
         private String constraintMode = "relax"; // relax, vc-relax, or md
 
@@ -361,6 +365,8 @@ public final class ResultAnalysisService {
         public int getModeIndex() { return this.modeIndex; }
         public int getFrameCount() { return this.frameCount; }
         public String getJobBaseName() { return this.jobBaseName; }
+        public double getFwhmCm1() { return this.fwhmCm1; }
+        public String getSpectrumChannel() { return this.spectrumChannel; }
         public String getConstraintSpec() { return this.constraintSpec; }
         public String getConstraintMode() { return this.constraintMode; }
 
@@ -520,6 +526,16 @@ public final class ResultAnalysisService {
 
         public AnalysisParameters withJobBaseName(String value) {
             this.jobBaseName = value == null ? "" : value;
+            return this;
+        }
+
+        public AnalysisParameters withFwhmCm1(double value) {
+            this.fwhmCm1 = value;
+            return this;
+        }
+
+        public AnalysisParameters withSpectrumChannel(String value) {
+            this.spectrumChannel = value == null ? "" : value;
             return this;
         }
 
@@ -755,6 +771,9 @@ public final class ResultAnalysisService {
         case TENSOR_EIGEN:
             return name.contains("tensor") || name.contains("dielectric")
                     || name.endsWith(".t3");
+        case RAMAN_IR_SPECTRUM:
+            return name.contains("dynmat") || name.contains("raman")
+                    || name.contains("spectr");
         case PHONON_MODE_FRAMES:
             return name.contains("dynmat") || name.contains("modes");
         default:
@@ -884,6 +903,8 @@ public final class ResultAnalysisService {
                 return analyzeSeriesCompare(source);
             case TENSOR_EIGEN:
                 return analyzeTensorEigen(source);
+            case RAMAN_IR_SPECTRUM:
+                return analyzeRamanIrSpectrum(property, source, params);
             case SITE_PROFILE_CHECK:
                 return analyzeSiteProfile(source);
             default:
@@ -3902,6 +3923,149 @@ public final class ResultAnalysisService {
                 + "(#143/#144). Coordinates are Angstrom, rendered losslessly. The file is "
                 + "written only through the explicit save action.");
         return new AnalysisReport(label, true, text.toString(), csv, document);
+    }
+
+    /**
+     * Roadmap #53 spectrum layer: powder IR/Raman spectrum from a dynmat/ph modes
+     * file via the tested Lorentzian parser. Grid, self-check and skipped-mode
+     * accounting are done here; the broaden physics statement stays explicit.
+     */
+    private static AnalysisReport analyzeRamanIrSpectrum(ProjectProperty property,
+            File source, AnalysisParameters params) throws IOException {
+        String label = AnalysisKind.RAMAN_IR_SPECTRUM.getLabel();
+        String channel = params.getSpectrumChannel() == null
+                ? "ir" : params.getSpectrumChannel().trim().toLowerCase(Locale.ROOT);
+        if (!"ir".equals(channel) && !"raman".equals(channel)) {
+            return failure(label, "The channel must be \"ir\" or \"raman\"; got \""
+                    + channel + "\".");
+        }
+        double fwhm = params.getFwhmCm1();
+        if (!Double.isFinite(fwhm) || fwhm <= 0.0 || fwhm > 200.0) {
+            return failure(label, "The FWHM must be a finite value within (0, 200] cm-1; "
+                    + "got " + fwhm + ".");
+        }
+        QERamanIRSpectraParser parser = new QERamanIRSpectraParser(property);
+        parser.parse(source);
+        List<QERamanIRSpectraParser.SpectroMode> modes = parser.getModes();
+        if (modes.isEmpty()) {
+            return failure(label, "No spectroscopic mode rows (frequency + IR intensity "
+                    + "+ Raman activity) were parsed from " + source.getName() + ".");
+        }
+        boolean raman = "raman".equals(channel);
+        List<QERamanIRSpectraParser.SpectroMode> included = new ArrayList<>();
+        int imaginarySkipped = 0;
+        List<Double> imaginaryFreqs = new ArrayList<>();
+        int zeroActivitySkipped = 0;
+        double totalActivity = 0.0;
+        double lowest = Double.POSITIVE_INFINITY;
+        double highest = Double.NEGATIVE_INFINITY;
+        for (QERamanIRSpectraParser.SpectroMode mode : modes) {
+            double activity = raman ? mode.getRamanActivity() : mode.getIrIntensity();
+            if (mode.getFrequencyCm1() <= 0.0) {
+                imaginarySkipped++;
+                imaginaryFreqs.add(mode.getFrequencyCm1());
+                continue;
+            }
+            if (activity <= 0.0) {
+                zeroActivitySkipped++;
+                continue;
+            }
+            included.add(mode);
+            totalActivity += activity;
+            lowest = Math.min(lowest, mode.getFrequencyCm1());
+            highest = Math.max(highest, mode.getFrequencyCm1());
+        }
+        if (included.isEmpty()) {
+            return failure(label, "No mode with positive " + channel.toUpperCase(Locale.ROOT)
+                    + " activity and a real frequency remains; an empty spectrum is not "
+                    + "evidence (imaginary skipped: " + imaginarySkipped
+                    + ", zero-activity skipped: " + zeroActivitySkipped + ").");
+        }
+        // Auto grid: 10*FWHM margins either side, FWHM/10 sampling; hard 200k cap.
+        double margin = 10.0 * fwhm;
+        double gridMin = Math.max(0.0, lowest - margin);
+        double gridMax = highest + margin;
+        double gridStep = fwhm / 10.0;
+        long expectedPoints = (long) Math.floor((gridMax - gridMin) / gridStep) + 1L;
+        if (expectedPoints > 200_000L) {
+            return failure(label, "The automatic grid would need " + expectedPoints
+                    + " points (cap 200000); increase the FWHM or cover a narrower range.");
+        }
+        List<QERamanIRSpectraParser.SpectrumPoint> spectrum = parser.computePowderSpectra(
+                gridMin, gridMax, gridStep, fwhm, raman);
+        if (spectrum.isEmpty()) {
+            return failure(label, "The spectrum evaluator returned no points for the "
+                    + "computed grid; refusing to fabricate one.");
+        }
+        // Self-check: the grid integral must track the total included activity
+        // (Lorentzians are area-normalized; window-edge tails are truncated).
+        double integral = 0.0;
+        for (int i = 1; i < spectrum.size(); i++) {
+            integral += 0.5 * (spectrum.get(i - 1).intensity + spectrum.get(i).intensity)
+                    * (spectrum.get(i).frequency - spectrum.get(i - 1).frequency);
+        }
+        double peakIntensity = 0.0;
+        double peakFrequency = Double.NaN;
+        for (QERamanIRSpectraParser.SpectrumPoint point : spectrum) {
+            if (point.intensity > peakIntensity) {
+                peakIntensity = point.intensity;
+                peakFrequency = point.frequency;
+            }
+        }
+        StringBuilder text = new StringBuilder();
+        text.append("Source: ").append(source.getName()).append('\n');
+        text.append(String.format(Locale.ROOT,
+                "Channel: %s; FWHM: %.4f cm-1 (Lorentzian broadening)%n",
+                channel.toUpperCase(Locale.ROOT), fwhm));
+        text.append(String.format(Locale.ROOT,
+                "Modes parsed: %d; included (real frequency, positive %s activity): %d; "
+                        + "imaginary (skipped): %d; zero-activity (skipped): %d%n",
+                modes.size(), channel.toUpperCase(Locale.ROOT), included.size(),
+                imaginarySkipped, zeroActivitySkipped));
+        if (!imaginaryFreqs.isEmpty()) {
+            StringBuilder freqs = new StringBuilder();
+            for (int i = 0; i < Math.min(5, imaginaryFreqs.size()); i++) {
+                freqs.append(i == 0 ? "" : ", ")
+                        .append(String.format(Locale.ROOT, "%.4f", imaginaryFreqs.get(i)));
+            }
+            if (imaginaryFreqs.size() > 5) {
+                freqs.append(", ...");
+            }
+            text.append("Imaginary frequencies skipped (unstable modes are not IR/Raman "
+                    + "peaks): ").append(freqs).append(" cm-1\n");
+        }
+        text.append(String.format(Locale.ROOT,
+                "Grid: %.4f .. %.4f cm-1 in steps of %.4f (%d points)%n", gridMin, gridMax,
+                gridStep, spectrum.size()));
+        text.append(String.format(Locale.ROOT,
+                "SELF-CHECK - grid integral %.8f vs total included activity %.8f (ratio %.6f;"
+                        + " deviation is the expected window-edge Lorentzian-tail "
+                        + "truncation)%n", integral, totalActivity,
+                totalActivity > 0.0 ? integral / totalActivity : Double.NaN));
+        text.append(String.format(Locale.ROOT,
+                "Strongest grid-sampled point: %.4f cm-1 at %.8f (display units, see "
+                        + "honesty note)%n", peakFrequency, peakIntensity));
+        List<String> csv = new ArrayList<>();
+        csv.add("frequency_cm1,intensity_" + channel);
+        int rows = 0;
+        for (QERamanIRSpectraParser.SpectrumPoint point : spectrum) {
+            if (rows >= 20_000) {
+                csv.add("# remaining points omitted: CSV capped at 20000 rows");
+                break;
+            }
+            csv.add(String.format(Locale.ROOT, "%.4f,%.8g", point.frequency,
+                    point.intensity));
+            rows++;
+        }
+        text.append("\nHonesty boundary: intensities/activities are the SCALAR values the "
+                + "QE route printed (IR: as printed, D^2/A^2-amu convention; Raman: A^4/amu "
+                + "activity) - the Lorentzian broadening is a DISPLAY choice, not tensor "
+                + "orientation averaging (no depolarization ratio, no powder tensor "
+                + "invariants), and NO Bose-Einstein temperature factor is applied to the "
+                + "Raman channel. Peak positions come from grid sampling near the printed "
+                + "mode frequencies, not from line fitting. Units on the intensity axis "
+                + "inherit the source route's conventions.");
+        return new AnalysisReport(label, true, text.toString(), csv, null);
     }
 
     /** Ion-insertion voltage profile from a hull CSV; plateaus from hull vertices only. */

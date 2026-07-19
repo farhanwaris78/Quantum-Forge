@@ -432,6 +432,18 @@ public final class AnalysisAction {
             parameters.withConstraintSpec(spec).withConstraintMode(mode);
             break;
         }
+        case RAMAN_IR_SPECTRUM: {
+            String channel = askText("Spectrum channel (ir or raman)", "ir");
+            if (channel == null) {
+                return null;
+            }
+            Double fwhm = askDouble("Lorentzian FWHM in cm-1 (0 < w <= 200)", "5.0");
+            if (fwhm == null || !Double.isFinite(fwhm)) {
+                return null;
+            }
+            parameters.withSpectrumChannel(channel).withFwhmCm1(fwhm);
+            break;
+        }
         case ARRAY_SWEEP_PLAN: {
             String keyword = askText("QE keyword to sweep (e.g. ecutwfc)", "ecutwfc");
             if (keyword == null) {
