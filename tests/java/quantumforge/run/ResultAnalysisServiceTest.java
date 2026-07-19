@@ -2073,4 +2073,96 @@ class ResultAnalysisServiceTest {
         assertTrue(neg.isSuccess(), neg.getText());
         assertTrue(neg.getText().contains("INDEFINITE"), neg.getText());
     }
+
+    @Test
+    void testPhononModeFramesKindSynthesisAndFailClosed() throws IOException {
+        String dynmat =
+                "     Diagonalizing the dynamical matrix\n"
+                + "     q = (    0.000000000   0.000000000   0.000000000 )\n"
+                + " **************************************************************************\n"
+                + "     omega(  1) =       0.394099 [THz] =      13.143245 [cm-1]\n"
+                + " **************************************************************************\n"
+                + "     (  0.707107  0.000000  0.000000  0.000000  0.000000  0.000000 )\n"
+                + "     (  0.707106  0.000000  0.000000  0.000000  0.000000  0.000000 )\n"
+                + " **************************************************************************\n"
+                + "     omega(  2) =      -1.234567 [THz] =     -41.185683 [cm-1]\n"
+                + " **************************************************************************\n"
+                + "     ( -0.707107  0.000000  0.000000  0.100000  0.000000  0.000000 )\n"
+                + "     (  0.707100  0.000000  0.000000  0.000000  0.000000  0.000000 )\n";
+        File modesFile = write("dynmat.modes.out", dynmat);
+        Cell cell = new Cell(quantumforge.com.math.Matrix3D.unit(10.0));
+        cell.addAtom("Si", 0.0, 0.0, 0.0);       // (0, 0, 0) angstrom
+        cell.addAtom("Si", 0.15, 0.0, 0.0);      // (1.5, 0, 0) angstrom
+
+        AnalysisReport report = ResultAnalysisService.analyze(
+                AnalysisKind.PHONON_MODE_FRAMES, stubProject(this.tempDir, cell), modesFile,
+                new AnalysisParameters().withModeIndex(1).withFrameCount(4)
+                        .withFrameAmplitudeAng(0.2));
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getGeneratedInput() != null, "Frames must need explicit save");
+        String document = report.getGeneratedInput();
+        assertTrue(document.contains("frame 1/4 phase=sin(2*pi*0/4)=+0.000000 mode=1"),
+                document);
+        // Frame 2 (phase +1): atom1 x = 0 + 0.2*0.707107 = 0.1414214,
+        // atom2 x = 1.5 + 0.2*0.707106 = 1.6414212.
+        assertTrue(document.contains("  0.14142140"), document);
+        assertTrue(document.contains("  1.64142120"), document);
+        // Frame 4 (phase -1): atom1 x = -0.1414214, atom2 x = 1.3585788.
+        assertTrue(document.contains(" -0.14142140"), document);
+        assertTrue(document.contains("  1.35857880"), document);
+        assertTrue(report.getText().contains("omega = 0.394099 THz = 13.143245 cm-1"),
+                report.getText());
+        assertTrue(report.getText().contains("VISUAL scaling"), report.getText());
+        assertEquals(5, report.getCsvLines().size(), "header plus 4 frame rows");
+        assertEquals("1,0.00000000", report.getCsvLines().get(1));
+        assertEquals("2,1.00000000", report.getCsvLines().get(2));
+
+        // Imaginary mode still synthesizes (instability eigenvector) but says so.
+        AnalysisReport imaginary = ResultAnalysisService.analyze(
+                AnalysisKind.PHONON_MODE_FRAMES, stubProject(this.tempDir, cell), modesFile,
+                new AnalysisParameters().withModeIndex(2).withFrameCount(3)
+                        .withFrameAmplitudeAng(0.1));
+        assertTrue(imaginary.isSuccess(), imaginary.getText());
+        assertTrue(imaginary.getText().contains("IMAGINARY"), imaginary.getText());
+        assertTrue(imaginary.getText().contains("instability eigenvector"),
+                imaginary.getText());
+        assertTrue(imaginary.getText().contains("0.10000000"),
+                "max dropped imaginary component 0.1 must be reported");
+
+        AnalysisReport absent = ResultAnalysisService.analyze(
+                AnalysisKind.PHONON_MODE_FRAMES, stubProject(this.tempDir, cell), modesFile,
+                new AnalysisParameters().withModeIndex(9));
+        assertFalse(absent.isSuccess(), "A mode outside the file's index range must fail");
+        assertTrue(absent.getText().contains("1..2"), absent.getText());
+
+        AnalysisReport nonPositive = ResultAnalysisService.analyze(
+                AnalysisKind.PHONON_MODE_FRAMES, stubProject(this.tempDir, cell), modesFile,
+                new AnalysisParameters().withModeIndex(0));
+        assertFalse(nonPositive.isSuccess(), "Mode index 0 is not 1-based");
+
+        AnalysisReport noFile = ResultAnalysisService.analyze(
+                AnalysisKind.PHONON_MODE_FRAMES, stubProject(this.tempDir, cell), null,
+                new AnalysisParameters());
+        assertFalse(noFile.isSuccess(), "Missing modes file must fail closed");
+
+        AnalysisReport noCell = ResultAnalysisService.analyze(
+                AnalysisKind.PHONON_MODE_FRAMES, stubProject(this.tempDir), modesFile,
+                new AnalysisParameters());
+        assertFalse(noCell.isSuccess(), "Missing live cell must fail closed");
+
+        Cell threeAtoms = new Cell(quantumforge.com.math.Matrix3D.unit(10.0));
+        threeAtoms.addAtom("Si", 0.0, 0.0, 0.0);
+        threeAtoms.addAtom("Si", 0.15, 0.0, 0.0);
+        threeAtoms.addAtom("Si", 0.15, 0.20, 0.0);
+        AnalysisReport mismatch = ResultAnalysisService.analyze(
+                AnalysisKind.PHONON_MODE_FRAMES, stubProject(this.tempDir, threeAtoms),
+                modesFile, new AnalysisParameters().withModeIndex(1));
+        assertFalse(mismatch.isSuccess(), "Cell/mode atom-count mismatch must fail closed");
+        assertTrue(mismatch.getText().contains("Atom-count mismatch"), mismatch.getText());
+
+        AnalysisReport badAmplitude = ResultAnalysisService.analyze(
+                AnalysisKind.PHONON_MODE_FRAMES, stubProject(this.tempDir, cell), modesFile,
+                new AnalysisParameters().withModeIndex(1).withFrameAmplitudeAng(0.0));
+        assertFalse(badAmplitude.isSuccess(), "Zero amplitude must be refused");
+    }
 }

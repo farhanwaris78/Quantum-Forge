@@ -432,6 +432,25 @@ public final class AnalysisAction {
             parameters.withConstraintSpec(spec).withConstraintMode(mode);
             break;
         }
+        case PHONON_MODE_FRAMES: {
+            Integer mode = askInteger("Mode index as printed in the dynmat file (1-based)",
+                    1);
+            if (mode == null) {
+                return null;
+            }
+            Double amplitude = askDouble("Visual amplitude in Angstrom (0 < A <= 5.0; "
+                    + "mass-weighted modes are rendered, not physically scaled)", "0.5");
+            if (amplitude == null) {
+                return null;
+            }
+            Integer frames = askInteger("Frames per oscillation period (3-240)", 12);
+            if (frames == null) {
+                return null;
+            }
+            parameters.withModeIndex(mode).withFrameAmplitudeAng(amplitude)
+                    .withFrameCount(frames);
+            break;
+        }
         case DEFECT_PREVIEW: {
             String type = askText("Defect type: 'vacancy' or 'substitution'", "vacancy");
             if (type == null) {

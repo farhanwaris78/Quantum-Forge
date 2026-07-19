@@ -70,6 +70,7 @@ import quantumforge.run.parser.QEBornChargeDielectricParser;
 import quantumforge.run.parser.QECarParrinelloParser;
 import quantumforge.run.parser.QECastepLogParser;
 import quantumforge.run.parser.QEDynmatModesParser;
+import quantumforge.run.parser.PhononFrameSynthesis;
 import quantumforge.run.parser.QEElasticStabilityValidator;
 import quantumforge.run.parser.QEEliashbergTcCalculator;
 import quantumforge.run.parser.QEGipawNmrParser;
@@ -194,7 +195,8 @@ public final class ResultAnalysisService {
         TRAJECTORY_INDEX("XYZ trajectory streaming index (frame offsets)"),
         MLP_DATASET_CHECK("ML dataset validation (extXYZ schema/labels/leaks)"),
         ENERGY_SERIES_COMPARE("Energy-series comparison (same grid, eV deltas)"),
-        TENSOR_EIGEN("Symmetric 3x3 tensor eigenanalysis");
+        TENSOR_EIGEN("Symmetric 3x3 tensor eigenanalysis"),
+        PHONON_MODE_FRAMES("Phonon mode animation frames (multi-frame XYZ)");
 
         private final String label;
 
@@ -233,13 +235,14 @@ public final class ResultAnalysisService {
                     || this == SERIES_PLAN || this == ADSORPTION_PREVIEW || this == ML_MODEL_CHECK
                     || this == EXX_GUIDANCE || this == BZ_GEOMETRY || this == METHODS_TEXT
                     || this == RO_CRATE || this == DEFECT_FORMATION || this == ADSORPTION_ENERGY
-                    || this == BARRIER_DIFFUSION;
+                    || this == BARRIER_DIFFUSION || this == CONSTRAINTS_PREVIEW
+                    || this == PHONON_MODE_FRAMES;
         }
 
         /** True for project-bound kinds that additionally parse a user data file. */
         public boolean needsDataFile() {
             return this == MD_MSD || this == INPUT_DIFF || this == ML_MODEL_CHECK
-                    || this == PHONOPY_DATA_REVIEW;
+                    || this == PHONOPY_DATA_REVIEW || this == PHONON_MODE_FRAMES;
         }
     }
 
@@ -288,6 +291,11 @@ public final class ResultAnalysisService {
         private double hopAngstrom = Double.NaN;
         private double attemptThz = Double.NaN;
         private int hopDimension = 3;
+        private double amplitudeAng = 0.5;       // visual mode-frame amplitude
+        private String isotopeLabel = "";        // empty means "must be supplied"
+        private double nuclearSpinDensity = Double.NaN; // NaN = A_iso not requested
+        private int modeIndex = 1;               // 1-based dynmat mode index
+        private int frameCount = 12;             // frames per oscillation period
         private String constraintSpec = "";      // empty means "must be supplied"
         private String constraintMode = "relax"; // relax, vc-relax, or md
 
@@ -334,6 +342,11 @@ public final class ResultAnalysisService {
         public double getHopAngstrom() { return this.hopAngstrom; }
         public double getAttemptThz() { return this.attemptThz; }
         public int getHopDimension() { return this.hopDimension; }
+        public double getFrameAmplitudeAng() { return this.amplitudeAng; }
+        public String getIsotopeLabel() { return this.isotopeLabel; }
+        public double getNuclearSpinDensity() { return this.nuclearSpinDensity; }
+        public int getModeIndex() { return this.modeIndex; }
+        public int getFrameCount() { return this.frameCount; }
         public String getConstraintSpec() { return this.constraintSpec; }
         public String getConstraintMode() { return this.constraintMode; }
 
@@ -471,6 +484,28 @@ public final class ResultAnalysisService {
         }
         public AnalysisParameters withHopDimension(int value) {
             this.hopDimension = value;
+            return this;
+        }
+        public AnalysisParameters withFrameAmplitudeAng(double value) {
+            this.amplitudeAng = value;
+            return this;
+        }
+        public AnalysisParameters withIsotopeLabel(String value) {
+            this.isotopeLabel = value == null ? "" : value;
+            return this;
+        }
+        public AnalysisParameters withModeIndex(int value) {
+            this.modeIndex = value;
+            return this;
+        }
+
+        public AnalysisParameters withFrameCount(int value) {
+            this.frameCount = value;
+            return this;
+        }
+
+        public AnalysisParameters withNuclearSpinDensity(double value) {
+            this.nuclearSpinDensity = value;
             return this;
         }
         public AnalysisParameters withConstraintSpec(String value) {
@@ -701,6 +736,8 @@ public final class ResultAnalysisService {
         case TENSOR_EIGEN:
             return name.contains("tensor") || name.contains("dielectric")
                     || name.endsWith(".t3");
+        case PHONON_MODE_FRAMES:
+            return name.contains("dynmat") || name.contains("modes");
         default:
             return false;
         }
@@ -951,6 +988,8 @@ public final class ResultAnalysisService {
                 return analyzeConstraintsPreview(project, params);
             case PHONOPY_DATA_REVIEW:
                 return analyzeForceSetsReview(project, file);
+            case PHONON_MODE_FRAMES:
+                return analyzePhononModeFrames(project, file, params);
             default:
                 return failure(kind.getLabel(), "This analysis kind is not implemented.");
         }
@@ -3508,6 +3547,133 @@ public final class ResultAnalysisService {
                 + "(roadmap #52) consume exactly these validated rows. Negative frequencies are "
                 + "imaginary modes as printed by dynmat.x.");
         return new AnalysisReport(label, consistent, text.toString(), csv, null);
+    }
+
+    /**
+     * Roadmap #52 data layer: synthesizes a multi-frame XYZ animation document for one
+     * validated dynmat mode by phase-sampling base + amplitude * Re(e_i). Project-bound
+     * because base positions and element names must come from the live cell model -
+     * inventing them from the modes file would fabricate a structure. Nothing is saved
+     * implicitly; the document leaves only through the explicit save action.
+     */
+    private static AnalysisReport analyzePhononModeFrames(Project project, File file,
+            AnalysisParameters params) {
+        String label = AnalysisKind.PHONON_MODE_FRAMES.getLabel();
+        if (file == null) {
+            return failure(label, "A dynmat modes file must be selected explicitly; the "
+                    + "frames are synthesized from that file plus the live cell model.");
+        }
+        Cell cell = project.getCell();
+        if (cell == null || cell.numAtoms() <= 0) {
+            return failure(label, "The project has no atoms; the base positions for the "
+                    + "frames must come from the live cell model.");
+        }
+        QEDynmatModesParser parser = new QEDynmatModesParser(project.getProperty());
+        try {
+            parser.parse(file);
+        } catch (IOException ex) {
+            return failure(label, "Reading " + file.getName() + " failed closed: "
+                    + ex.getMessage());
+        }
+        List<QEDynmatModesParser.VibrationalMode> modes = parser.getModes();
+        if (modes.isEmpty()) {
+            StringBuilder reason = new StringBuilder("No usable dynmat.x mode records were "
+                    + "parsed from ").append(file.getName()).append('.');
+            for (String diagnostic : parser.getDiagnostics()) {
+                reason.append(' ').append(diagnostic);
+            }
+            return failure(label, reason.toString());
+        }
+        if (!parser.isNormalizationConsistent(QEDynmatModesParser.DEFAULT_NORM_TOLERANCE)) {
+            return failure(label, String.format(Locale.ROOT,
+                    "The eigenvector orthonormality audit failed (max |norm-1| = %.8f, "
+                            + "tolerance %.4f). Displacement amplitudes from untrusted "
+                            + "eigenvectors would be misleading, so no frames are rendered.",
+                    parser.getMaxNormDeviation(),
+                    QEDynmatModesParser.DEFAULT_NORM_TOLERANCE));
+        }
+        int requested = params.getModeIndex();
+        if (requested < 1) {
+            return failure(label, "The mode index is 1-based as printed in the dynmat "
+                    + "file; " + requested + " is not valid.");
+        }
+        QEDynmatModesParser.VibrationalMode mode = null;
+        int lowest = Integer.MAX_VALUE;
+        int highest = Integer.MIN_VALUE;
+        for (QEDynmatModesParser.VibrationalMode candidate : modes) {
+            lowest = Math.min(lowest, candidate.getIndex());
+            highest = Math.max(highest, candidate.getIndex());
+            if (candidate.getIndex() == requested) {
+                mode = candidate;
+            }
+        }
+        if (mode == null) {
+            return failure(label, "Mode " + requested + " is not present in "
+                    + file.getName() + "; the file carries mode indices " + lowest + ".."
+                    + highest + ".");
+        }
+        if (mode.getAtomCount() != cell.numAtoms()) {
+            return failure(label, "Atom-count mismatch: the mode has " + mode.getAtomCount()
+                    + " atom(s) but the live cell has " + cell.numAtoms() + ". Frames are "
+                    + "refused rather than mapped onto the wrong structure (a supercell "
+                    + "mode file vs. a primitive cell would silently scramble atoms).");
+        }
+        Atom[] atoms = cell.listAtoms();
+        double[][] realParts = new double[atoms.length][3];
+        double[][] basePositions = new double[atoms.length][3];
+        String[] elements = new String[atoms.length];
+        double maxImagComponent = 0.0;
+        for (int i = 0; i < atoms.length; i++) {
+            double[] row = mode.getDisplacements()[i];
+            realParts[i][0] = row[0];
+            realParts[i][1] = row[1];
+            realParts[i][2] = row[2];
+            maxImagComponent = Math.max(maxImagComponent, Math.max(Math.abs(row[3]),
+                    Math.max(Math.abs(row[4]), Math.abs(row[5]))));
+            basePositions[i][0] = atoms[i].getX();
+            basePositions[i][1] = atoms[i].getY();
+            basePositions[i][2] = atoms[i].getZ();
+            elements[i] = atoms[i].getName();
+        }
+        OperationResult<String> frames = PhononFrameSynthesis.frames(realParts,
+                basePositions, elements, params.getFrameAmplitudeAng(),
+                params.getFrameCount(), mode.getOmegaCm1(), requested);
+        if (!frames.isSuccess() || frames.getValue().isEmpty()) {
+            return failure(label, "Frame synthesis refused: " + frames.getMessage());
+        }
+        StringBuilder text = new StringBuilder();
+        text.append("Source: ").append(file.getName()).append('\n');
+        text.append(String.format(Locale.ROOT,
+                "Mode %d: omega = %.6f THz = %.6f cm-1%s%n", mode.getIndex(),
+                mode.getOmegaThz(), mode.getOmegaCm1(),
+                mode.isImaginary() ? " (IMAGINARY)" : ""));
+        if (mode.isImaginary()) {
+            text.append("Note: this is an imaginary (unstable) mode; the frames still trace "
+                    + "the instability eigenvector but the periodic sinusoid is a display "
+                    + "convention, not a trajectory.\n");
+        }
+        text.append(String.format(Locale.ROOT,
+                "Atoms: %d; frames per period: %d; visual amplitude: %.6f A%n",
+                atoms.length, params.getFrameCount(), params.getFrameAmplitudeAng()));
+        text.append(String.format(Locale.ROOT,
+                "Orthonormality audit (|norm-1| <= %.4f): max deviation %.8f -> PASSED%n%n",
+                QEDynmatModesParser.DEFAULT_NORM_TOLERANCE, parser.getMaxNormDeviation()));
+        List<String> csv = new ArrayList<>();
+        csv.add("frame_index,phase_scale");
+        for (int frame = 0; frame < params.getFrameCount(); frame++) {
+            csv.add(String.format(Locale.ROOT, "%d,%.8f", frame + 1,
+                    Math.sin(2.0 * Math.PI * frame / params.getFrameCount())));
+        }
+        text.append("Honesty boundary: dynmat eigenvectors are mass-weighted and "
+                + "orthonormal, so the fixed amplitude is a VISUAL scaling in Angstrom, not "
+                + "a physical displacement field; absolute amplitudes carry no thermal or "
+                + "energetic meaning. Imaginary eigenvector components are dropped "
+                + "(max |im| here: ").append(String.format(Locale.ROOT, "%.8f",
+                maxImagComponent)).append("). The per-mode sign/phase is gauge freedom. No "
+                + "supercell replicas or q-phase factors are generated. The document leaves "
+                + "this dialog only through the explicit save action; animate the saved "
+                + "multi-frame XYZ in an external viewer (XCrySDen, VMD, Ovito).");
+        return new AnalysisReport(label, true, text.toString(), csv, frames.getValue().get());
     }
 
     /** Ion-insertion voltage profile from a hull CSV; plateaus from hull vertices only. */
