@@ -54,6 +54,7 @@ import quantumforge.hpc.SiteProfileValidator;
 import quantumforge.input.QEExxPlanner;
 import quantumforge.neural.MlModelManifest;
 import quantumforge.input.CpInputPlanner;
+import quantumforge.input.Wannier90WinPlanner;
 import quantumforge.input.QEEsmAuditor;
 import quantumforge.input.QEHubbardPlanner;
 import quantumforge.input.QEInput;
@@ -238,7 +239,8 @@ public final class ResultAnalysisService {
         MOIRE_TWIST_PREVIEW("Commensurate twist preview (exact hexagonal (m,n) math)"),
         PDB_REVIEW("PDB structure review (fail-closed, no element guessing)"),
         LAMMPS_DATA_REVIEW("LAMMPS data-file review (explicit atom_style, no guessing)"),
-        CP_INPUT_DRAFT("cp.x Car-Parrinello input draft (required-edit guarded)");
+        CP_INPUT_DRAFT("cp.x Car-Parrinello input draft (required-edit guarded)"),
+        W90_WIN_DRAFT("Wannier90 .win draft (mesh-echoed, required-edit guarded)");
 
         private final String label;
 
@@ -284,7 +286,8 @@ public final class ResultAnalysisService {
                     || this == SUPERCELL_PREVIEW || this == HUBBARD_HP_DRAFT
                     || this == WORKSPACE_SEARCH || this == TEMPLATE_LIBRARY
                     || this == SPIN_CUBE_MAGNETIZATION || this == ESM_SLAB_CHECK
-                    || this == MOIRE_TWIST_PREVIEW || this == CP_INPUT_DRAFT;
+                    || this == MOIRE_TWIST_PREVIEW || this == CP_INPUT_DRAFT
+                    || this == W90_WIN_DRAFT;
         }
 
         /** True for project-bound kinds that additionally parse a user data file. */
@@ -1166,6 +1169,8 @@ public final class ResultAnalysisService {
                 return analyzeMoireTwistPreview(project, params);
             case CP_INPUT_DRAFT:
                 return analyzeCpInputDraft(project);
+            case W90_WIN_DRAFT:
+                return analyzeW90WinDraft(project);
             default:
                 return failure(kind.getLabel(), "This analysis kind is not implemented.");
         }
@@ -5695,6 +5700,73 @@ public final class ResultAnalysisService {
             csv.add("# truncated at 20000 atom rows (cap)");
         }
         return new AnalysisReport(label, true, text.toString(), csv, null);
+    }
+
+    /**
+     * Roadmap #69: Wannier90 .win draft. The uniform mesh and nbnd are echoed
+     * verbatim; every physics choice stays REQUIRED-EDIT; Gamma/explicit-list
+     * inputs are refused because they cannot feed pw2wannier90.x.
+     */
+    private static AnalysisReport analyzeW90WinDraft(Project project) {
+        String label = AnalysisKind.W90_WIN_DRAFT.getLabel();
+        QEInput input;
+        try {
+            project.resolveQEInputs();
+            input = project.getQEInputCurrent();
+        } catch (RuntimeException ex) {
+            return failure(label, "Resolving the current QE input failed: "
+                    + ex.getMessage());
+        }
+        OperationResult<Wannier90WinPlanner.WinDraft> planned =
+                Wannier90WinPlanner.plan(input);
+        if (!planned.isSuccess() || planned.getValue().isEmpty()) {
+            return failure(label, "Wannier90 draft refused: [" + planned.getCode() + "] "
+                    + planned.getMessage());
+        }
+        Wannier90WinPlanner.WinDraft draft = planned.getValue().get();
+        int[] grid = draft.getGrid();
+        int[] offset = draft.getOffset();
+        StringBuilder text = new StringBuilder();
+        text.append(String.format(Locale.ROOT,
+                "Mesh echoed verbatim: automatic %d x %d x %d, offset %d %d %d%n",
+                grid[0], grid[1], grid[2], offset[0], offset[1], offset[2]));
+        text.append(String.format(Locale.ROOT,
+                "nbnd: %s%n", draft.getNbnd() == null
+                        ? "not set in the live input - REQUIRED-EDIT in the draft"
+                        : "echoed as num_bands = " + draft.getNbnd()));
+        text.append(String.format(Locale.ROOT,
+                "kpoints block: %s%n", draft.isKpointsGenerated()
+                        ? "GENERATED exactly from the grid (Monkhorst-Pack; precision "
+                                + "stated in the draft)"
+                        : "NOT generated (grid count beyond the " + 4096
+                                + " bound) - REQUIRED-EDIT"));
+        text.append(String.format(Locale.ROOT,
+                "REQUIRED-EDIT placeholders kept: %d (num_wann, projections, "
+                        + "disentanglement windows, num_bands when unset)%n",
+                draft.countRequiredEdits()));
+        text.append("\nPrerequisites stated by #69: run the nscf on THIS SAME mesh with "
+                + "nosym=.true./noinv (pw2wannier90.x rejects symmetry-reduced sets), "
+                + "choose projections from valence character, and - for entangled bands - "
+                + "set the disentanglement windows from a completed band-structure review "
+                + "(BANDS_DATA kind), never from defaults. The draft is written ONLY via "
+                + "the explicit save action. An honest .win schema round-trip, projection "
+                + "templates per chemistry, disentanglement auto-derivation from finished "
+                + "bands, and Wannier-vs-DFT band RMS comparison remain the remaining #69 "
+                + "work; the WANNIER90_SPREAD kind already audits the spread convergence "
+                + "after a run.");
+        List<String> csv = new ArrayList<>();
+        csv.add("item,value,note");
+        csv.add(String.format(Locale.ROOT, "mp_grid,%dx%dx%d,verbatim", grid[0], grid[1],
+                grid[2]));
+        csv.add(String.format(Locale.ROOT, "offset,%d%d%d,verbatim", offset[0], offset[1],
+                offset[2]));
+        csv.add(String.format(Locale.ROOT, "num_bands,%s,echo-or-required",
+                draft.getNbnd() == null ? "REQUIRED-EDIT" : draft.getNbnd().toString()));
+        csv.add(String.format(Locale.ROOT, "kpoints_generated,%s,draft-status",
+                draft.isKpointsGenerated()));
+        csv.add(String.format(Locale.ROOT, "required_edits,%d,draft-status",
+                draft.countRequiredEdits()));
+        return new AnalysisReport(label, true, text.toString(), csv, draft.getDraft());
     }
 
     /**

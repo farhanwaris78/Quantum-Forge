@@ -3214,4 +3214,50 @@ class ResultAnalysisServiceTest {
         assertFalse(missing.isSuccess(), "No current input must fail closed");
         assertTrue(missing.getText().contains("[CP_INPUT]"), missing.getText());
     }
+
+    @Test
+    void testW90WinDraftKindMeshEchoAndRefusals() {
+        Cell cell = new Cell(quantumforge.com.math.Matrix3D.unit(5.43));
+        cell.addAtom("Si", 0.0, 0.0, 0.0);
+        QESCFInput input = new QESCFInput();
+        QEKPoints points = input.getCard(QEKPoints.class);
+        points.setAutomatic();
+        points.setKGrid(new int[] {4, 4, 4});
+        points.setKOffset(new int[] {0, 0, 0});
+        input.getNamelist(QEInput.NAMELIST_SYSTEM).setValue(
+                QEValueBase.getInstance("nbnd", "64"));
+
+        AnalysisReport report = ResultAnalysisService.analyze(AnalysisKind.W90_WIN_DRAFT,
+                stubProjectWithInput(this.tempDir, input, cell), new AnalysisParameters());
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains(
+                "Mesh echoed verbatim: automatic 4 x 4 x 4, offset 0 0 0"),
+                report.getText());
+        assertTrue(report.getText().contains("echoed as num_bands = 64"),
+                report.getText());
+        assertTrue(report.getText().contains("kpoints block: GENERATED"),
+                report.getText());
+        assertTrue(report.getText().contains("nosym=.true./noinv"), report.getText());
+        String draft = report.getGeneratedInput();
+        assertTrue(draft != null && draft.contains("mp_grid = 4 4 4"), draft);
+        assertTrue(draft.contains("begin kpoints"), draft);
+        assertTrue(report.getCsvLines().contains("mp_grid,4x4x4,verbatim"),
+                report.getCsvLines().toString());
+        assertTrue(report.getCsvLines().contains("num_bands,64,echo-or-required"),
+                report.getCsvLines().toString());
+
+        QESCFInput gamma = new QESCFInput();
+        gamma.getCard(QEKPoints.class).setGamma();
+        AnalysisReport gammaRefused = ResultAnalysisService.analyze(
+                AnalysisKind.W90_WIN_DRAFT, stubProjectWithInput(this.tempDir, gamma, cell),
+                new AnalysisParameters());
+        assertFalse(gammaRefused.isSuccess(),
+                "Gamma-only cannot feed a Wannierization - refused");
+        assertTrue(gammaRefused.getText().contains("[W90_MESH]"), gammaRefused.getText());
+
+        AnalysisReport missing = ResultAnalysisService.analyze(AnalysisKind.W90_WIN_DRAFT,
+                stubProject(this.tempDir), new AnalysisParameters());
+        assertFalse(missing.isSuccess(), "No current input must fail closed");
+        assertTrue(missing.getText().contains("[W90_INPUT]"), missing.getText());
+    }
 }
