@@ -221,6 +221,28 @@ public final class AnalysisAction {
             }
             break;
         }
+        case ADSORPTION_PREVIEW: {
+            String molecule = askText("Molecule template (CO, H2O, NH3, OH, NO)", "CO");
+            if (molecule == null) {
+                return null;
+            }
+            Double height = askDouble("Height above the topmost slab atom in Angstrom (>= 1.0)",
+                    "2.0");
+            if (height == null) {
+                return null;
+            }
+            Double x = askDouble("Fractional surface position x (0-1)", "0.5");
+            if (x == null) {
+                return null;
+            }
+            Double y = askDouble("Fractional surface position y (0-1)", "0.5");
+            if (y == null) {
+                return null;
+            }
+            parameters.withMoleculeName(molecule).withAdsorbHeight(height).withAdsorbX(x)
+                    .withAdsorbY(y);
+            break;
+        }
         case SMEARING_ANALYSIS: {
             int defaultAtoms = 1;
             if (this.project.getCell() != null && this.project.getCell().numAtoms() > 0) {

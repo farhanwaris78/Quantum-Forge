@@ -1252,4 +1252,48 @@ class ResultAnalysisServiceTest {
                 new AnalysisParameters().withIonCharge(-1.0));
         assertFalse(badCharge.isSuccess(), "A non-positive ion charge must be rejected");
     }
+
+    @Test
+    void testAdsorptionPreviewCollisionResolutionAndValidation() {
+        // Mirror the proven MoleculeAdsorberTest setup exactly.
+        Cell slab = new Cell(quantumforge.com.math.Matrix3D.unit(10.0));
+        slab.addAtom("Pt", 5.0, 5.0, 2.0);
+
+        AnalysisReport belowMinimum = ResultAnalysisService.analyze(AnalysisKind.ADSORPTION_PREVIEW,
+                stubProject(this.tempDir, slab),
+                new AnalysisParameters().withMoleculeName("CO").withAdsorbHeight(0.5)
+                        .withAdsorbX(0.5).withAdsorbY(0.5));
+        // Height 0.5 is below the builder minimum of 1.0 and must be refused, not clamped.
+        assertFalse(belowMinimum.isSuccess(), belowMinimum.getText());
+
+        AnalysisReport colliding = ResultAnalysisService.analyze(AnalysisKind.ADSORPTION_PREVIEW,
+                stubProject(this.tempDir, slab),
+                new AnalysisParameters().withMoleculeName("CO").withAdsorbHeight(1.1)
+                        .withAdsorbX(0.5).withAdsorbY(0.5));
+        assertFalse(colliding.isSuccess(), "Contact 1.1 Angstrom is below the 1.2 limit");
+        assertTrue(colliding.getText().contains("Collision detected: true"), colliding.getText());
+
+        AnalysisReport safe = ResultAnalysisService.analyze(AnalysisKind.ADSORPTION_PREVIEW,
+                stubProject(this.tempDir, slab),
+                new AnalysisParameters().withMoleculeName("CO").withAdsorbHeight(2.5)
+                        .withAdsorbX(0.5).withAdsorbY(0.5));
+        assertTrue(safe.isSuccess(), safe.getText());
+        assertTrue(safe.getText().contains("combined preview cell atoms: 3"), safe.getText());
+        assertTrue(safe.getText().contains("Collision detected: false"), safe.getText());
+        assertEquals(1, slab.numAtoms(), "The live slab must not be modified by the preview");
+
+        AnalysisReport unknown = ResultAnalysisService.analyze(AnalysisKind.ADSORPTION_PREVIEW,
+                stubProject(this.tempDir, slab),
+                new AnalysisParameters().withMoleculeName("C6H12"));
+        assertFalse(unknown.isSuccess(), "Unknown templates must fail closed");
+
+        AnalysisReport badPosition = ResultAnalysisService.analyze(AnalysisKind.ADSORPTION_PREVIEW,
+                stubProject(this.tempDir, slab),
+                new AnalysisParameters().withMoleculeName("CO").withAdsorbX(1.5));
+        assertFalse(badPosition.isSuccess(), "Out-of-range fractional positions must be rejected");
+
+        AnalysisReport noCell = ResultAnalysisService.analyze(AnalysisKind.ADSORPTION_PREVIEW,
+                stubProject(this.tempDir), new AnalysisParameters());
+        assertFalse(noCell.isSuccess(), "A project without a slab cell must fail closed");
+    }
 }

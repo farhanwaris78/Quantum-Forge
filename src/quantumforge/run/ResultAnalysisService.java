@@ -25,6 +25,7 @@ import quantumforge.atoms.model.Atom;
 import quantumforge.atoms.model.Cell;
 import quantumforge.builder.QEBatteryVoltage;
 import quantumforge.builder.QECitationManager;
+import quantumforge.builder.adsorption.MoleculeAdsorber;
 import quantumforge.builder.QEHullThermodynamics;
 import quantumforge.builder.QEPointDefectBuilder;
 import quantumforge.input.QEInput;
@@ -151,7 +152,8 @@ public final class ResultAnalysisService {
         CONVERGENCE_REVIEW("Convergence series review (ecut/k-mesh energies)"),
         SERIES_PLAN("Convergence series plan (preview)"),
         PHONON_MODES("Phonon eigenvector audit (dynmat.x)"),
-        VOLTAGE_PROFILE("Battery voltage profile from hull CSV");
+        VOLTAGE_PROFILE("Battery voltage profile from hull CSV"),
+        ADSORPTION_PREVIEW("Molecule adsorption preview (site/collision check)");
 
         private final String label;
 
@@ -187,7 +189,7 @@ public final class ResultAnalysisService {
                     || this == CITATIONS || this == BERRY_POLARIZATION
                     || this == GEOMETRY_CONVERGENCE || this == PSEUDO_FAMILY || this == SYMMETRY_KPATH
                     || this == INPUT_DIFF || this == KMESH_QUALITY || this == DEFECT_PREVIEW
-                    || this == SERIES_PLAN;
+                    || this == SERIES_PLAN || this == ADSORPTION_PREVIEW;
         }
 
         /** True for project-bound kinds that additionally parse a user data file. */
@@ -224,6 +226,10 @@ public final class ResultAnalysisService {
         private int seriesCount = 6;
         private double energyToleranceRyPerAtom = 1.0e-3;
         private double ionCharge = 1.0;
+        private String moleculeName = "CO";
+        private double adsorbHeight = 2.0;
+        private double adsorbX = 0.5;
+        private double adsorbY = 0.5;
 
         public double getFermiEv() { return this.fermiEv; }
         public int getKpointIndex() { return this.kpointIndex; }
@@ -251,6 +257,10 @@ public final class ResultAnalysisService {
         public int getSeriesCount() { return this.seriesCount; }
         public double getEnergyToleranceRyPerAtom() { return this.energyToleranceRyPerAtom; }
         public double getIonCharge() { return this.ionCharge; }
+        public String getMoleculeName() { return this.moleculeName; }
+        public double getAdsorbHeight() { return this.adsorbHeight; }
+        public double getAdsorbX() { return this.adsorbX; }
+        public double getAdsorbY() { return this.adsorbY; }
 
         public AnalysisParameters withFermiEv(double value) { this.fermiEv = value; return this; }
         public AnalysisParameters withKpointIndex(int value) { this.kpointIndex = value; return this; }
@@ -324,6 +334,22 @@ public final class ResultAnalysisService {
         }
         public AnalysisParameters withIonCharge(double value) {
             this.ionCharge = value;
+            return this;
+        }
+        public AnalysisParameters withMoleculeName(String value) {
+            this.moleculeName = value;
+            return this;
+        }
+        public AnalysisParameters withAdsorbHeight(double value) {
+            this.adsorbHeight = value;
+            return this;
+        }
+        public AnalysisParameters withAdsorbX(double value) {
+            this.adsorbX = value;
+            return this;
+        }
+        public AnalysisParameters withAdsorbY(double value) {
+            this.adsorbY = value;
             return this;
         }
     }
@@ -627,6 +653,8 @@ public final class ResultAnalysisService {
                 return analyzeDefectPreview(project, params);
             case SERIES_PLAN:
                 return analyzeSeriesPlan(params);
+            case ADSORPTION_PREVIEW:
+                return analyzeAdsorptionPreview(project, params);
             default:
                 return failure(kind.getLabel(), "This analysis kind is not implemented.");
             }
@@ -3130,5 +3158,72 @@ public final class ResultAnalysisService {
                 + "fraction-1 phase anchors mu_B as printed. The CSV uses "
                 + "formula,fraction_B,formation_energy_eV_per_atom with an optional header.");
         return new AnalysisReport(label, true, text.toString(), csv, null);
+    }
+
+    /** Templated-molecule placement preview with collision check; the live cell is untouched. */
+    private static AnalysisReport analyzeAdsorptionPreview(Project project,
+            AnalysisParameters params) {
+        String label = AnalysisKind.ADSORPTION_PREVIEW.getLabel();
+        Cell cell = project.getCell();
+        if (cell == null) {
+            return failure(label, "The project has no slab cell to adsorb onto.");
+        }
+        if (cell.numAtoms() < 1) {
+            return failure(label, "The project cell contains no slab atoms.");
+        }
+        String moleculeName = params.getMoleculeName() == null ? ""
+                : params.getMoleculeName().trim();
+        Cell molecule = MoleculeAdsorber.createMolecule(moleculeName);
+        if (molecule == null || molecule.numAtoms() < 1) {
+            return failure(label, "Unknown molecule template '" + moleculeName
+                    + "'. Supported templates: CO, H2O, NH3, OH, NO.");
+        }
+        double height = params.getAdsorbHeight();
+        if (!(height >= 1.0) || !Double.isFinite(height)) {
+            return failure(label, "The adsorption height must be a finite value >= 1.0 "
+                    + "Angstrom (the placement builder's own minimum; got " + height + ").");
+        }
+        double x = params.getAdsorbX();
+        double y = params.getAdsorbY();
+        if (!(x >= 0.0 && x <= 1.0 && y >= 0.0 && y <= 1.0
+                && Double.isFinite(x) && Double.isFinite(y))) {
+            return failure(label, "Surface position must be fractional coordinates within "
+                    + "[0,1] x [0,1] (got " + x + ", " + y + ").");
+        }
+        int slabAtoms = cell.numAtoms();
+        MoleculeAdsorber adsorber = new MoleculeAdsorber(cell);
+        adsorber.setMolecule(molecule);
+        adsorber.setPosition(x, y);
+        adsorber.setHeight(height);
+        Cell combined = adsorber.adsorb();
+        if (combined == null) {
+            return failure(label, "The placement builder returned no combined cell.");
+        }
+        if (cell.numAtoms() != slabAtoms) {
+            // Defensive honesty: the builder is contractually non-destructive.
+            return failure(label, "Internal error: the placement mutated the project cell; "
+                    + "the preview result was discarded.");
+        }
+        StringBuilder text = new StringBuilder();
+        text.append("Molecule template: ").append(moleculeName).append(" (")
+                .append(molecule.numAtoms()).append(" atoms, fixed template geometry)\n");
+        text.append(String.format(Locale.ROOT,
+                "Fractional surface position: (%.4f, %.4f); height above topmost slab atom: %.4f Ang%n",
+                x, y, height));
+        text.append("Slab atoms: ").append(slabAtoms).append("; combined preview cell atoms: ")
+                .append(combined.numAtoms()).append('\n');
+        text.append(String.format(Locale.ROOT,
+                "Minimum adsorbate-slab contact distance (builder metric, 1.2 Ang limit): %.6f Ang%n",
+                adsorber.getMinimumContactDistance()));
+        text.append("Collision detected: ").append(adsorber.isCollisionDetected()).append('\n');
+        for (String diagnostic : adsorber.getDiagnostics()) {
+            text.append(" - ").append(diagnostic).append('\n');
+        }
+        text.append("\nThis preview places a fixed-geometry template molecule with a "
+                + "collision check only; it does not rank adsorption sites, relax the "
+                + "adsorbate/slab, or compute binding energies - those remain explicit engine "
+                + "calculations. Nothing in the project cell was modified.");
+        boolean success = !adsorber.isCollisionDetected();
+        return new AnalysisReport(label, success, text.toString(), List.of(), null);
     }
 }
