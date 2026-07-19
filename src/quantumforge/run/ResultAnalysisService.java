@@ -23,6 +23,8 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import quantumforge.app.project.editor.result.geometry.GeometryMeasurer;
+import quantumforge.app.project.viewer.result.special.EffectiveMassTensor;
+import quantumforge.com.math.SymmetricEigen3;
 import quantumforge.atoms.model.Atom;
 import quantumforge.atoms.model.Cell;
 import quantumforge.builder.QEBatteryVoltage;
@@ -178,7 +180,8 @@ public final class ResultAnalysisService {
         RO_CRATE("RO-Crate metadata draft (artifact checksums)"),
         DEFECT_FORMATION("Defect formation energy (explicit terms, eV)"),
         ADSORPTION_ENERGY("Adsorption energy (explicit terms, eV)"),
-        BARRIER_DIFFUSION("Barrier-based diffusivity estimate (Arrhenius hop)");
+        BARRIER_DIFFUSION("Barrier-based diffusivity estimate (Arrhenius hop)"),
+        EFFECTIVE_MASS("Effective-mass tensor fit (k,E series)");
 
         private final String label;
 
@@ -656,6 +659,8 @@ public final class ResultAnalysisService {
             return name.endsWith(".yaml") || name.endsWith(".yml");
         case ML_MODEL_CHECK:
             return name.contains("manifest") || name.endsWith(".mlmf");
+        case EFFECTIVE_MASS:
+            return name.contains("mass") || name.contains("emk");
         default:
             return false;
         }
@@ -773,6 +778,8 @@ public final class ResultAnalysisService {
                 return analyzeBandGapSummary(source);
             case DOS_INTEGRATION:
                 return analyzeDosIntegration(source);
+            case EFFECTIVE_MASS:
+                return analyzeEffectiveMass(source);
             case SITE_PROFILE_CHECK:
                 return analyzeSiteProfile(source);
             default:
@@ -3663,6 +3670,112 @@ public final class ResultAnalysisService {
                 + "only; it is NOT an electron count without a spin/orbital-degeneracy and "
                 + "occupation convention, and it says nothing about states outside the "
                 + "emitted energy window.");
+        return new AnalysisReport(label, true, text.toString(), csv, null);
+    }
+
+    /**
+     * Effective-mass tensor from a local quadratic least-squares fit (Roadmap
+     * #159, data layer): reads a CSV of (kx,ky,kz in bohr^-1, E in Ry) rows,
+     * fits with the tested EffectiveMassTensor, and decomposes the symmetric
+     * inverse-Hessian eigenvalues with the tested Jacobi solver.
+     */
+    private static AnalysisReport analyzeEffectiveMass(File source) throws IOException {
+        String label = AnalysisKind.EFFECTIVE_MASS.getLabel();
+        long size = Files.size(source.toPath());
+        if (size > 64L * 1024L * 1024L) {
+            return failure(label, source.getName() + " exceeds the 64 MiB parse bound.");
+        }
+        List<String> lines = Files.readAllLines(source.toPath(), StandardCharsets.UTF_8);
+        List<double[]> kpoints = new ArrayList<>();
+        List<Double> energies = new ArrayList<>();
+        int rejected = 0;
+        for (String line : lines) {
+            String trimmed = line.trim();
+            if (trimmed.isEmpty()) {
+                continue;
+            }
+            String[] cells = trimmed.split("[,\\s]+");
+            if (cells.length < 4) {
+                rejected++;
+                continue;
+            }
+            try {
+                double kx = Double.parseDouble(normalizeExponent(cells[0]));
+                double ky = Double.parseDouble(normalizeExponent(cells[1]));
+                double kz = Double.parseDouble(normalizeExponent(cells[2]));
+                double energy = Double.parseDouble(normalizeExponent(cells[3]));
+                if (!Double.isFinite(kx) || !Double.isFinite(ky) || !Double.isFinite(kz)
+                        || !Double.isFinite(energy)) {
+                    rejected++;
+                    continue;
+                }
+                kpoints.add(new double[] {kx, ky, kz});
+                energies.add(energy);
+            } catch (NumberFormatException ex) {
+                rejected++;
+            }
+        }
+        if (kpoints.size() < 7) {
+            return failure(label, "Only " + kpoints.size() + " numeric (kx,ky,kz,E) rows were "
+                    + "parsed (rejected rows: " + rejected + "); the quadratic fit needs >= 7 "
+                    + "points spanning the local region around the extremum. The file contract "
+                    + "is: k in bohr^-1, E in Ry, one row per sampled k point.");
+        }
+        double[][] kArray = kpoints.toArray(new double[0][]);
+        double[] eArray = energies.stream().mapToDouble(Double::doubleValue).toArray();
+        double[][] tensor = EffectiveMassTensor.calculateEffectiveMassTensor(kArray, eArray);
+        if (tensor == null) {
+            return failure(label, "The quadratic fit was singular/ill-conditioned for these "
+                    + "k points (the sampled region must span all curvature directions).");
+        }
+        SymmetricEigen3.EigenResult eigen;
+        try {
+            eigen = SymmetricEigen3.eigenvalues(tensor);
+        } catch (IllegalArgumentException ex) {
+            return failure(label, "The fitted tensor failed eigen decomposition: "
+                    + ex.getMessage());
+        }
+        if (!eigen.isConverged()) {
+            return failure(label, "The eigen decomposition did not converge within the Jacobi "
+                    + "sweep budget; not reporting suspicious eigenmasses.");
+        }
+        StringBuilder text = new StringBuilder();
+        text.append("Source: ").append(source.getName()).append('\n');
+        text.append("Fit rows: ").append(kpoints.size()).append("; rejected rows: ")
+                .append(rejected).append('\n');
+        text.append("Units: k in bohr^-1, E in Ry (class contract).\n\n");
+        text.append("Inverse-Hessian (m*) tensor as fitted, rows (Ry^-1 bohr^-2):\n");
+        for (double[] row : tensor) {
+            text.append(String.format(Locale.ROOT, "  % .8e % .8e % .8e%n",
+                    row[0], row[1], row[2]));
+        }
+        List<String> csv = new ArrayList<>();
+        csv.add("tensor_row,col_1_reverse_hessian,col_2,col_3");
+        for (double[] row : tensor) {
+            csv.add(String.format(Locale.ROOT, "%.10e,%.10e,%.10e", row[0], row[1], row[2]));
+        }
+        double[] values = eigen.getEigenvalues();
+        text.append(String.format(Locale.ROOT,
+                "%nInverse-Hessian eigenvalues (sorted): %.8e %.8e %.8e%n",
+                values[0], values[1], values[2]));
+        text.append(String.format(Locale.ROOT,
+                "Physical atomic-unit masses m*/m_e = 2 x eigenvalue (E was in Ry): "
+                        + "%.6f %.6f %.6f%n",
+                2.0 * values[0], 2.0 * values[1], 2.0 * values[2]));
+        csv.add(String.format(Locale.ROOT, "eigenvalues_asc,%.10e,%.10e,%.10e",
+                values[0], values[1], values[2]));
+        csv.add(String.format(Locale.ROOT, "masses_me_2x,%.10f,%.10f,%.10f",
+                2.0 * values[0], 2.0 * values[1], 2.0 * values[2]));
+        text.append(String.format(Locale.ROOT,
+                "Jacobi converged in %d sweep(s).%n", eigen.getSweeps()));
+        text.append("\nHonesty boundary: the fit is an unweighted 7-parameter quadratic "
+                + "(normal equations; no covariance is computed by the class). Sample a LOCAL "
+                + "region around the band extremum only - distant points violate the "
+                + "parabolic assumption and distort the tensor. The x2 unit factor comes from "
+                + "Ry-vs-Hartree in the class contract; verify against a known parabolic "
+                + "reference before reporting m*. A POSITIVE eigenmass means an electron-like "
+                + "local minimum; a NEGATIVE one means a hole-like local maximum (negative "
+                + "curvature) - the sign is the curvature, not an error.");
         return new AnalysisReport(label, true, text.toString(), csv, null);
     }
 

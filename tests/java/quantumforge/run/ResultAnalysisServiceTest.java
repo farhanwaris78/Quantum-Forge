@@ -1725,4 +1725,66 @@ class ResultAnalysisServiceTest {
                         .withHopAngstrom(0.0).withAttemptThz(1.0));
         assertFalse(badHop.isSuccess(), "Zero hop length must fail closed");
     }
+
+    @Test
+    void testEffectiveMassKindExactParabolicFit() throws IOException {
+        // 27-point grid h=0.05 bohr^-1 with E = kx^2 + 2 ky^2 + 4 kz^2 (Ry):
+        // inverse Hessian diag(1/2, 1/4, 1/8), masses m*/m_e = (0.25, 0.50, 1.00).
+        StringBuilder fixture = new StringBuilder();
+        double h = 0.05;
+        for (int i = -1; i <= 1; i++) {
+            for (int j = -1; j <= 1; j++) {
+                for (int k = -1; k <= 1; k++) {
+                    double kx = i * h;
+                    double ky = j * h;
+                    double kz = k * h;
+                    fixture.append(String.format(java.util.Locale.ROOT,
+                            "%.8f,%.8f,%.8f,%.12f%n", kx, ky, kz,
+                            kx * kx + 2.0 * ky * ky + 4.0 * kz * kz));
+                }
+            }
+        }
+        // Fortran D-exponent duplicate of the (0.05,0,0) row plus one junk row.
+        fixture.append("5.0D-2, 0.0D0, 0.0D0, 2.5D-3\n");
+        fixture.append("not,a,data,row\n");
+        File mass = write("si-emk.csv", fixture.toString());
+        AnalysisReport report = ResultAnalysisService.analyze(AnalysisKind.EFFECTIVE_MASS,
+                new ProjectProperty(), this.tempDir.toFile(), "si", "si.log", mass,
+                new AnalysisParameters());
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains("Fit rows: 28; rejected rows: 1"),
+                report.getText());
+        assertTrue(report.getText().contains("Inverse-Hessian eigenvalues (sorted):"
+                + " 1.25000000e-01 2.50000000e-01 5.00000000e-01"), report.getText());
+        assertTrue(report.getText().contains("Physical atomic-unit masses m*/m_e = 2 x"
+                + " eigenvalue (E was in Ry): 0.250000 0.500000 1.000000"), report.getText());
+        assertTrue(report.getText().contains("POSITIVE eigenmass"), report.getText());
+        assertEquals(6, report.getCsvLines().size(),
+                "header + 3 tensor rows + eigenvalue + mass rows");
+        assertTrue(report.getCsvLines().get(4).startsWith("eigenvalues_asc,"),
+                report.getCsvLines().get(4));
+
+        // Singular design: kx fixed at zero for every point cannot fit x curvature.
+        StringBuilder flat = new StringBuilder();
+        for (int j = -1; j <= 1; j++) {
+            for (int k = -1; k <= 1; k++) {
+                flat.append(String.format(java.util.Locale.ROOT,
+                        "0.0,%.8f,%.8f,%.12f%n", j * h, k * h,
+                        2.0 * j * h * j * h + 4.0 * k * h * k * h));
+            }
+        }
+        AnalysisReport singular = ResultAnalysisService.analyze(AnalysisKind.EFFECTIVE_MASS,
+                new ProjectProperty(), this.tempDir.toFile(), "si", "si.log",
+                write("flat-mass.csv", flat.toString()), new AnalysisParameters());
+        assertFalse(singular.isSuccess(), "Coplanar-only sampling must fail closed");
+        assertTrue(singular.getText().contains("singular/ill-conditioned"),
+                singular.getText());
+
+        AnalysisReport tooFew = ResultAnalysisService.analyze(AnalysisKind.EFFECTIVE_MASS,
+                new ProjectProperty(), this.tempDir.toFile(), "si", "si.log",
+                write("tiny-mass.csv", "0,0,0,1\n0.01,0,0,1\n0,0.01,0,1\n"),
+                new AnalysisParameters());
+        assertFalse(tooFew.isSuccess(), "Fewer than 7 rows must fail closed");
+        assertTrue(tooFew.getText().contains("needs >= 7"), tooFew.getText());
+    }
 }
