@@ -156,8 +156,8 @@ def main() -> int:
             or "actionValidateInput" not in actions or "actionDiagnoseLog" not in actions
             or "actionAnalyzeBandGap" not in actions or "actionPreviewFinalGeometry" not in actions
             or "actionInspectPdos" not in actions or "actionInspectPhonons" not in actions
-            or "actionInspectSpectra" not in actions):
-        error("ViewerActions missing required export, validation, diagnosis, band-gap, geometry-preview, PDOS, phonon, or spectra actions")
+            or "actionInspectSpectra" not in actions or "actionDensityDifference" not in actions):
+        error("ViewerActions missing required export, validation, diagnosis, band-gap, geometry-preview, PDOS, phonon, spectra, or density actions")
     node = (SRC / "quantumforge/run/RunningNode.java").read_text(encoding="utf-8")
     if "DryRunPreflight" not in node or "ArtifactScanner" not in node or "QECommandDag" not in node:
         error("RunningNode is not wired to dry-run/DAG/artifact scanning")

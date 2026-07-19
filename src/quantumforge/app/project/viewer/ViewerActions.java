@@ -48,6 +48,8 @@ import quantumforge.run.parser.QETimingResourceParser;
 import quantumforge.run.parser.QEPdosParser;
 import quantumforge.run.parser.QEPhononFreqParser;
 import quantumforge.run.parser.QERamanIRSpectraParser;
+import quantumforge.run.parser.CubeGridReader;
+import quantumforge.run.parser.QEGridDensityDifference;
 import quantumforge.run.parser.ScfConvergenceAnalyzer;
 import quantumforge.run.QECommandDag;
 import quantumforge.run.RunningType;
@@ -196,6 +198,9 @@ public class ViewerActions extends ProjectActions<Node> {
 
             } else if (item == this.itemSet.getSpectraItem()) {
                 this.actions.put(item, controller2 -> this.actionInspectSpectra(controller2));
+
+            } else if (item == this.itemSet.getDensityDifferenceItem()) {
+                this.actions.put(item, controller2 -> this.actionDensityDifference(controller2));
 
             } else if (item == this.itemSet.getXcrysdenItem()) {
                 this.actions.put(item, controller2 -> this.actionXcrysden(controller2));
@@ -476,6 +481,45 @@ public class ViewerActions extends ProjectActions<Node> {
         Alert alert = new Alert(type);
         alert.setTitle("Quantum ESPRESSO band-gap analysis");
         alert.setHeaderText(type == AlertType.WARNING ? "Band gap undetermined" : "Band-gap summary");
+        alert.setContentText(message);
+        alert.showAndWait();
+    }
+
+    /** Select one system CUBE followed by one or more component CUBEs; does not write output grids. */
+    private void actionDensityDifference(QEFXProjectController controller) {
+        if (controller == null) return;
+        FileChooser chooser = new FileChooser();
+        chooser.setTitle("Select system CUBE first, then component CUBE files");
+        chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("CUBE files", "*.cube", "*.cub"));
+        List<File> files = chooser.showOpenMultipleDialog(controller.getStage());
+        if (files == null || files.size() < 2) {
+            showDensityDifference("Select one system CUBE followed by at least one component CUBE.", AlertType.WARNING);
+            return;
+        }
+        OperationResult<QEGridDensityDifference.Grid3D> systemResult = CubeGridReader.read(files.get(0).toPath());
+        if (!systemResult.isSuccess()) {
+            showDensityDifference(systemResult.getMessage(), AlertType.ERROR);
+            return;
+        }
+        java.util.ArrayList<QEGridDensityDifference.Grid3D> components = new java.util.ArrayList<>();
+        for (int i = 1; i < files.size(); i++) {
+            OperationResult<QEGridDensityDifference.Grid3D> result = CubeGridReader.read(files.get(i).toPath());
+            if (!result.isSuccess()) {
+                showDensityDifference("Component " + files.get(i).getName() + ": " + result.getMessage(), AlertType.ERROR);
+                return;
+            }
+            components.add(result.getValue().orElseThrow());
+        }
+        QEGridDensityDifference.DiffResult diff = QEGridDensityDifference.computeDifference(
+                systemResult.getValue().orElseThrow(), components, 1.0e-8);
+        showDensityDifference(diff.getDiagnosticMessage() + "\n\nNo output CUBE was written; inspect provenance and units before interpreting this value.",
+                diff.isCompatible() ? AlertType.INFORMATION : AlertType.WARNING);
+    }
+
+    private void showDensityDifference(String message, AlertType type) {
+        Alert alert = new Alert(type);
+        alert.setTitle("CUBE density difference");
+        alert.setHeaderText(type == AlertType.ERROR ? "Density difference failed" : "Grid compatibility and integral");
         alert.setContentText(message);
         alert.showAndWait();
     }

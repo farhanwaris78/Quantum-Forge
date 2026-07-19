@@ -508,3 +508,11 @@ The **twenty-sixth** batch adds bounded CUBE volumetric import infrastructure:
 | 55/56/57 | **Stronger Partial** | `CubeGridReader` parses standard CUBE headers/axes/data with explicit bohr→Å handling, validates/truncation-checks voxel payloads, and refuses grids above a configurable 16 Mi-voxel default bound before allocation. Parsed data enters the validated `Grid3D` backend. |
 | 56 | **Backend foundation** | CUBE unit/shape/memory limits and malformed-input tests now exist. GUI volumetric rendering/difference selection remains unavailable until streaming display and provenance UI are connected. |
 | 16 | **Verified** | CUBE success/truncation/size-limit tests plus static/structural checks and fixtures pass. Full Maven/JUnit remains pending a Java/Maven-enabled runner. |
+
+The **twenty-seventh** batch wires bounded volumetric difference calculation to the project GUI:
+
+| # | Status after batch 27 | What landed |
+|---:|---|---|
+| 57 | **GUI wired Partial** | **Compute CUBE density difference** selects a system CUBE followed by component CUBEs, bounded-parses each file, validates grid/cell compatibility, and reports the integrated difference. It writes no output grid and states unit/provenance caveats. |
+| 55–57 | **Integrated path** | CUBE reader → validated Grid3D → component subtraction → compatibility/integral diagnostic is now an end-user GUI path with typed failure reporting. |
+| 16 | **Verified** | Static/structural checks and fixture harness pass. Full Maven/JUnit remains pending a Java/Maven-enabled runner. |
