@@ -2735,4 +2735,34 @@ class ResultAnalysisServiceTest {
                 AnalysisKind.WORKSPACE_SEARCH, stubProject(empty), new AnalysisParameters());
         assertFalse(refused.isSuccess(), "An empty directory must fail closed");
     }
+
+    @Test
+    void testTemplateLibraryKindListDetailAndFailClosed() {
+        AnalysisReport list = ResultAnalysisService.analyze(
+                AnalysisKind.TEMPLATE_LIBRARY, stubProject(this.tempDir),
+                new AnalysisParameters().withSeriesKeyword(""));
+        assertTrue(list.isSuccess(), list.getText());
+        assertTrue(list.getText().contains("Curated templates (6)"), list.getText());
+        for (String name : new String[] {"scf-basic", "relax-bfgs", "vc-relax-crystal",
+                "bands-path", "nscf-dos", "phonon-gamma0"}) {
+            assertTrue(list.getText().contains(name), name + " missing: " + list.getText());
+        }
+        assertTrue(list.getText().contains("REVIEWED STARTING POINTS"), list.getText());
+        assertEquals(7, list.getCsvLines().size(), "header + 6 template rows");
+
+        AnalysisReport detail = ResultAnalysisService.analyze(
+                AnalysisKind.TEMPLATE_LIBRARY, stubProject(this.tempDir),
+                new AnalysisParameters().withSeriesKeyword("VC-RELAX-crystal"));
+        assertTrue(detail.isSuccess(), detail.getText());
+        assertTrue(detail.getText().contains("PREREQUISITES"), detail.getText());
+        assertTrue(detail.getText().contains("ecutrho"), detail.getText());
+        assertTrue(detail.getText().contains("Known pitfalls"), detail.getText());
+
+        AnalysisReport refused = ResultAnalysisService.analyze(
+                AnalysisKind.TEMPLATE_LIBRARY, stubProject(this.tempDir),
+                new AnalysisParameters().withSeriesKeyword("made-up-flow"));
+        assertFalse(refused.isSuccess(), "Unknown templates fail closed, nothing improvised");
+        assertTrue(refused.getText().contains("scf-basic"),
+                "The refusal must list the curated set: " + refused.getText());
+    }
 }

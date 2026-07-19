@@ -572,6 +572,16 @@ public final class AnalysisAction {
             parameters.withDefectCharge(charge);
             break;
         }
+        case TEMPLATE_LIBRARY: {
+            String name = askText("Template name (blank lists all; curated: scf-basic, "
+                    + "relax-bfgs, vc-relax-crystal, bands-path, nscf-dos, phonon-gamma0)",
+                    "");
+            if (name == null) {
+                return null;
+            }
+            parameters.withSeriesKeyword(name);
+            break;
+        }
         default:
             break;
         }

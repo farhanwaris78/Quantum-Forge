@@ -350,7 +350,8 @@ def main() -> int:
                   "DENSITY_DIFFERENCE", "SupercellMatrixValidator",
                   "SUPERCELL_PREVIEW", "QEHubbardPlanner",
                   "HUBBARD_HP_DRAFT", "QETimingParser", "TIMING_RESOURCE",
-                  "WorkspaceLightIndex", "WORKSPACE_SEARCH"]:
+                  "WorkspaceLightIndex", "WORKSPACE_SEARCH",
+                  "QEWorkflowTemplateLibrary", "TEMPLATE_LIBRARY"]:
         if token not in service:
             error(f"ResultAnalysisService is not bound to {token}")
     for rel in ["quantumforge/com/math/SymmetricEigen3.java",
@@ -367,7 +368,8 @@ def main() -> int:
                 "quantumforge/builder/SupercellMatrixValidator.java",
                 "quantumforge/input/QEHubbardPlanner.java",
                 "quantumforge/run/parser/QETimingParser.java",
-                "quantumforge/project/WorkspaceLightIndex.java"]:
+                "quantumforge/project/WorkspaceLightIndex.java",
+                "quantumforge/input/QEWorkflowTemplateLibrary.java"]:
         text = (SRC / rel).read_text(encoding="utf-8")
         if "class " not in text:
             error(f"{rel} does not declare a type")

@@ -50,6 +50,7 @@ import quantumforge.neural.MlModelManifest;
 import quantumforge.input.QEHubbardPlanner;
 import quantumforge.input.QEInput;
 import quantumforge.input.QEKeywordHelp;
+import quantumforge.input.QEWorkflowTemplateLibrary;
 import quantumforge.input.QEInputDiffPreview;
 import quantumforge.input.QEKpointMeshAdvisor;
 import quantumforge.input.QEPpChargePotentialBuilder;
@@ -220,7 +221,8 @@ public final class ResultAnalysisService {
         SUPERCELL_PREVIEW("Supercell transformation preview (integer 3x3 matrix)"),
         HUBBARD_HP_DRAFT("hp.x input draft (existing DFT+U context required)"),
         TIMING_RESOURCE("pw.x timing/resource table (CPU/WALL per routine)"),
-        WORKSPACE_SEARCH("Light workspace catalogue (project dir, status markers)");
+        WORKSPACE_SEARCH("Light workspace catalogue (project dir, status markers)"),
+        TEMPLATE_LIBRARY("Curated workflow templates (with prerequisites/pitfalls)");
 
         private final String label;
 
@@ -264,7 +266,7 @@ public final class ResultAnalysisService {
                     || this == KEYWORD_HELP || this == ARRAY_SWEEP_PLAN
                     || this == CELL_EXTXYZ_EXPORT || this == DENSITY_DIFFERENCE
                     || this == SUPERCELL_PREVIEW || this == HUBBARD_HP_DRAFT
-                    || this == WORKSPACE_SEARCH;
+                    || this == WORKSPACE_SEARCH || this == TEMPLATE_LIBRARY;
         }
 
         /** True for project-bound kinds that additionally parse a user data file. */
@@ -1098,6 +1100,8 @@ public final class ResultAnalysisService {
                 return analyzeHubbardHpDraft(project, params);
             case WORKSPACE_SEARCH:
                 return analyzeWorkspaceSearch(project);
+            case TEMPLATE_LIBRARY:
+                return analyzeTemplateLibrary(params);
             default:
                 return failure(kind.getLabel(), "This analysis kind is not implemented.");
         }
@@ -5379,6 +5383,57 @@ public final class ResultAnalysisService {
                 + "not the indexed, tag/provenance-aware multi-project search Roadmap #132 "
                 + "targets (that needs the database queue #105); nothing outside the "
                 + "project directory was read.");
+        return new AnalysisReport(label, true, text.toString(), csv, null);
+    }
+
+    /**
+     * Roadmap #133: curated workflow templates with prerequisites and pitfalls;
+     * blank name lists, unknown names fail closed. Starting points only.
+     */
+    private static AnalysisReport analyzeTemplateLibrary(AnalysisParameters params) {
+        String label = AnalysisKind.TEMPLATE_LIBRARY.getLabel();
+        List<QEWorkflowTemplateLibrary.WorkflowTemplate> templates =
+                QEWorkflowTemplateLibrary.templates();
+        String requested = params.getSeriesKeyword() == null
+                ? "" : params.getSeriesKeyword().trim();
+        StringBuilder text = new StringBuilder();
+        List<String> csv = new ArrayList<>();
+        csv.add("name,workflow,purpose");
+        for (QEWorkflowTemplateLibrary.WorkflowTemplate template : templates) {
+            csv.add(String.format(Locale.ROOT, "%s,%s,%s", csvCell(template.getName()),
+                    csvCell(template.getWorkflow()), csvCell(template.getPurpose())));
+        }
+        if (requested.isEmpty()) {
+            text.append(String.format(Locale.ROOT,
+                    "Curated templates (%d) - ask for one by name for its full guidance:%n%n",
+                    templates.size()));
+            for (QEWorkflowTemplateLibrary.WorkflowTemplate template : templates) {
+                text.append(String.format(Locale.ROOT, " %-18s %s%n", template.getName(),
+                        template.getWorkflow()));
+                text.append("   ").append(template.getPurpose()).append('\n');
+            }
+        } else {
+            Optional<QEWorkflowTemplateLibrary.WorkflowTemplate> found =
+                    QEWorkflowTemplateLibrary.find(requested);
+            if (found.isEmpty()) {
+                return failure(label, "\"" + requested + "\" is not one of the curated "
+                        + "templates; nothing is improvised. Curated set: "
+                        + templates.stream().map(QEWorkflowTemplateLibrary.WorkflowTemplate
+                                ::getName).reduce((a, b) -> a + ", " + b).orElse(""));
+            }
+            QEWorkflowTemplateLibrary.WorkflowTemplate template = found.get();
+            text.append(String.format(Locale.ROOT, "Template: %s  (%s)%n%n",
+                    template.getName(), template.getWorkflow()));
+            text.append("Purpose: ").append(template.getPurpose()).append("\n\n");
+            text.append("PREREQUISITES (do these first):\n")
+                    .append(template.getPrerequisites()).append("\n\n");
+            text.append("Known pitfalls:\n").append(template.getPitfalls()).append('\n');
+        }
+        text.append("\nHonesty boundary: templates are REVIEWED STARTING POINTS, not "
+                + "convergence-complete defaults - Roadmap #133 explicitly forbids "
+                + "universal defaults. ecutwfc/ecutrho/k-mesh/smearing choices must come "
+                + "from your convergence workflows (#36/#37/#38) for the specific "
+                + "material; a template cannot certify a result.");
         return new AnalysisReport(label, true, text.toString(), csv, null);
     }
 
