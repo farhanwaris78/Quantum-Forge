@@ -2623,4 +2623,50 @@ class ResultAnalysisServiceTest {
                 new AnalysisParameters().withSupercellSpec("2 0 0; 0 2 0; 0 0 1"));
         assertFalse(noCell.isSuccess(), "No live cell must fail closed");
     }
+
+    @Test
+    void testHubbardHpDraftKindContextGateAndDraft() {
+        QESCFInput input = new QESCFInput();
+        input.getNamelist(QEInput.NAMELIST_CONTROL)
+                .setValue(QEValueBase.getInstance("prefix", "'nio'"));
+        input.getNamelist(QEInput.NAMELIST_SYSTEM)
+                .setValue(QEValueBase.getInstance("lda_plus_u", ".true."));
+        input.getNamelist(QEInput.NAMELIST_SYSTEM)
+                .setValue(QEValueBase.getInstance("hubbard_u(1)", "6.0"));
+        Cell cell = new Cell(quantumforge.com.math.Matrix3D.unit(8.0));
+        cell.addAtom("Ni", 0.0, 0.0, 0.0);
+
+        AnalysisReport report = ResultAnalysisService.analyze(
+                AnalysisKind.HUBBARD_HP_DRAFT, stubProjectWithInput(this.tempDir, input, cell),
+                new AnalysisParameters().withExxNqGrid(2, 2, 4));
+        assertTrue(report.isSuccess(), report.getText());
+        String draft = report.getGeneratedInput();
+        assertTrue(draft != null, "The draft must require explicit save");
+        assertTrue(draft.startsWith("&INPUTHP"), draft);
+        assertTrue(draft.contains("prefix = 'nio',"), draft);
+        assertTrue(draft.contains("nq3 = 4,"), draft);
+        assertTrue(draft.contains("REVIEW before running hp.x"), draft);
+        assertTrue(report.getText().contains("lda_plus_u=true"), report.getText());
+        assertTrue(report.getText().contains("q grid 2 x 2 x 4"), report.getText());
+        assertEquals(6, report.getCsvLines().size());
+
+        QESCFInput plain = new QESCFInput();
+        plain.getNamelist(QEInput.NAMELIST_SYSTEM)
+                .setValue(QEValueBase.getInstance("ecutwfc", "30.0"));
+        AnalysisReport noHubbard = ResultAnalysisService.analyze(
+                AnalysisKind.HUBBARD_HP_DRAFT,
+                stubProjectWithInput(this.tempDir, plain, cell), new AnalysisParameters());
+        assertFalse(noHubbard.isSuccess(),
+                "A placeholder U setup must never be drafted");
+
+        AnalysisReport badQ = ResultAnalysisService.analyze(
+                AnalysisKind.HUBBARD_HP_DRAFT, stubProjectWithInput(this.tempDir, input, cell),
+                new AnalysisParameters().withExxNqGrid(0, 2, 2));
+        assertFalse(badQ.isSuccess(), "An invalid q grid must fail closed");
+
+        AnalysisReport noInput = ResultAnalysisService.analyze(
+                AnalysisKind.HUBBARD_HP_DRAFT, stubProject(this.tempDir),
+                new AnalysisParameters());
+        assertFalse(noInput.isSuccess(), "A missing input must fail closed");
+    }
 }

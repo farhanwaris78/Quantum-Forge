@@ -348,7 +348,8 @@ def main() -> int:
                   "TrajectoryWindowReader", "TRAJECTORY_WINDOW_SCAN",
                   "TENSOR_DIRECTIONAL", "QEGridDensityDifference",
                   "DENSITY_DIFFERENCE", "SupercellMatrixValidator",
-                  "SUPERCELL_PREVIEW"]:
+                  "SUPERCELL_PREVIEW", "QEHubbardPlanner",
+                  "HUBBARD_HP_DRAFT"]:
         if token not in service:
             error(f"ResultAnalysisService is not bound to {token}")
     for rel in ["quantumforge/com/math/SymmetricEigen3.java",
@@ -362,7 +363,8 @@ def main() -> int:
                 "quantumforge/hpc/ArraySweepPlanner.java",
                 "quantumforge/builder/ExtXyzCellExporter.java",
                 "quantumforge/run/parser/TrajectoryWindowReader.java",
-                "quantumforge/builder/SupercellMatrixValidator.java"]:
+                "quantumforge/builder/SupercellMatrixValidator.java",
+                "quantumforge/input/QEHubbardPlanner.java"]:
         text = (SRC / rel).read_text(encoding="utf-8")
         if "class " not in text:
             error(f"{rel} does not declare a type")

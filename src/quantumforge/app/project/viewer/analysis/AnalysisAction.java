@@ -432,6 +432,22 @@ public final class AnalysisAction {
             parameters.withConstraintSpec(spec).withConstraintMode(mode);
             break;
         }
+        case HUBBARD_HP_DRAFT: {
+            Integer nq1 = askInteger("hp.x q-grid nq1 (1-16; converge U against it)", 2);
+            if (nq1 == null) {
+                return null;
+            }
+            Integer nq2 = askInteger("hp.x q-grid nq2 (1-16)", 2);
+            if (nq2 == null) {
+                return null;
+            }
+            Integer nq3 = askInteger("hp.x q-grid nq3 (1-16)", 2);
+            if (nq3 == null) {
+                return null;
+            }
+            parameters.withExxNqGrid(nq1, nq2, nq3);
+            break;
+        }
         case SUPERCELL_PREVIEW: {
             String spec = askText("Supercell matrix rows (integers), e.g. "
                     + "2 0 0; 0 2 0; 0 0 1", "");

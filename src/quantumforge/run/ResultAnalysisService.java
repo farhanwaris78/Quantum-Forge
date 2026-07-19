@@ -47,6 +47,7 @@ import quantumforge.hpc.SiteProfile;
 import quantumforge.hpc.SiteProfileValidator;
 import quantumforge.input.QEExxPlanner;
 import quantumforge.neural.MlModelManifest;
+import quantumforge.input.QEHubbardPlanner;
 import quantumforge.input.QEInput;
 import quantumforge.input.QEKeywordHelp;
 import quantumforge.input.QEInputDiffPreview;
@@ -214,7 +215,8 @@ public final class ResultAnalysisService {
         TRAJECTORY_WINDOW_SCAN("Trajectory window scan (bbox/centroid per sampled frame)"),
         TENSOR_DIRECTIONAL("Tensor directional surface n^T.T.n (eigen basis)"),
         DENSITY_DIFFERENCE("Grid density difference (compatible CUBE pair)"),
-        SUPERCELL_PREVIEW("Supercell transformation preview (integer 3x3 matrix)");
+        SUPERCELL_PREVIEW("Supercell transformation preview (integer 3x3 matrix)"),
+        HUBBARD_HP_DRAFT("hp.x input draft (existing DFT+U context required)");
 
         private final String label;
 
@@ -257,7 +259,7 @@ public final class ResultAnalysisService {
                     || this == PHONON_MODE_FRAMES || this == HYPERFINE_LOOKUP
                     || this == KEYWORD_HELP || this == ARRAY_SWEEP_PLAN
                     || this == CELL_EXTXYZ_EXPORT || this == DENSITY_DIFFERENCE
-                    || this == SUPERCELL_PREVIEW;
+                    || this == SUPERCELL_PREVIEW || this == HUBBARD_HP_DRAFT;
         }
 
         /** True for project-bound kinds that additionally parse a user data file. */
@@ -1082,6 +1084,8 @@ public final class ResultAnalysisService {
                 return analyzeDensityDifference(project, file);
             case SUPERCELL_PREVIEW:
                 return analyzeSupercellPreview(project, params);
+            case HUBBARD_HP_DRAFT:
+                return analyzeHubbardHpDraft(project, params);
             default:
                 return failure(kind.getLabel(), "This analysis kind is not implemented.");
         }
@@ -5078,6 +5082,48 @@ public final class ResultAnalysisService {
                 + " and multiplicity to " + SupercellMatrixValidator.MAX_DETERMINANT
                 + "; beyond that use the full supercell builder.");
         return new AnalysisReport(label, true, text.toString(), csv, block.toString());
+    }
+
+    /**
+     * Roadmap #63 seam: hp.x &INPUTHP draft derived from the project's existing
+     * Hubbard context (never a fabricated placeholder), with the q-grid
+     * convergence and restart prerequisites stated on every draft.
+     */
+    private static AnalysisReport analyzeHubbardHpDraft(Project project,
+            AnalysisParameters params) {
+        String label = AnalysisKind.HUBBARD_HP_DRAFT.getLabel();
+        QEContext context = requireInputAndCell(project, label);
+        if (context.failure != null) {
+            return context.failure;
+        }
+        OperationResult<QEHubbardPlanner.HubbardContext> extracted =
+                QEHubbardPlanner.extractContext(context.input);
+        if (!extracted.isSuccess() || extracted.getValue().isEmpty()) {
+            return failure(label, "Derivation refused: " + extracted.getMessage());
+        }
+        QEHubbardPlanner.HubbardContext hubbard = extracted.getValue().get();
+        OperationResult<String> drafted = QEHubbardPlanner.draft(hubbard,
+                params.getExxNq1(), params.getExxNq2(), params.getExxNq3());
+        if (!drafted.isSuccess() || drafted.getValue().isEmpty()) {
+            return failure(label, "Draft refused: " + drafted.getMessage());
+        }
+        StringBuilder text = new StringBuilder();
+        text.append(extracted.getMessage()).append('\n');
+        text.append(String.format(Locale.ROOT,
+                "prefix='%s'; outdir=%s; q grid %d x %d x %d%n%n",
+                hubbard.getPrefix(), hubbard.getOutdir(), params.getExxNq1(),
+                params.getExxNq2(), params.getExxNq3()));
+        List<String> csv = new ArrayList<>();
+        csv.add("field,value");
+        csv.add("lda_plus_u," + hubbard.isLdaPlusU());
+        csv.add("hubbard_u_entries," + hubbard.getHubbardUEntries());
+        csv.add("nq1," + params.getExxNq1());
+        csv.add("nq2," + params.getExxNq2());
+        csv.add("nq3," + params.getExxNq3());
+        text.append("The drafted &INPUTHP namelist below leaves only through the explicit "
+                + "save action; the REVIEW comments inside it are part of the draft.\n");
+        return new AnalysisReport(label, true, text.toString(), csv,
+                drafted.getValue().get());
     }
 
     /**
