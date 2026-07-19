@@ -1180,4 +1180,43 @@ class ResultAnalysisServiceTest {
                 new AnalysisParameters().withSeriesStep(0.0));
         assertFalse(zeroStep.isSuccess(), "A zero step must be rejected");
     }
+
+    @Test
+    void testPhononModesAuditAndRejection() throws IOException {
+        File dynmat = write("dynmat.out",
+                "     omega(  1) =       0.394099 [THz] =      13.143245 [cm-1]\n"
+                + "     (  0.707107  0.000000  0.000000  0.000000  0.000000  0.000000 )\n"
+                + "     (  0.707106  0.000000  0.000000  0.000000  0.000000  0.000000 )\n"
+                + "     omega(  2) =      -1.234567 [THz] =     -41.185683 [cm-1]\n"
+                + "     ( -0.707107  0.000000  0.000000  0.000000  0.000000  0.000000 )\n"
+                + "     (  0.707106  0.000000  0.000000  0.000000  0.000000  0.000000 )\n");
+        AnalysisReport report = ResultAnalysisService.analyze(AnalysisKind.PHONON_MODES,
+                new ProjectProperty(), this.tempDir.toFile(), "si", "si.log", dynmat,
+                new AnalysisParameters());
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains("PASSED"), report.getText());
+        assertTrue(report.getText().contains("-41.185683"), report.getText());
+        assertTrue(report.getText().contains("true"), report.getText());
+        assertTrue(report.getText().contains("gauge freedom"), report.getText());
+        assertEquals(3, report.getCsvLines().size(), "header plus 2 modes");
+        assertEquals("mode_index,omega_thz,omega_cm1,imaginary,norm_deviation",
+                report.getCsvLines().get(0));
+
+        File unnormalized = write("dynmat-bad.out",
+                "     omega(  1) =       1.000000 [THz] =      33.356000 [cm-1]\n"
+                + "     (  1.000000  0.0  0.0  0.0  0.0  0.0 )\n"
+                + "     (  1.000000  0.0  0.0  0.0  0.0  0.0 )\n");
+        AnalysisReport bad = ResultAnalysisService.analyze(AnalysisKind.PHONON_MODES,
+                new ProjectProperty(), this.tempDir.toFile(), "si", "si.log", unnormalized,
+                new AnalysisParameters());
+        assertFalse(bad.isSuccess(),
+                "Modes failing the orthonormality audit must not be presented as validated");
+        assertTrue(bad.getText().contains("FAILED"), bad.getText());
+
+        File empty = write("dynmat-empty.out", "no omega records here\n");
+        AnalysisReport none = ResultAnalysisService.analyze(AnalysisKind.PHONON_MODES,
+                new ProjectProperty(), this.tempDir.toFile(), "si", "si.log", empty,
+                new AnalysisParameters());
+        assertFalse(none.isSuccess(), "A file without dynmat modes must fail closed");
+    }
 }

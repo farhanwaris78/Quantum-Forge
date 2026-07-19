@@ -52,6 +52,7 @@ import quantumforge.run.parser.QEBerryPolarizationParser;
 import quantumforge.run.parser.QEBornChargeDielectricParser;
 import quantumforge.run.parser.QECarParrinelloParser;
 import quantumforge.run.parser.QECastepLogParser;
+import quantumforge.run.parser.QEDynmatModesParser;
 import quantumforge.run.parser.QEElasticStabilityValidator;
 import quantumforge.run.parser.QEEliashbergTcCalculator;
 import quantumforge.run.parser.QEGipawNmrParser;
@@ -147,7 +148,8 @@ public final class ResultAnalysisService {
         KMESH_QUALITY("k-point mesh quality"),
         DEFECT_PREVIEW("Point-defect preview (vacancy/substitution)"),
         CONVERGENCE_REVIEW("Convergence series review (ecut/k-mesh energies)"),
-        SERIES_PLAN("Convergence series plan (preview)");
+        SERIES_PLAN("Convergence series plan (preview)"),
+        PHONON_MODES("Phonon eigenvector audit (dynmat.x)");
 
         private final String label;
 
@@ -440,6 +442,8 @@ public final class ResultAnalysisService {
         case CONVERGENCE_REVIEW:
             return name.contains("convergence") || name.contains("series")
                     || (name.contains("ecut") && name.endsWith(".csv"));
+        case PHONON_MODES:
+            return name.contains("dynmat") || name.contains("modes");
         default:
             return false;
         }
@@ -528,6 +532,8 @@ public final class ResultAnalysisService {
                 return analyzeCastepLog(property, source);
             case CONVERGENCE_REVIEW:
                 return analyzeConvergenceReview(source, params);
+            case PHONON_MODES:
+                return analyzePhononModes(property, source);
             default:
                 return failure(kind.getLabel(), "This analysis kind is not implemented.");
             }
@@ -2988,5 +2994,53 @@ public final class ResultAnalysisService {
                 + "Apply these values in the input editor and launch each job explicitly, then "
                 + "review the energies with the convergence-series review analysis.");
         return new AnalysisReport(label, true, text.toString(), csv, null);
+    }
+
+    /** dynmat.x mode table with orthonormality/imagination audit, gauge-phase honesty. */
+    private static AnalysisReport analyzePhononModes(ProjectProperty property, File source)
+            throws IOException {
+        String label = AnalysisKind.PHONON_MODES.getLabel();
+        QEDynmatModesParser parser = new QEDynmatModesParser(property);
+        parser.parse(source);
+        List<QEDynmatModesParser.VibrationalMode> modes = parser.getModes();
+        if (modes.isEmpty()) {
+            StringBuilder reason = new StringBuilder("No usable dynmat.x mode records were "
+                    + "parsed from ").append(source.getName()).append('.');
+            for (String diagnostic : parser.getDiagnostics()) {
+                reason.append(' ').append(diagnostic);
+            }
+            return failure(label, reason.toString());
+        }
+        boolean consistent = parser.isNormalizationConsistent(
+                QEDynmatModesParser.DEFAULT_NORM_TOLERANCE);
+        StringBuilder text = new StringBuilder();
+        text.append("Source: ").append(source.getName()).append('\n');
+        text.append("Atoms per mode (consistent across the file): ").append(parser.getAtomCount())
+                .append('\n');
+        text.append(String.format(Locale.ROOT,
+                "Orthonormality audit (|norm-1| <= %.4f): max deviation %.8f -> %s%n%n",
+                QEDynmatModesParser.DEFAULT_NORM_TOLERANCE, parser.getMaxNormDeviation(),
+                consistent ? "PASSED" : "FAILED"));
+        text.append(String.format(Locale.ROOT, " %-5s %-12s %-14s %-10s %-12s%n",
+                "mode", "omega (THz)", "omega (cm-1)", "imaginary", "norm dev"));
+        List<String> csv = new ArrayList<>();
+        csv.add("mode_index,omega_thz,omega_cm1,imaginary,norm_deviation");
+        for (QEDynmatModesParser.VibrationalMode mode : modes) {
+            text.append(String.format(Locale.ROOT, " %-5d %-12.6f %-14.6f %-10s %.8f%n",
+                    mode.getIndex(), mode.getOmegaThz(), mode.getOmegaCm1(),
+                    mode.isImaginary(), mode.getNormDeviation()));
+            csv.add(String.format(Locale.ROOT, "%d,%.8f,%.8f,%s,%.8g", mode.getIndex(),
+                    mode.getOmegaThz(), mode.getOmegaCm1(), mode.isImaginary(),
+                    mode.getNormDeviation()));
+        }
+        text.append('\n');
+        for (String diagnostic : parser.getDiagnostics()) {
+            text.append(" - ").append(diagnostic).append('\n');
+        }
+        text.append("\nEach mode's overall sign/phase is gauge freedom and is deliberately "
+                + "not normalized away; eigenvector animation and supercell phase replication "
+                + "(roadmap #52) consume exactly these validated rows. Negative frequencies are "
+                + "imaginary modes as printed by dynmat.x.");
+        return new AnalysisReport(label, consistent, text.toString(), csv, null);
     }
 }

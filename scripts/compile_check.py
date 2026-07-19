@@ -300,7 +300,7 @@ def main() -> int:
     for token in ["QEInputDiffPreview", "QEKpointMeshAdvisor", "QEPointDefectBuilder"]:
         if token not in service:
             error(f"ResultAnalysisService is not bound to {token}")
-    for token in ["QETensorAnalyzer"]:
+    for token in ["QETensorAnalyzer", "QEDynmatModesParser"]:
         if token not in service:
             error(f"ResultAnalysisService is not bound to {token}")
     node = (SRC / "quantumforge/run/RunningNode.java").read_text(encoding="utf-8")
