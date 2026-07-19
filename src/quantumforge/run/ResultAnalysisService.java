@@ -80,6 +80,8 @@ import quantumforge.run.parser.QEMagneticMomentParser;
 import quantumforge.run.parser.QEMdDiffusionMsdParser;
 import quantumforge.run.parser.QEPdosParser;
 import quantumforge.run.parser.QEPhono3pyKappaParser;
+import quantumforge.run.parser.QEPhonopyForceSetsWriter;
+import quantumforge.run.parser.PhonopyForceSetsReader;
 import quantumforge.run.parser.QESlabPlateauDiagnostic;
 import quantumforge.run.parser.QESmearingConvergenceAnalyzer;
 import quantumforge.run.parser.QETimingResourceParser;
@@ -184,7 +186,8 @@ public final class ResultAnalysisService {
         ADSORPTION_ENERGY("Adsorption energy (explicit terms, eV)"),
         BARRIER_DIFFUSION("Barrier-based diffusivity estimate (Arrhenius hop)"),
         EFFECTIVE_MASS("Effective-mass tensor fit (k,E series)"),
-        CONSTRAINTS_PREVIEW("Ionic constraint preview (if_pos flags)");
+        CONSTRAINTS_PREVIEW("Ionic constraint preview (if_pos flags)"),
+        PHONOPY_DATA_REVIEW("phonopy FORCE_SETS review (finite displacements)");
 
         private final String label;
 
@@ -228,7 +231,8 @@ public final class ResultAnalysisService {
 
         /** True for project-bound kinds that additionally parse a user data file. */
         public boolean needsDataFile() {
-            return this == MD_MSD || this == INPUT_DIFF || this == ML_MODEL_CHECK;
+            return this == MD_MSD || this == INPUT_DIFF || this == ML_MODEL_CHECK
+                    || this == PHONOPY_DATA_REVIEW;
         }
     }
 
@@ -674,6 +678,8 @@ public final class ResultAnalysisService {
             return name.endsWith(".yaml") || name.endsWith(".yml");
         case ML_MODEL_CHECK:
             return name.contains("manifest") || name.endsWith(".mlmf");
+        case PHONOPY_DATA_REVIEW:
+            return name.contains("force_sets");
         case EFFECTIVE_MASS:
             return name.contains("mass") || name.contains("emk");
         default:
@@ -916,6 +922,8 @@ public final class ResultAnalysisService {
                 return analyzeBarrierDiffusion(params);
             case CONSTRAINTS_PREVIEW:
                 return analyzeConstraintsPreview(project, params);
+            case PHONOPY_DATA_REVIEW:
+                return analyzeForceSetsReview(project, file);
             default:
                 return failure(kind.getLabel(), "This analysis kind is not implemented.");
         }
@@ -4098,6 +4106,98 @@ public final class ResultAnalysisService {
                 + "crystal, alat), re-express them there. Unlisted atoms render fully free "
                 + "(1 1 1), matching QE's default. if_pos semantics: " + QEConstraintSpec.DOCS);
         return new AnalysisReport(label, true, text.toString(), csv, block.toString());
+    }
+
+    /**
+     * phonopy FORCE_SETS review (Roadmap #107 data layer): a fail-closed
+     * structural read through the tested {@link PhonopyForceSetsReader} with
+     * displacement/force statistics, an explicit unitless-format caveat, and an
+     * informational atom-count cross-check against the live cell (a mismatch is
+     * the normal supercell case, not an error). Nothing is converted or run.
+     */
+    private static AnalysisReport analyzeForceSetsReview(Project project, File file) {
+        String label = AnalysisKind.PHONOPY_DATA_REVIEW.getLabel();
+        if (file == null || !file.isFile()) {
+            return failure(label, "Select a phonopy FORCE_SETS file (legacy "
+                    + "finite-displacement format); none was provided.");
+        }
+        OperationResult<PhonopyForceSetsReader.ForceSets> parsed =
+                PhonopyForceSetsReader.parse(file.toPath());
+        if (!parsed.isSuccess() || parsed.getValue().isEmpty()) {
+            return failure(label, "FORCE_SETS refused: " + parsed.getMessage());
+        }
+        PhonopyForceSetsReader.ForceSets sets = parsed.getValue().orElseThrow();
+        StringBuilder text = new StringBuilder();
+        text.append("Source: ").append(file.getName()).append('\n');
+        text.append(String.format(Locale.ROOT,
+                "Atoms per set: %d; displacement sets: %d; distinct displaced atoms: %d%n",
+                sets.getNumAtoms(), sets.getSets().size(), sets.countDistinctDisplacedAtoms()));
+        if (sets.getTrailingLines() > 0) {
+            text.append(String.format(Locale.ROOT,
+                    "Trailing non-empty lines after the declared sets (ignored): %d%n",
+                    sets.getTrailingLines()));
+        }
+        List<String> csv = new ArrayList<>();
+        csv.add("set_index,displaced_atom_1based,disp_x,disp_y,disp_z,disp_norm,"
+                + "max_force_norm,mean_force_norm");
+        double globalMax = 0.0;
+        double globalSum = 0.0;
+        long rows = 0;
+        int index = 0;
+        int csvCap = 20000;
+        for (PhonopyForceSetsReader.DisplacementSet set : sets.getSets()) {
+            index++;
+            globalMax = Math.max(globalMax, set.maxForceNorm());
+            if (index <= csvCap) {
+                double[] d = set.getDisplacement();
+                csv.add(String.format(Locale.ROOT, "%d,%d,%.10f,%.10f,%.10f,%.10f,%.10f,%.10f",
+                        index, set.getAtomIndex(), d[0], d[1], d[2], set.displacementNorm(),
+                        set.maxForceNorm(), set.meanForceNorm()));
+            }
+            for (double[] row : set.getForces()) {
+                globalSum += Math.sqrt(row[0] * row[0] + row[1] * row[1] + row[2] * row[2]);
+                rows++;
+            }
+        }
+        if (sets.getSets().size() > csvCap) {
+            text.append(String.format(Locale.ROOT,
+                    "CSV truncated at %d set rows (%d sets in the file).%n", csvCap,
+                    sets.getSets().size()));
+        }
+        text.append(String.format(Locale.ROOT,
+                "Global max |F| = %.10f; global mean |F| = %.10f (over %d force rows)%n",
+                globalMax, rows == 0L ? 0.0 : globalSum / rows, rows));
+        text.append(String.format(Locale.ROOT,
+                "Smallest displacement norm: %.10f%n", sets.getSets().stream()
+                        .mapToDouble(PhonopyForceSetsReader.DisplacementSet::displacementNorm)
+                        .min().orElse(0.0)));
+        Cell cell = project.getCell();
+        if (cell == null) {
+            text.append("\nProject cell cross-check: absent - no atom-count cross-check "
+                    + "is possible.");
+        } else if (cell.numAtoms() == sets.getNumAtoms()) {
+            text.append(String.format(Locale.ROOT,
+                    "%nProject cell cross-check: atom counts numerically match (%d); the "
+                            + "origin of the file is not verified by this.", sets.getNumAtoms()));
+        } else {
+            text.append(String.format(Locale.ROOT,
+                    "%nProject cell cross-check: the file has %d atoms per set but the live "
+                            + "cell has %d - EXPECTED when FORCE_SETS belongs to a supercell; "
+                            + "the primitive/supercell mapping is not verified by this review.",
+                    sets.getNumAtoms(), cell.numAtoms()));
+        }
+        text.append(String.format(Locale.ROOT,
+                "%n%nHonesty/units boundary: FORCE_SETS is unitless. The phonopy/QE "
+                        + "convention writes displacements in Angstrom and forces in "
+                        + "eV/Angstrom. If forces were copied raw from pw.x (Ry/bohr) "
+                        + "without conversion, every value is wrong by the factor "
+                        + "Ry/bohr -> eV/Ang = %.6f. This review displays the numbers as "
+                        + "written and cannot detect the unit; "
+                        + "QEPhonopyForceSetsWriter.addRecordFromQeRyPerBohr is the tested "
+                        + "conversion path. No phonopy run, symmetry treatment, "
+                        + "force-constant or band-structure result is implied.",
+                QEPhonopyForceSetsWriter.RY_PER_BOHR_TO_EV_PER_ANGSTROM));
+        return new AnalysisReport(label, true, text.toString(), csv, null);
     }
 
     /**

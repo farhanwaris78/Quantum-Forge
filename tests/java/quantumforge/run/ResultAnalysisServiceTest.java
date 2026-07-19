@@ -28,6 +28,7 @@ import quantumforge.project.property.ProjectProperty;
 import quantumforge.run.ResultAnalysisService.AnalysisKind;
 import quantumforge.run.ResultAnalysisService.AnalysisParameters;
 import quantumforge.run.ResultAnalysisService.AnalysisReport;
+import quantumforge.run.parser.QEPhonopyForceSetsWriter;
 
 class ResultAnalysisServiceTest {
 
@@ -1841,5 +1842,57 @@ class ResultAnalysisServiceTest {
         AnalysisReport noCell = ResultAnalysisService.analyze(AnalysisKind.CONSTRAINTS_PREVIEW,
                 stubProject(this.tempDir), new AnalysisParameters().withConstraintSpec("1:000"));
         assertFalse(noCell.isSuccess(), "A project without a cell must fail closed");
+    }
+
+    @Test
+    void testPhonopyDataReviewKindRoundTripAndCaveats() throws IOException {
+        QEPhonopyForceSetsWriter writer = new QEPhonopyForceSetsWriter();
+        writer.addRecord(1, new double[] {0.01, 0.0, 0.0},
+                new double[][] {{0.1, 0.0, 0.0}, {-0.1, 0.0, 0.0}});
+        writer.addRecord(2, new double[] {0.0, 0.01, 0.0},
+                new double[][] {{0.0, 0.05, 0.0}, {0.0, -0.05, 0.0}});
+        File forceSets = this.tempDir.resolve("FORCE_SETS").toFile();
+        writer.writeForceSetsFile(forceSets, 2);
+
+        Cell matching = new Cell(quantumforge.com.math.Matrix3D.unit(10.0));
+        matching.addAtom("Si", 0.0, 0.0, 0.0);
+        matching.addAtom("Si", 0.25, 0.25, 0.25);
+        AnalysisReport report = ResultAnalysisService.analyze(AnalysisKind.PHONOPY_DATA_REVIEW,
+                stubProject(this.tempDir, matching), forceSets, new AnalysisParameters());
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains(
+                "Atoms per set: 2; displacement sets: 2; distinct displaced atoms: 2"),
+                report.getText());
+        assertTrue(report.getText().contains("Global max |F| = 0.1000000000"),
+                report.getText());
+        assertTrue(report.getText().contains("Global mean |F| = 0.0750000000"),
+                report.getText());
+        assertTrue(report.getText().contains("atom counts numerically match (2)"),
+                report.getText());
+        assertTrue(report.getText().contains("unitless"), report.getText());
+        assertTrue(report.getText().contains("Ry/bohr -> eV/Ang = 25.71"), report.getText());
+        assertEquals(3, report.getCsvLines().size(), "header plus 2 set rows");
+        assertTrue(report.getCsvLines().get(1).startsWith("1,1,0.0100000000"),
+                report.getCsvLines().get(1));
+
+        Cell larger = new Cell(quantumforge.com.math.Matrix3D.unit(10.0));
+        larger.addAtom("Si", 0.0, 0.0, 0.0);
+        larger.addAtom("Si", 0.25, 0.25, 0.25);
+        larger.addAtom("Si", 0.25, 0.25, 0.75);
+        AnalysisReport mismatch = ResultAnalysisService.analyze(AnalysisKind.PHONOPY_DATA_REVIEW,
+                stubProject(this.tempDir, larger), forceSets, new AnalysisParameters());
+        assertTrue(mismatch.isSuccess(), mismatch.getText());
+        assertTrue(mismatch.getText().contains("EXPECTED when FORCE_SETS belongs to a "
+                + "supercell"), mismatch.getText());
+
+        File truncated = write("FORCE_SETS-bad",
+                "2\n1\n1\n0.01 0.0 0.0\n0.1 0.0 0.0\n");
+        AnalysisReport refused = ResultAnalysisService.analyze(AnalysisKind.PHONOPY_DATA_REVIEW,
+                stubProject(this.tempDir, matching), truncated, new AnalysisParameters());
+        assertFalse(refused.isSuccess(), "A truncated FORCE_SETS must fail closed");
+
+        AnalysisReport missing = ResultAnalysisService.analyze(AnalysisKind.PHONOPY_DATA_REVIEW,
+                stubProject(this.tempDir, matching), null, new AnalysisParameters());
+        assertFalse(missing.isSuccess(), "A missing file must fail closed");
     }
 }
