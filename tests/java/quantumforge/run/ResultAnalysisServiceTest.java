@@ -3260,4 +3260,64 @@ class ResultAnalysisServiceTest {
         assertFalse(missing.isSuccess(), "No current input must fail closed");
         assertTrue(missing.getText().contains("[W90_INPUT]"), missing.getText());
     }
+
+    @Test
+    void testGbCslPreviewKindExactPinsAndRefusals() {
+        AnalysisReport report = ResultAnalysisService.analyze(AnalysisKind.GB_CSL_PREVIEW,
+                stubProject(this.tempDir),
+                new AnalysisParameters().withCslAxis(0, 0, 1).withMoireIndices(3, 1));
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains("Rotation axis [0 0 1]"), report.getText());
+        assertTrue(report.getText().contains("Commensurate pair (m, n) = (3, 1)"),
+                report.getText());
+        assertTrue(report.getText().contains("Axis norm N = u^2+v^2+w^2 = 1"),
+                report.getText());
+        assertTrue(report.getText().contains("Exact cosine fraction: cos(theta) = 4/5"),
+                report.getText());
+        assertTrue(report.getText().contains("Rotation angle: 36.869898 deg"),
+                report.getText());
+        assertTrue(report.getText().contains(
+                "CSL Sigma = 5  (odd part of m^2 + N n^2 = 10; divided by 2 1 time)"),
+                report.getText());
+        assertFalse(report.getText().contains("LATTICE SYMMETRY"), report.getText());
+        assertTrue(report.getText().contains("SIMPLE CUBIC"), report.getText());
+        assertTrue(report.getText().contains("boundary plane (hkl)"), report.getText());
+        assertEquals(13, report.getCsvLines().size(), "header + 12 rows");
+        assertTrue(report.getCsvLines().contains("sigma,5,exact"),
+                String.join("\n", report.getCsvLines()));
+        assertTrue(report.getCsvLines().contains("cos_theta,4/5,exact-reduced"),
+                String.join("\n", report.getCsvLines()));
+        assertTrue(report.getCsvLines().contains("angle_deg,36.869898,computed-from-exact"),
+                String.join("\n", report.getCsvLines()));
+
+        AnalysisReport symmetry = ResultAnalysisService.analyze(
+                AnalysisKind.GB_CSL_PREVIEW, stubProject(this.tempDir),
+                new AnalysisParameters().withCslAxis(0, 0, 1).withMoireIndices(1, 1));
+        assertTrue(symmetry.isSuccess(), symmetry.getText());
+        assertTrue(symmetry.getText().contains("LATTICE SYMMETRY operation"),
+                symmetry.getText());
+        assertTrue(symmetry.getCsvLines().contains("lattice_symmetry,true,sigma==1"),
+                String.join("\n", symmetry.getCsvLines()));
+
+        AnalysisReport normalized = ResultAnalysisService.analyze(
+                AnalysisKind.GB_CSL_PREVIEW, stubProject(this.tempDir),
+                new AnalysisParameters().withCslAxis(0, 2, 2).withMoireIndices(3, 1));
+        assertTrue(normalized.isSuccess(), normalized.getText());
+        assertTrue(normalized.getText().contains(
+                "(normalized: a common factor 2 was removed from the supplied axis)"),
+                normalized.getText());
+        assertTrue(normalized.getText().contains("CSL Sigma = 11"), normalized.getText());
+
+        AnalysisReport zeroAxis = ResultAnalysisService.analyze(
+                AnalysisKind.GB_CSL_PREVIEW, stubProject(this.tempDir),
+                new AnalysisParameters().withCslAxis(0, 0, 0).withMoireIndices(3, 1));
+        assertFalse(zeroAxis.isSuccess(), "a zero axis must fail closed");
+        assertTrue(zeroAxis.getText().contains("[CSL_VECTOR]"), zeroAxis.getText());
+
+        AnalysisReport bounds = ResultAnalysisService.analyze(
+                AnalysisKind.GB_CSL_PREVIEW, stubProject(this.tempDir),
+                new AnalysisParameters().withCslAxis(0, 0, 1).withMoireIndices(3, 1025));
+        assertFalse(bounds.isSuccess(), "out-of-range indices must fail closed");
+        assertTrue(bounds.getText().contains("[CSL_BOUNDS]"), bounds.getText());
+    }
 }

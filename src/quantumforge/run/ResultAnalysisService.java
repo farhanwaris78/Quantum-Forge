@@ -30,6 +30,7 @@ import quantumforge.app.project.viewer.result.special.HyperfineMapper;
 import quantumforge.com.math.SymmetricEigen3;
 import quantumforge.atoms.model.Atom;
 import quantumforge.atoms.model.Cell;
+import quantumforge.builder.CslSigmaMath;
 import quantumforge.builder.MoireTwistMath;
 import quantumforge.builder.QEBatteryVoltage;
 import quantumforge.builder.QECitationManager;
@@ -240,7 +241,8 @@ public final class ResultAnalysisService {
         PDB_REVIEW("PDB structure review (fail-closed, no element guessing)"),
         LAMMPS_DATA_REVIEW("LAMMPS data-file review (explicit atom_style, no guessing)"),
         CP_INPUT_DRAFT("cp.x Car-Parrinello input draft (required-edit guarded)"),
-        W90_WIN_DRAFT("Wannier90 .win draft (mesh-echoed, required-edit guarded)");
+        W90_WIN_DRAFT("Wannier90 .win draft (mesh-echoed, required-edit guarded)"),
+        GB_CSL_PREVIEW("Grain-boundary CSL rotation preview (exact Ranganathan law)");
 
         private final String label;
 
@@ -359,6 +361,9 @@ public final class ResultAnalysisService {
         private int moireM = 2;              // commensurate pair (m, n), m >= n >= 1
         private int moireN = 1;
         private double latticeRatio = 1.0;   // second-layer a2 / a1 (1.0 = identical)
+        private int cslU = 0;                // CSL rotation axis [u v w]
+        private int cslV = 0;
+        private int cslW = 1;
 
         public double getFermiEv() { return this.fermiEv; }
         public int getKpointIndex() { return this.kpointIndex; }
@@ -626,6 +631,17 @@ public final class ResultAnalysisService {
         public AnalysisParameters withConstraintMode(String value) {
             this.constraintMode = value == null ? "relax" : value;
             return this;
+        }
+
+        public AnalysisParameters withCslAxis(int u, int v, int w) {
+            this.cslU = u;
+            this.cslV = v;
+            this.cslW = w;
+            return this;
+        }
+
+        public int[] getCslAxis() {
+            return new int[] {this.cslU, this.cslV, this.cslW};
         }
     }
 
@@ -1171,6 +1187,8 @@ public final class ResultAnalysisService {
                 return analyzeCpInputDraft(project);
             case W90_WIN_DRAFT:
                 return analyzeW90WinDraft(project);
+            case GB_CSL_PREVIEW:
+                return analyzeGbCslPreview(params);
             default:
                 return failure(kind.getLabel(), "This analysis kind is not implemented.");
         }
@@ -5767,6 +5785,109 @@ public final class ResultAnalysisService {
         csv.add(String.format(Locale.ROOT, "required_edits,%d,draft-status",
                 draft.countRequiredEdits()));
         return new AnalysisReport(label, true, text.toString(), csv, draft.getDraft());
+    }
+
+    /**
+     * Roadmap #86: grain-boundary CSL rotation preview. Pure Ranganathan
+     * mathematics - no cell is read and nothing is constructed; the report
+     * keeps the cosine exact and states the simple-cubic law's scope.
+     */
+    private static AnalysisReport analyzeGbCslPreview(AnalysisParameters params) {
+        String label = AnalysisKind.GB_CSL_PREVIEW.getLabel();
+        int[] axis = params.getCslAxis();
+        OperationResult<CslSigmaMath.CslRotation> computed = CslSigmaMath.compute(
+                axis[0], axis[1], axis[2], params.getMoireM(), params.getMoireN());
+        if (!computed.isSuccess() || computed.getValue().isEmpty()) {
+            return failure(label, "CSL preview refused: [" + computed.getCode() + "] "
+                    + computed.getMessage());
+        }
+        CslSigmaMath.CslRotation rotation = computed.getValue().get();
+        StringBuilder text = new StringBuilder();
+        text.append(String.format(Locale.ROOT, "Rotation axis [%d %d %d]", rotation.getU(),
+                rotation.getV(), rotation.getW()));
+        if (rotation.getAxisCommonFactor() > 1) {
+            text.append(String.format(Locale.ROOT,
+                    "  (normalized: a common factor %d was removed from the supplied axis)",
+                    rotation.getAxisCommonFactor()));
+        }
+        text.append('\n');
+        text.append(String.format(Locale.ROOT, "Commensurate pair (m, n) = (%d, %d)",
+                rotation.getM(), rotation.getN()));
+        if (rotation.getPairCommonFactor() > 1) {
+            text.append(String.format(Locale.ROOT,
+                    "  (normalized: a common factor %d was removed; Sigma is unchanged)",
+                    rotation.getPairCommonFactor()));
+        }
+        text.append('\n');
+        text.append(String.format(Locale.ROOT,
+                "Axis norm N = u^2+v^2+w^2 = %d;  tan(theta/2) = (n/m)*sqrt(N)"
+                        + " = (%d/%d)*sqrt(%d)%n",
+                rotation.getAxisNormSquared(), rotation.getN(), rotation.getM(),
+                rotation.getAxisNormSquared()));
+        text.append(String.format(Locale.ROOT,
+                "Exact cosine fraction: cos(theta) = %d/%d%n",
+                rotation.getCosNumerator(), rotation.getCosDenominator()));
+        text.append(String.format(Locale.ROOT, "Rotation angle: %.6f deg%n",
+                rotation.getAngleDeg()));
+        text.append(String.format(Locale.ROOT,
+                "CSL Sigma = %d  (odd part of m^2 + N n^2 = %d; divided by 2 %s)%n",
+                rotation.getSigma(), rotation.getSigmaRaw(),
+                rotation.getHalvings() == 0 ? "0 times (already odd)"
+                        : rotation.getHalvings() + (rotation.getHalvings() == 1
+                                ? " time" : " times")));
+        if (rotation.isLatticeSymmetry()) {
+            text.append("Sigma = 1: this rotation is a LATTICE SYMMETRY operation of the "
+                    + "cubic lattice - both sides coincide identically and NO distinct "
+                    + "boundary exists; stated, not hidden.\n");
+        }
+        text.append(String.format(Locale.ROOT,
+                "sin(theta) = 2 m n sqrt(N)/(m^2+N n^2): reported numerically"
+                        + " (sqrt(%d) is %s), the cosine above is exact.%n",
+                rotation.getAxisNormSquared(),
+                isPerfectSquare(rotation.getAxisNormSquared())
+                        ? "an integer, so the sine is rational here too"
+                        : "irrational for this axis"));
+        text.append("\nHonesty boundary: Ranganathan's law generates coincidence rotations "
+                + "of the SIMPLE CUBIC lattice rigorously; for face-/body-centred Bravais "
+                + "materials additional systematic extinctions can lower the physical "
+                + "Sigma - cross-check against the referenced CSL tables before building. "
+                + "This preview is geometry ONLY: a real grain boundary additionally needs "
+                + "the boundary plane (hkl), the rigid-body translation state, atom "
+                + "construction and relaxation - none of that happened here; that builder "
+                + "work is the remaining #86 scope.\n");
+        List<String> csv = new ArrayList<>();
+        csv.add("item,value,note");
+        csv.add(String.format(Locale.ROOT, "axis,[%d %d %d],normalized", rotation.getU(),
+                rotation.getV(), rotation.getW()));
+        csv.add(String.format(Locale.ROOT, "axis_common_factor,%d,provenance",
+                rotation.getAxisCommonFactor()));
+        csv.add(String.format(Locale.ROOT, "pair_m,%d,normalized", rotation.getM()));
+        csv.add(String.format(Locale.ROOT, "pair_n,%d,normalized", rotation.getN()));
+        csv.add(String.format(Locale.ROOT, "pair_common_factor,%d,provenance",
+                rotation.getPairCommonFactor()));
+        csv.add(String.format(Locale.ROOT, "axis_norm_squared,%d,exact",
+                rotation.getAxisNormSquared()));
+        csv.add(String.format(Locale.ROOT, "sigma_raw,%d,exact", rotation.getSigmaRaw()));
+        csv.add(String.format(Locale.ROOT, "sigma,%d,exact", rotation.getSigma()));
+        csv.add(String.format(Locale.ROOT, "halvings,%d,exact", rotation.getHalvings()));
+        csv.add(String.format(Locale.ROOT, "cos_theta,%d/%d,exact-reduced",
+                rotation.getCosNumerator(), rotation.getCosDenominator()));
+        csv.add(String.format(Locale.ROOT, "angle_deg,%.6f,computed-from-exact",
+                rotation.getAngleDeg()));
+        csv.add(String.format(Locale.ROOT, "lattice_symmetry,%s,sigma==1",
+                rotation.isLatticeSymmetry()));
+        return new AnalysisReport(label, true, text.toString(), csv, null);
+    }
+
+    private static boolean isPerfectSquare(long value) {
+        long root = (long) Math.floor(Math.sqrt((double) value));
+        while (root * root > value) {
+            root -= 1;
+        }
+        while ((root + 1) * (root + 1) <= value) {
+            root += 1;
+        }
+        return root * root == value;
     }
 
     /**

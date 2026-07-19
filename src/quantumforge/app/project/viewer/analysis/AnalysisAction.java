@@ -597,6 +597,30 @@ public final class AnalysisAction {
                     .withLatticeRatio(ratio == null ? 1.0 : ratio.doubleValue());
             break;
         }
+        case GB_CSL_PREVIEW: {
+            Integer u = askInteger("CSL rotation axis component u (-16..16)", 0);
+            if (u == null) {
+                return null;
+            }
+            Integer v = askInteger("CSL rotation axis component v (-16..16)", 0);
+            if (v == null) {
+                return null;
+            }
+            Integer w = askInteger("CSL rotation axis component w (-16..16)", 1);
+            if (w == null) {
+                return null;
+            }
+            Integer m = askInteger("Ranganathan index m (1-1024)", 3);
+            if (m == null) {
+                return null;
+            }
+            Integer n = askInteger("Ranganathan index n (1-1024)", 1);
+            if (n == null) {
+                return null;
+            }
+            parameters.withCslAxis(u, v, w).withMoireIndices(m, n);
+            break;
+        }
         case TEMPLATE_LIBRARY: {
             String name = askText("Template name (blank lists all; curated: scf-basic, "
                     + "relax-bfgs, vc-relax-crystal, bands-path, nscf-dos, phonon-gamma0)",
