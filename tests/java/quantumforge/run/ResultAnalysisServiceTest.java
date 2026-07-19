@@ -3,6 +3,7 @@ package quantumforge.run;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.File;
@@ -1295,5 +1296,64 @@ class ResultAnalysisServiceTest {
         AnalysisReport noCell = ResultAnalysisService.analyze(AnalysisKind.ADSORPTION_PREVIEW,
                 stubProject(this.tempDir), new AnalysisParameters());
         assertFalse(noCell.isSuccess(), "A project without a slab cell must fail closed");
+    }
+
+    @Test
+    void testProvenanceAttachedByFileDispatch() throws IOException {
+        File csv = write("hull-prov.csv",
+                "formula,fraction_B,formation_energy_eV_per_atom\n"
+                + "A,0.0,0.0\nB,1.0,0.0\nAB,0.5,-0.25\n");
+        AnalysisReport report = ResultAnalysisService.analyze(AnalysisKind.HULL_STABILITY,
+                new ProjectProperty(), this.tempDir.toFile(), "ab", "ab.log", csv,
+                new AnalysisParameters());
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.hasProvenance(), "Dispatch must attach provenance records");
+        assertTrue(report.getProvenanceLines().toString().contains("HULL_STABILITY"),
+                report.getProvenanceLines().toString());
+        assertTrue(report.getProvenanceLines().toString().contains("hull-prov.csv"),
+                "The resolved source file is part of the provenance: "
+                        + report.getProvenanceLines());
+        assertTrue(report.getProvenanceLines().toString()
+                        .contains("quantumforge.run.ResultAnalysisService"),
+                "The producer is recorded: " + report.getProvenanceLines());
+        assertTrue(report.renderFullText().contains("--- Provenance ---"), report.renderFullText());
+        assertTrue(report.renderFullText().contains(report.getText().substring(0, 20)),
+                "The rendered text must contain the original report body");
+    }
+
+    @Test
+    void testProvenanceDiscoveryAndProjectContexts() {
+        AnalysisReport projectReport = ResultAnalysisService.analyze(AnalysisKind.RUN_MANIFEST,
+                stubProject(this.tempDir), new AnalysisParameters());
+        assertTrue(projectReport.hasProvenance(), "Project-bound reports carry provenance too");
+        assertTrue(projectReport.getProvenanceLines().toString().contains("RUN_MANIFEST"),
+                projectReport.getProvenanceLines().toString());
+        assertTrue(projectReport.getProvenanceLines().toString()
+                        .contains(this.tempDir.toFile().getAbsolutePath()),
+                "The project directory is the context: " + projectReport.getProvenanceLines());
+
+        // Discovery-based resolution records the discovered file, not an invented one.
+        AnalysisReport missing = ResultAnalysisService.analyze(AnalysisKind.CASTEP_LOG,
+                new ProjectProperty(), this.tempDir.toFile(), "si", "si.log", null,
+                new AnalysisParameters());
+        assertFalse(missing.isSuccess(), "No CASTEP file must fail closed");
+        assertFalse(missing.getProvenanceLines().toString().contains("source:"),
+                "Nothing was read, so no source may be claimed: "
+                        + missing.getProvenanceLines());
+    }
+
+    @Test
+    void testLegacyReportConstructorHasNoProvenance() {
+        AnalysisReport legacy = new AnalysisReport("t", true, "body text", List.of(), null);
+        assertFalse(legacy.hasProvenance(), "The 5-arg constructor keeps provenance empty");
+        assertEquals("body text", legacy.renderFullText(),
+                "renderFullText degrades to the plain text without provenance");
+        AnalysisReport copy = legacy.withProvenance(List.of("source: x.cube"));
+        assertTrue(copy.hasProvenance());
+        assertEquals("t", copy.getTitle());
+        assertFalse(legacy.hasProvenance(), "withProvenance returns a copy; no mutation");
+        assertTrue(copy.renderFullText().contains("source: x.cube"), copy.renderFullText());
+        assertSame(legacy, legacy.withProvenance(List.of()),
+                "Appending nothing keeps the immutable instance");
     }
 }

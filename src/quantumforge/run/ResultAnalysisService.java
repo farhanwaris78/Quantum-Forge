@@ -361,14 +361,22 @@ public final class ResultAnalysisService {
         private final String text;
         private final List<String> csvLines;
         private final String generatedInput;
+        private final List<String> provenanceLines;
 
         public AnalysisReport(String title, boolean success, String text,
                               List<String> csvLines, String generatedInput) {
+            this(title, success, text, csvLines, generatedInput, List.of());
+        }
+
+        public AnalysisReport(String title, boolean success, String text,
+                              List<String> csvLines, String generatedInput,
+                              List<String> provenanceLines) {
             this.title = title == null ? "Result analysis" : title;
             this.success = success;
             this.text = text == null ? "" : text;
             this.csvLines = csvLines == null ? List.of() : List.copyOf(csvLines);
             this.generatedInput = generatedInput;
+            this.provenanceLines = provenanceLines == null ? List.of() : List.copyOf(provenanceLines);
         }
 
         public String getTitle() { return this.title; }
@@ -377,6 +385,67 @@ public final class ResultAnalysisService {
         public List<String> getCsvLines() { return this.csvLines; }
         public String getGeneratedInput() { return this.generatedInput; }
         public boolean hasCsv() { return !this.csvLines.isEmpty(); }
+
+        /**
+         * Provenance records of the form "label: source" describing where the report
+         * came from (analysis kind, source file or project context, producer). Empty
+         * for reports constructed before the dispatch provenance pass (Roadmap #128).
+         */
+        public List<String> getProvenanceLines() { return this.provenanceLines; }
+        public boolean hasProvenance() { return !this.provenanceLines.isEmpty(); }
+
+        /** Returns a copy of this report with the given provenance records appended. */
+        public AnalysisReport withProvenance(List<String> lines) {
+            if (lines == null || lines.isEmpty()) {
+                return this;
+            }
+            List<String> merged = new ArrayList<>(this.provenanceLines);
+            merged.addAll(lines);
+            return new AnalysisReport(this.title, this.success, this.text, this.csvLines,
+                    this.generatedInput, merged);
+        }
+
+        /**
+         * Report text followed by a "--- Provenance ---" section when provenance
+         * records exist. This is exactly the content shown in the report dialog and
+         * written by the explicit "Save report ..." action.
+         */
+        public String renderFullText() {
+            if (this.provenanceLines.isEmpty()) {
+                return this.text;
+            }
+            StringBuilder builder = new StringBuilder(this.text);
+            builder.append("\n\n--- Provenance ---\n");
+            for (String line : this.provenanceLines) {
+                builder.append(line).append('\n');
+            }
+            return builder.toString();
+        }
+    }
+
+    /**
+     * Attaches the standard provenance records (Roadmap #128) to a dispatch result:
+     * the analysis kind, the resolved source file or the project context, and the
+     * deterministic producer. Fail-closed before any file existed still reports no
+     * source rather than inventing one.
+     */
+    private static AnalysisReport attachProvenance(AnalysisReport report, AnalysisKind kind,
+            File sourceFile, File projectDir) {
+        if (report == null || kind == null) {
+            return report;
+        }
+        List<String> lines = new ArrayList<>();
+        lines.add("analysis: " + kind.name() + " - " + kind.getLabel());
+        if (sourceFile != null) {
+            lines.add("source: " + sourceFile.getAbsolutePath());
+        } else if (projectDir != null) {
+            lines.add("context: project directory " + projectDir.getAbsolutePath());
+        } else {
+            lines.add("context: in-memory project (no on-disk directory)");
+        }
+        lines.add("producer: quantumforge.run.ResultAnalysisService dispatch "
+                + "(deterministic; no command executed; nothing written)");
+        return report.withProvenance(lines);
     }
 
     private ResultAnalysisService() {
@@ -487,9 +556,28 @@ public final class ResultAnalysisService {
     /**
      * Runs one analysis. The caller passes an already-resolved file when the
      * discovery list was presented to the user; otherwise the first discovered
-     * candidate is used. No file is ever created or modified here.
+     * candidate is used. No file is ever created or modified here. The returned
+     * report carries the standard dispatch provenance section (Roadmap #128).
      */
     public static AnalysisReport analyze(AnalysisKind kind, ProjectProperty property,
+            File projectDir, String prefix, String logFileName, File file, AnalysisParameters parameters) {
+        AnalysisReport report = analyzeFileBound(kind, property, projectDir, prefix,
+                logFileName, file, parameters);
+        if (report == null || kind == null || projectDir == null) {
+            return report;
+        }
+        File source = file;
+        if (source == null && !kind.isInputPreview()) {
+            source = firstCandidate(kind, projectDir, logFileName);
+        }
+        return attachProvenance(report, kind, source, projectDir);
+    }
+
+    /**
+     * Internal file-bound dispatch. The public {@code analyze} overload wraps this
+     * result with the standard provenance records.
+     */
+    private static AnalysisReport analyzeFileBound(AnalysisKind kind, ProjectProperty property,
             File projectDir, String prefix, String logFileName, File file, AnalysisParameters parameters) {
         if (kind == null) {
             return failure("Result analysis", "No analysis type was selected.");
@@ -599,21 +687,38 @@ public final class ResultAnalysisService {
     /**
      * Project-bound analysis entry with an optional user data file (used by the MD
      * trajectory analysis). File-based kinds ignore the file when it is null and fall
-     * back to project-directory discovery.
+     * back to project-directory discovery. The returned report carries the standard
+     * dispatch provenance section (Roadmap #128).
      */
     public static AnalysisReport analyze(AnalysisKind kind, Project project, File file,
             AnalysisParameters parameters) {
+        if (kind != null && !kind.isProjectBound()) {
+            if (project == null) {
+                return failure(kind.getLabel(), "No project is open.");
+            }
+            // The file-bound public dispatch attaches its own provenance.
+            return analyze(kind, project.getProperty(), project.getDirectory(),
+                    project.getPrefixName(), project.getLogFileName(), file, parameters);
+        }
+        AnalysisReport report = analyzeProjectBound(kind, project, file, parameters);
+        if (report == null || kind == null || project == null) {
+            return report;
+        }
+        return attachProvenance(report, kind, file, project.getDirectory());
+    }
+
+    /**
+     * Internal project-bound dispatch. The public {@code analyze} overload wraps this
+     * result with the standard provenance records.
+     */
+    private static AnalysisReport analyzeProjectBound(AnalysisKind kind, Project project,
+            File file, AnalysisParameters parameters) {
         if (kind == null) {
             return failure("Result analysis", "No analysis type was selected.");
         }
         AnalysisParameters params = parameters == null ? new AnalysisParameters() : parameters;
-        if (!kind.isProjectBound()) {
-            if (project == null) {
-                return failure(kind.getLabel(), "No project is open.");
-            }
-            return analyze(kind, project.getProperty(), project.getDirectory(),
-                    project.getPrefixName(), project.getLogFileName(), file, params);
-        }
+        // Non-project-bound kinds are routed by the public overload before this
+        // dispatch is reached.
         if (project == null) {
             return failure(kind.getLabel(), "No project is open.");
         }

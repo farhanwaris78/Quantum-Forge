@@ -429,14 +429,18 @@ public final class AnalysisAction {
         }
     }
 
-    /** Shows the report; CSV export and pp.x saving stay explicit user actions. */
+    /**
+     * Shows the report (including its provenance section when present, Roadmap
+     * #128). CSV export, pp.x saving, and whole-report saving all stay explicit
+     * user actions; the dialog itself writes nothing.
+     */
     private void showReport(AnalysisReport report) {
         Dialog<ButtonType> dialog = new Dialog<>();
         dialog.setTitle("Analyze QE results");
         dialog.setHeaderText(report.getTitle()
                 + (report.isSuccess() ? "" : " - no usable result (see notes)"));
 
-        TextArea area = new TextArea(report.getText());
+        TextArea area = new TextArea(report.renderFullText());
         area.setEditable(false);
         area.setWrapText(false);
         area.setStyle("-fx-font-family: 'monospace';");
@@ -449,6 +453,8 @@ public final class AnalysisAction {
 
         ButtonType close = new ButtonType("Close", ButtonData.CANCEL_CLOSE);
         dialog.getDialogPane().getButtonTypes().add(close);
+        ButtonType saveReport = new ButtonType("Save report ...", ButtonData.OTHER);
+        dialog.getDialogPane().getButtonTypes().add(saveReport);
         ButtonType exportCsv = null;
         ButtonType saveInput = null;
         if (report.hasCsv()) {
@@ -469,6 +475,8 @@ public final class AnalysisAction {
                     report.getCsvLines().stream().collect(Collectors.joining("\n")) + "\n");
         } else if (saveInput != null && answer.get() == saveInput) {
             saveText("Save generated pp.x input", "pp.in", report.getGeneratedInput());
+        } else if (answer.get() == saveReport) {
+            saveText("Save analysis report", "report.txt", report.renderFullText());
         }
     }
 
