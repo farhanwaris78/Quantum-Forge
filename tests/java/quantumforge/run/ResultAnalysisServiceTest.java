@@ -2291,4 +2291,29 @@ class ResultAnalysisServiceTest {
                         .withJobBaseName("bad name!"));
         assertFalse(badName.isSuccess(), "Unsafe job base names must fail closed");
     }
+
+    @Test
+    void testCellExtXyzExportKindDocumentAndRefusals() {
+        Cell cell = new Cell(quantumforge.com.math.Matrix3D.unit(10.0));
+        cell.addAtom("Si", 0.0, 0.0, 0.0);
+        cell.addAtom("Si", 0.15, 0.0, 0.0);
+        AnalysisReport report = ResultAnalysisService.analyze(AnalysisKind.CELL_EXTXYZ_EXPORT,
+                stubProject(this.tempDir, cell), new AnalysisParameters());
+        assertTrue(report.isSuccess(), report.getText());
+        String document = report.getGeneratedInput();
+        assertTrue(document != null, "The extXYZ document must require explicit save");
+        String[] lines = document.split("\n");
+        assertEquals(4, lines.length);
+        assertEquals("2", lines[0]);
+        assertTrue(lines[1].contains("Lattice=\"10.0 0.0 0.0 0.0 10.0 0.0 0.0 0.0 10.0\""),
+                lines[1]);
+        assertTrue(lines[1].contains("pbc=\"T T T\""), lines[1]);
+        assertEquals("Si 1.5 0.0 0.0", lines[3]);
+        assertTrue(report.getText().contains("geometry ONLY"), report.getText());
+        assertEquals(2, report.getCsvLines().size());
+
+        AnalysisReport noCell = ResultAnalysisService.analyze(AnalysisKind.CELL_EXTXYZ_EXPORT,
+                stubProject(this.tempDir), new AnalysisParameters());
+        assertFalse(noCell.isSuccess(), "A project without atoms must fail closed");
+    }
 }

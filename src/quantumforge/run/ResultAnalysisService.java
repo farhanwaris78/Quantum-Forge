@@ -38,6 +38,7 @@ import quantumforge.export.MethodsTextBuilder;
 import quantumforge.export.RoCrateExporter;
 import quantumforge.builder.QEDiffusionBarrierLink;
 import quantumforge.builder.QEThermochemistryMath;
+import quantumforge.builder.ExtXyzCellExporter;
 import quantumforge.builder.QEConstraintSpec;
 import quantumforge.builder.QEIonicConstraintManager;
 import quantumforge.hpc.ArraySweepPlanner;
@@ -204,7 +205,8 @@ public final class ResultAnalysisService {
         PHONON_MODE_FRAMES("Phonon mode animation frames (multi-frame XYZ)"),
         HYPERFINE_LOOKUP("Hyperfine isotope g-factor + Fermi contact A_iso"),
         KEYWORD_HELP("pw.x keyword reference (offline curated subset)"),
-        ARRAY_SWEEP_PLAN("Scheduler array sweep manifest (JSONL + sbatch preview)");
+        ARRAY_SWEEP_PLAN("Scheduler array sweep manifest (JSONL + sbatch preview)"),
+        CELL_EXTXYZ_EXPORT("Extended-XYZ export of the live cell (geometry only)");
 
         private final String label;
 
@@ -245,7 +247,8 @@ public final class ResultAnalysisService {
                     || this == RO_CRATE || this == DEFECT_FORMATION || this == ADSORPTION_ENERGY
                     || this == BARRIER_DIFFUSION || this == CONSTRAINTS_PREVIEW
                     || this == PHONON_MODE_FRAMES || this == HYPERFINE_LOOKUP
-                    || this == KEYWORD_HELP || this == ARRAY_SWEEP_PLAN;
+                    || this == KEYWORD_HELP || this == ARRAY_SWEEP_PLAN
+                    || this == CELL_EXTXYZ_EXPORT;
         }
 
         /** True for project-bound kinds that additionally parse a user data file. */
@@ -1012,6 +1015,8 @@ public final class ResultAnalysisService {
                 return analyzeKeywordHelp(project, params);
             case ARRAY_SWEEP_PLAN:
                 return analyzeArraySweepPlan(params);
+            case CELL_EXTXYZ_EXPORT:
+                return analyzeCellExtXyzExport(project);
             default:
                 return failure(kind.getLabel(), "This analysis kind is not implemented.");
         }
@@ -3869,6 +3874,34 @@ public final class ResultAnalysisService {
                 + "Per-task run manifests (#28) and scheduler submit integration (#93) "
                 + "remain the remaining #100 work.");
         return new AnalysisReport(label, true, text.toString(), csv, plan.toJsonLines());
+    }
+
+    /**
+     * Roadmap #77 seam: ASE-style extended-XYZ of the live cell via the tested
+     * exporter; geometry only, explicit save is the only exit.
+     */
+    private static AnalysisReport analyzeCellExtXyzExport(Project project) {
+        String label = AnalysisKind.CELL_EXTXYZ_EXPORT.getLabel();
+        Cell cell = project.getCell();
+        OperationResult<String> exported = ExtXyzCellExporter.export(cell);
+        if (!exported.isSuccess() || exported.getValue().isEmpty()) {
+            return failure(label, "Export refused: " + exported.getMessage());
+        }
+        String document = exported.getValue().get();
+        StringBuilder text = new StringBuilder();
+        text.append(exported.getMessage()).append("\n\n");
+        text.append("Document preview (explicit save writes exactly these bytes):\n");
+        text.append(document).append('\n');
+        List<String> csv = new ArrayList<>();
+        csv.add("field,value");
+        csv.add(String.format(Locale.ROOT, "atoms,%d", cell.numAtoms()));
+        text.append("Honesty boundary: geometry ONLY - this document carries species, "
+                + "positions and the lattice with pbc=\"T T T\" (the QE periodic "
+                + "assumption); it carries NO energy/force/stress labels, so it is not a "
+                + "training set - labelling belongs to the validated dataset pipeline "
+                + "(#143/#144). Coordinates are Angstrom, rendered losslessly. The file is "
+                + "written only through the explicit save action.");
+        return new AnalysisReport(label, true, text.toString(), csv, document);
     }
 
     /** Ion-insertion voltage profile from a hull CSV; plateaus from hull vertices only. */
