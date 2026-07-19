@@ -2485,4 +2485,86 @@ class ResultAnalysisServiceTest {
                 new AnalysisParameters());
         assertFalse(shallow.isSuccess(), "Two rows are not a tensor");
     }
+
+    @Test
+    void testDensityDifferenceKindGateAndStats() throws IOException {
+        java.util.function.BiFunction<String, String, Path> cube = (directory, values) -> {
+            try {
+                Path dir = Files.createDirectories(this.tempDir.resolve(directory));
+                String header = "comment\ncomment\n1 0 0 0\n2 2 0 0\n1 0 2 0\n1 0 0 2\n"
+                        + "1 0 0 0 0\n";
+                Files.writeString(dir.resolve("system.cube"), header + "1.0 2.0\n");
+                Files.writeString(dir.resolve("component.cube"), header + values + "\n");
+                return dir;
+            } catch (IOException ex) {
+                throw new IllegalStateException(ex);
+            }
+        };
+
+        Path pair = cube.apply("case-ok", "0.5 1.5");
+        AnalysisReport ok = ResultAnalysisService.analyze(AnalysisKind.DENSITY_DIFFERENCE,
+                stubProject(pair), pair.resolve("system.cube").toFile(),
+                new AnalysisParameters());
+        assertTrue(ok.isSuccess(), ok.getText());
+        assertTrue(ok.getText().contains("delta = SYSTEM - COMPONENT"), ok.getText());
+        assertTrue(ok.getText().contains("SYSTEM    = system.cube"), ok.getText());
+        assertTrue(ok.getText().contains("COMPONENT = component.cube"), ok.getText());
+        // delta = (0.5, 0.5) over 2 voxels -> min/max/mean|delta| all 0.5
+        assertTrue(ok.getText().contains("min 0.50000000"), ok.getText());
+        assertTrue(ok.getText().contains("max 0.50000000"), ok.getText());
+        assertTrue(ok.getText().contains("mean|delta| 0.50000000"), ok.getText());
+        assertTrue(ok.getText().contains("negative fraction 0.000000"), ok.getText());
+        // sum(delta)*V/2 = 1.0 * (16*bohr^3 in A^3)/2 = 2.3709554 (cross-checked)
+        assertTrue(ok.getText().contains("Integrated difference: 2.3709554"), ok.getText());
+        assertEquals("integrated_delta,2.3709554", ok.getCsvLines().get(5));
+        assertTrue(ok.getText().contains("NO alignment, resampling or unit conversion"),
+                ok.getText());
+
+        Path pairNeg = cube.apply("case-neg", "3.0 1.0");
+        AnalysisReport neg = ResultAnalysisService.analyze(AnalysisKind.DENSITY_DIFFERENCE,
+                stubProject(pairNeg), pairNeg.resolve("system.cube").toFile(),
+                new AnalysisParameters());
+        assertTrue(neg.isSuccess(), neg.getText());
+        assertTrue(neg.getText().contains("negative fraction 0.500000"), neg.getText());
+        assertTrue(neg.getText().contains("min -2.0000000"), neg.getText());
+
+        // Incompatible component grid: nx 3 on the reference, values must follow.
+        Path dirBad = Files.createDirectories(this.tempDir.resolve("case-bad"));
+        String header = "comment\ncomment\n1 0 0 0\n2 2 0 0\n1 0 2 0\n1 0 0 2\n"
+                + "1 0 0 0 0\n";
+        String header3 = "comment\ncomment\n1 0 0 0\n3 2 0 0\n1 0 2 0\n1 0 0 2\n"
+                + "1 0 0 0 0\n";
+        Files.writeString(dirBad.resolve("system.cube"), header + "1.0 2.0\n");
+        Files.writeString(dirBad.resolve("component.cube"), header3 + "0.5 1.0 1.5\n");
+        AnalysisReport incompatible = ResultAnalysisService.analyze(
+                AnalysisKind.DENSITY_DIFFERENCE, stubProject(dirBad),
+                dirBad.resolve("system.cube").toFile(), new AnalysisParameters());
+        assertFalse(incompatible.isSuccess(),
+                "Mismatched grids must fail closed, never subtract");
+        assertTrue(incompatible.getText().contains("NOT compatible"),
+                incompatible.getText());
+
+        Path dirNone = Files.createDirectories(this.tempDir.resolve("case-none"));
+        Files.writeString(dirNone.resolve("system.cube"), header + "1.0 2.0\n");
+        AnalysisReport none = ResultAnalysisService.analyze(AnalysisKind.DENSITY_DIFFERENCE,
+                stubProject(dirNone), dirNone.resolve("system.cube").toFile(),
+                new AnalysisParameters());
+        assertFalse(none.isSuccess(), "A missing component must fail closed");
+
+        Path dirTwo = Files.createDirectories(this.tempDir.resolve("case-two"));
+        Files.writeString(dirTwo.resolve("system.cube"), header + "1.0 2.0\n");
+        Files.writeString(dirTwo.resolve("a.cube"), header + "0.5 1.5\n");
+        Files.writeString(dirTwo.resolve("b.cube"), header + "0.5 1.5\n");
+        AnalysisReport ambiguous = ResultAnalysisService.analyze(
+                AnalysisKind.DENSITY_DIFFERENCE, stubProject(dirTwo),
+                dirTwo.resolve("system.cube").toFile(), new AnalysisParameters());
+        assertFalse(ambiguous.isSuccess(), "Ambiguous components must fail closed");
+        assertTrue(ambiguous.getText().contains("a.cube"), ambiguous.getText());
+        assertTrue(ambiguous.getText().contains("b.cube"), ambiguous.getText());
+
+        AnalysisReport noSystem = ResultAnalysisService.analyze(
+                AnalysisKind.DENSITY_DIFFERENCE, stubProject(this.tempDir), null,
+                new AnalysisParameters());
+        assertFalse(noSystem.isSuccess(), "A missing system cube must fail closed");
+    }
 }

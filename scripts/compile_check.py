@@ -346,7 +346,8 @@ def main() -> int:
                   "ExtXyzCellExporter", "CELL_EXTXYZ_EXPORT",
                   "QERamanIRSpectraParser", "RAMAN_IR_SPECTRUM",
                   "TrajectoryWindowReader", "TRAJECTORY_WINDOW_SCAN",
-                  "TENSOR_DIRECTIONAL"]:
+                  "TENSOR_DIRECTIONAL", "QEGridDensityDifference",
+                  "DENSITY_DIFFERENCE"]:
         if token not in service:
             error(f"ResultAnalysisService is not bound to {token}")
     for rel in ["quantumforge/com/math/SymmetricEigen3.java",

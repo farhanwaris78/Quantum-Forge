@@ -211,7 +211,8 @@ public final class ResultAnalysisService {
         CELL_EXTXYZ_EXPORT("Extended-XYZ export of the live cell (geometry only)"),
         RAMAN_IR_SPECTRUM("Powder IR/Raman spectrum (Lorentzian broadening)"),
         TRAJECTORY_WINDOW_SCAN("Trajectory window scan (bbox/centroid per sampled frame)"),
-        TENSOR_DIRECTIONAL("Tensor directional surface n^T.T.n (eigen basis)");
+        TENSOR_DIRECTIONAL("Tensor directional surface n^T.T.n (eigen basis)"),
+        DENSITY_DIFFERENCE("Grid density difference (compatible CUBE pair)");
 
         private final String label;
 
@@ -253,13 +254,14 @@ public final class ResultAnalysisService {
                     || this == BARRIER_DIFFUSION || this == CONSTRAINTS_PREVIEW
                     || this == PHONON_MODE_FRAMES || this == HYPERFINE_LOOKUP
                     || this == KEYWORD_HELP || this == ARRAY_SWEEP_PLAN
-                    || this == CELL_EXTXYZ_EXPORT;
+                    || this == CELL_EXTXYZ_EXPORT || this == DENSITY_DIFFERENCE;
         }
 
         /** True for project-bound kinds that additionally parse a user data file. */
         public boolean needsDataFile() {
             return this == MD_MSD || this == INPUT_DIFF || this == ML_MODEL_CHECK
-                    || this == PHONOPY_DATA_REVIEW || this == PHONON_MODE_FRAMES;
+                    || this == PHONOPY_DATA_REVIEW || this == PHONON_MODE_FRAMES
+                    || this == DENSITY_DIFFERENCE;
         }
     }
 
@@ -796,6 +798,8 @@ public final class ResultAnalysisService {
                     && !name.contains("force");
         case TENSOR_DIRECTIONAL:
             return name.contains("tensor") || name.contains("direction");
+        case DENSITY_DIFFERENCE:
+            return name.endsWith(".cube");
         case PHONON_MODE_FRAMES:
             return name.contains("dynmat") || name.contains("modes");
         default:
@@ -1064,6 +1068,8 @@ public final class ResultAnalysisService {
                 return analyzeArraySweepPlan(params);
             case CELL_EXTXYZ_EXPORT:
                 return analyzeCellExtXyzExport(project);
+            case DENSITY_DIFFERENCE:
+                return analyzeDensityDifference(project, file);
             default:
                 return failure(kind.getLabel(), "This analysis kind is not implemented.");
         }
@@ -4961,6 +4967,137 @@ public final class ResultAnalysisService {
                 + "Eigenvector signs are gauge (canonical display sign applied); the "
                 + "surface itself is sign-invariant. Units and physical meaning come from "
                 + "the source you selected; no interpretation is attached at this layer.");
+        return new AnalysisReport(label, true, text.toString(), csv, null);
+    }
+
+    /**
+     * Roadmap #57: difference of two CUBE grids through the tested compatibility
+     * gate - the picked file is the SYSTEM, exactly one other .cube in the
+     * project directory is the component; incompatible grids are never
+     * subtracted, and the subtraction order is stated explicitly.
+     */
+    private static AnalysisReport analyzeDensityDifference(Project project, File file) {
+        String label = AnalysisKind.DENSITY_DIFFERENCE.getLabel();
+        if (file == null) {
+            return failure(label, "Select the SYSTEM cube file explicitly; the component "
+                    + "cube must be the one other .cube in the project directory.");
+        }
+        File projectDir = project.getDirectory();
+        String sourceCanonical;
+        try {
+            sourceCanonical = file.getCanonicalPath();
+        } catch (IOException ex) {
+            return failure(label, "Resolving the selected file failed: " + ex.getMessage());
+        }
+        File[] others = projectDir == null ? new File[0]
+                : projectDir.listFiles(candidate -> {
+                    if (!candidate.isFile()
+                            || !candidate.getName().toLowerCase(Locale.ROOT)
+                                    .endsWith(".cube")) {
+                        return false;
+                    }
+                    try {
+                        return !candidate.getCanonicalPath().equals(sourceCanonical);
+                    } catch (IOException ex) {
+                        return false;
+                    }
+                });
+        if (others == null || others.length == 0) {
+            return failure(label, "No component cube found: place exactly one other .cube "
+                    + "file in the project directory as the reference to subtract.");
+        }
+        if (others.length > 1) {
+            StringBuilder names = new StringBuilder();
+            for (File other : others) {
+                names.append(' ').append(other.getName()).append(';');
+            }
+            return failure(label, "Ambiguous component choice - " + others.length
+                    + " candidate cube(s) besides the selected system:" + names
+                    + " Leave exactly one reference, or rename the others; no silent "
+                    + "choice is made.");
+        }
+        File componentFile = others[0];
+        OperationResult<QEGridDensityDifference.Grid3D> systemRead =
+                CubeGridReader.read(file.toPath());
+        if (!systemRead.isSuccess() || systemRead.getValue().isEmpty()) {
+            return failure(label, "System cube refused: " + systemRead.getMessage());
+        }
+        OperationResult<QEGridDensityDifference.Grid3D> componentRead =
+                CubeGridReader.read(componentFile.toPath());
+        if (!componentRead.isSuccess() || componentRead.getValue().isEmpty()) {
+            return failure(label, "Component cube refused: " + componentRead.getMessage());
+        }
+        QEGridDensityDifference.Grid3D system = systemRead.getValue().orElseThrow();
+        QEGridDensityDifference.Grid3D component = componentRead.getValue().orElseThrow();
+        double tolerance = 1.0e-4;
+        QEGridDensityDifference.DiffResult difference =
+                QEGridDensityDifference.computeDifference(system, List.of(component),
+                        tolerance);
+        if (!difference.isCompatible() || difference.getDifferenceGrid() == null) {
+            return failure(label, "The grids are NOT compatible - no subtraction is "
+                    + "performed (that is the whole point of Roadmap #57). Reason: "
+                    + difference.getDiagnosticMessage());
+        }
+        QEGridDensityDifference.Grid3D grid = difference.getDifferenceGrid();
+        double[][][] values = grid.getValues();
+        double min = Double.POSITIVE_INFINITY;
+        double max = Double.NEGATIVE_INFINITY;
+        double sumAbs = 0.0;
+        long negative = 0L;
+        long count = 0L;
+        for (double[][] plane : values) {
+            for (double[] row : plane) {
+                for (double value : row) {
+                    if (!Double.isFinite(value)) {
+                        return failure(label, "The difference grid contains a non-finite "
+                                + "value; refusing to summarize it.");
+                    }
+                    min = Math.min(min, value);
+                    max = Math.max(max, value);
+                    sumAbs += Math.abs(value);
+                    if (value < 0.0) {
+                        negative++;
+                    }
+                    count++;
+                }
+            }
+        }
+        double crossCheck = grid.integrate();
+        StringBuilder text = new StringBuilder();
+        text.append("Subtraction order (stated exactly once and applied literally):\n");
+        text.append("  delta = SYSTEM - COMPONENT\n");
+        text.append("  SYSTEM    = ").append(file.getName()).append('\n');
+        text.append("  COMPONENT = ").append(componentFile.getName()).append("\n\n");
+        text.append(String.format(Locale.ROOT,
+                "Grid: %d x %d x %d voxels; cell volume %.6f Ang^3 (lattices matched within "
+                        + "%.1e)%n", grid.getNx(), grid.getNy(), grid.getNz(),
+                grid.getVolume(), tolerance));
+        text.append(String.format(Locale.ROOT,
+                "Difference voxels: min %.8g, max %.8g, mean|delta| %.8g; negative fraction "
+                        + "%.6f%n", min, max, sumAbs / count,
+                count == 0L ? 0.0 : (double) negative / (double) count));
+        text.append(String.format(Locale.ROOT,
+                "Integrated difference: %.8g (computeDifference) vs %.8g "
+                        + "(difference-grid integral; cross-check)%n",
+                difference.getIntegratedChargeDifference(), crossCheck));
+        List<String> csv = new ArrayList<>();
+        csv.add("metric,value");
+        csv.add(String.format(Locale.ROOT, "min,%.8g", min));
+        csv.add(String.format(Locale.ROOT, "max,%.8g", max));
+        csv.add(String.format(Locale.ROOT, "mean_abs,%.8g", sumAbs / count));
+        csv.add(String.format(Locale.ROOT, "negative_fraction,%.6f",
+                count == 0L ? 0.0 : (double) negative / (double) count));
+        csv.add(String.format(Locale.ROOT, "integrated_delta,%.8g",
+                difference.getIntegratedChargeDifference()));
+        text.append("\nHonesty boundary: NO alignment, resampling or unit conversion was "
+                + "applied - the grids only pass because dimensions and lattices already "
+                + "agree; had they not, this report would fail closed instead of "
+                + "subtracting anyway. The subtraction order above is stated because "
+                + "sign flips are the classic #57 error. Voxel units inherit the CUBE "
+                + "payload convention (typically bohr^-3 for charge density, Hartree for "
+                + "potential); the integral uses the parsed voxel volume. A non-charge "
+                + "payload would subtract identically - the interpretation is yours. "
+                + "Rendering the difference is the #56 volumetric work.");
         return new AnalysisReport(label, true, text.toString(), csv, null);
     }
 
