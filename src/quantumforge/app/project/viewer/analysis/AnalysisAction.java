@@ -393,6 +393,31 @@ public final class AnalysisAction {
                     .withMoleculeEnergyEv(molecule).withCorrectionsEv(corr);
             break;
         }
+        case BARRIER_DIFFUSION: {
+            Double barrier = askDouble("Migration barrier Ea in eV (>= 0)", "");
+            if (barrier == null || !Double.isFinite(barrier)) {
+                return null;
+            }
+            Double hop = askDouble("Hop length in Angstrom", "2.0");
+            if (hop == null || !Double.isFinite(hop)) {
+                return null;
+            }
+            Double attempt = askDouble("Attempt frequency in THz", "10.0");
+            if (attempt == null || !Double.isFinite(attempt)) {
+                return null;
+            }
+            Double temperature = askDouble("Temperature in K", "300.0");
+            if (temperature == null) {
+                return null;
+            }
+            Integer dimension = askInteger("Hopping dimensionality (1, 2, or 3)", 3);
+            if (dimension == null) {
+                return null;
+            }
+            parameters.withBarrierEv(barrier).withHopAngstrom(hop).withAttemptThz(attempt)
+                    .withTemperatureK(temperature).withHopDimension(dimension);
+            break;
+        }
         case DEFECT_PREVIEW: {
             String type = askText("Defect type: 'vacancy' or 'substitution'", "vacancy");
             if (type == null) {

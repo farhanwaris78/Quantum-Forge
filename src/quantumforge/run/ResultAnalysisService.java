@@ -32,6 +32,7 @@ import quantumforge.builder.QEHullThermodynamics;
 import quantumforge.builder.QEPointDefectBuilder;
 import quantumforge.export.MethodsTextBuilder;
 import quantumforge.export.RoCrateExporter;
+import quantumforge.builder.QEDiffusionBarrierLink;
 import quantumforge.builder.QEThermochemistryMath;
 import quantumforge.hpc.SiteProfile;
 import quantumforge.hpc.SiteProfileValidator;
@@ -176,7 +177,8 @@ public final class ResultAnalysisService {
         METHODS_TEXT("Methods-section draft (input transcription)"),
         RO_CRATE("RO-Crate metadata draft (artifact checksums)"),
         DEFECT_FORMATION("Defect formation energy (explicit terms, eV)"),
-        ADSORPTION_ENERGY("Adsorption energy (explicit terms, eV)");
+        ADSORPTION_ENERGY("Adsorption energy (explicit terms, eV)"),
+        BARRIER_DIFFUSION("Barrier-based diffusivity estimate (Arrhenius hop)");
 
         private final String label;
 
@@ -214,7 +216,8 @@ public final class ResultAnalysisService {
                     || this == INPUT_DIFF || this == KMESH_QUALITY || this == DEFECT_PREVIEW
                     || this == SERIES_PLAN || this == ADSORPTION_PREVIEW || this == ML_MODEL_CHECK
                     || this == EXX_GUIDANCE || this == BZ_GEOMETRY || this == METHODS_TEXT
-                    || this == RO_CRATE || this == DEFECT_FORMATION || this == ADSORPTION_ENERGY;
+                    || this == RO_CRATE || this == DEFECT_FORMATION || this == ADSORPTION_ENERGY
+                    || this == BARRIER_DIFFUSION;
         }
 
         /** True for project-bound kinds that additionally parse a user data file. */
@@ -264,6 +267,10 @@ public final class ResultAnalysisService {
         private double chemPotSumEv = Double.NaN;
         private double vbmEv = Double.NaN;
         private double correctionsEv = 0.0;
+        private double barrierEv = Double.NaN;
+        private double hopAngstrom = Double.NaN;
+        private double attemptThz = Double.NaN;
+        private int hopDimension = 3;
 
         public double getFermiEv() { return this.fermiEv; }
         public int getKpointIndex() { return this.kpointIndex; }
@@ -304,6 +311,10 @@ public final class ResultAnalysisService {
         public double getChemPotSumEv() { return this.chemPotSumEv; }
         public double getVbmEv() { return this.vbmEv; }
         public double getCorrectionsEv() { return this.correctionsEv; }
+        public double getBarrierEv() { return this.barrierEv; }
+        public double getHopAngstrom() { return this.hopAngstrom; }
+        public double getAttemptThz() { return this.attemptThz; }
+        public int getHopDimension() { return this.hopDimension; }
 
         public AnalysisParameters withFermiEv(double value) { this.fermiEv = value; return this; }
         public AnalysisParameters withKpointIndex(int value) { this.kpointIndex = value; return this; }
@@ -423,6 +434,22 @@ public final class ResultAnalysisService {
         }
         public AnalysisParameters withCorrectionsEv(double value) {
             this.correctionsEv = value;
+            return this;
+        }
+        public AnalysisParameters withBarrierEv(double value) {
+            this.barrierEv = value;
+            return this;
+        }
+        public AnalysisParameters withHopAngstrom(double value) {
+            this.hopAngstrom = value;
+            return this;
+        }
+        public AnalysisParameters withAttemptThz(double value) {
+            this.attemptThz = value;
+            return this;
+        }
+        public AnalysisParameters withHopDimension(int value) {
+            this.hopDimension = value;
             return this;
         }
     }
@@ -863,6 +890,8 @@ public final class ResultAnalysisService {
                 return analyzeDefectFormation(params);
             case ADSORPTION_ENERGY:
                 return analyzeAdsorptionEnergy(params);
+            case BARRIER_DIFFUSION:
+                return analyzeBarrierDiffusion(params);
             default:
                 return failure(kind.getLabel(), "This analysis kind is not implemented.");
         }
@@ -4053,6 +4082,48 @@ public final class ResultAnalysisService {
                 + "come from the same cell, cutoff, and smearing; gas-phase reference quality "
                 + "and entropy are the caller's responsibility unless included in E_corr; "
                 + "coverage effects require additional terms beyond this three-energy form.");
+        return new AnalysisReport(label, true, text.toString(), List.of(), null);
+    }
+
+    /**
+     * Arrhenius single-barrier diffusivity (Roadmap #157): D = D0*exp(-Ea/kBT),
+     * D0 = a^2*nu/(2d), with an explicit non-conductivity caveat in every report.
+     */
+    private static AnalysisReport analyzeBarrierDiffusion(AnalysisParameters params) {
+        String label = AnalysisKind.BARRIER_DIFFUSION.getLabel();
+        OperationResult<Double> d0 = QEDiffusionBarrierLink.preFactorCm2PerS(
+                params.getHopAngstrom(), params.getAttemptThz(), params.getHopDimension());
+        if (!d0.isSuccess() || d0.getValue().isEmpty()) {
+            return failure(label, "Hop parameters refused: " + d0.getMessage());
+        }
+        OperationResult<Double> diffusivity = QEDiffusionBarrierLink.estimateDiffusivityCm2PerS(
+                params.getBarrierEv(), params.getTemperatureK(), params.getHopAngstrom(),
+                params.getAttemptThz(), params.getHopDimension());
+        if (!diffusivity.isSuccess() || diffusivity.getValue().isEmpty()) {
+            return failure(label, "Arrhenius estimate refused: " + diffusivity.getMessage());
+        }
+        double d0Value = d0.getValue().orElseThrow();
+        StringBuilder text = new StringBuilder();
+        text.append("D(T) = D0 * exp(-Ea / kB T);   D0 = a^2 * nu / (2 d)\n\n");
+        text.append(String.format(Locale.ROOT,
+                "  a (hop length)   = %.6f Ang%n  nu (attempt)     = %.6f THz%n"
+                        + "  d (dimension)    = %d%n",
+                params.getHopAngstrom(), params.getAttemptThz(), params.getHopDimension()));
+        text.append(String.format(Locale.ROOT,
+                "  Ea               = %.6f eV%n  T                = %.2f K%n"
+                        + "  kB               = %.9e eV/K (CODATA 2018)%n%n",
+                params.getBarrierEv(), params.getTemperatureK(),
+                QEDiffusionBarrierLink.KB_EV_PER_K));
+        text.append(String.format(Locale.ROOT, "D0 = %.6e cm^2/s%n", d0Value));
+        text.append(String.format(Locale.ROOT, "D(%.1f K) = %.6e cm^2/s%n",
+                params.getTemperatureK(), diffusivity.getValue().orElseThrow()));
+        text.append(String.format(Locale.ROOT,
+                "Activation factor exp(-Ea/kBT) = %.6e%n",
+                diffusivity.getValue().orElseThrow() / d0Value));
+        text.append("\nThis is the simplest uncorrelated-hopping form: correlation factors, "
+                + "pathway networks, site availability and defect/carrier concentrations are "
+                + "NOT included. A single barrier estimate MUST NOT be presented as bulk ionic "
+                + "conductivity; kinetic Monte Carlo or MD sampling is required for that.");
         return new AnalysisReport(label, true, text.toString(), List.of(), null);
     }
 }

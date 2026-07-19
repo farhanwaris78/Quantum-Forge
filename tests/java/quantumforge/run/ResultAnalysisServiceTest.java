@@ -1697,4 +1697,32 @@ class ResultAnalysisServiceTest {
                 stubProject(this.tempDir), new AnalysisParameters());
         assertFalse(missing.isSuccess(), "Unsupplied energies must fail closed");
     }
+
+    @Test
+    void testBarrierDiffusionKindExactValuesAndCaveats() {
+        AnalysisReport zero = ResultAnalysisService.analyze(AnalysisKind.BARRIER_DIFFUSION,
+                stubProject(this.tempDir), new AnalysisParameters()
+                        .withBarrierEv(0.0).withTemperatureK(300.0)
+                        .withHopAngstrom(2.0).withAttemptThz(1.0).withHopDimension(3));
+        assertTrue(zero.isSuccess(), zero.getText());
+        assertTrue(zero.getText().contains("D0 = 6.666667e-05 cm^2/s"), zero.getText());
+        assertTrue(zero.getText().contains("D(300.0 K) = 6.666667e-05 cm^2/s"), zero.getText());
+        // zero barrier -> activation factor exactly 1
+        assertTrue(zero.getText().contains("Activation factor exp(-Ea/kBT) = 1.000000e+00"),
+                zero.getText());
+        assertTrue(zero.getText().contains("MUST NOT be presented as bulk ionic conductivity"),
+                zero.getText());
+
+        AnalysisReport negative = ResultAnalysisService.analyze(AnalysisKind.BARRIER_DIFFUSION,
+                stubProject(this.tempDir), new AnalysisParameters()
+                        .withBarrierEv(-0.2).withTemperatureK(300.0)
+                        .withHopAngstrom(2.0).withAttemptThz(1.0));
+        assertFalse(negative.isSuccess(), "Negative barriers must fail closed");
+
+        AnalysisReport badHop = ResultAnalysisService.analyze(AnalysisKind.BARRIER_DIFFUSION,
+                stubProject(this.tempDir), new AnalysisParameters()
+                        .withBarrierEv(0.3).withTemperatureK(300.0)
+                        .withHopAngstrom(0.0).withAttemptThz(1.0));
+        assertFalse(badHop.isSuccess(), "Zero hop length must fail closed");
+    }
 }
