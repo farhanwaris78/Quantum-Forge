@@ -3387,4 +3387,78 @@ class ResultAnalysisServiceTest {
                 new AnalysisParameters());
         assertFalse(missing.isSuccess(), "no current input must fail closed");
     }
+
+
+    @Test
+    void testMpiPoolsAdvisorKindExactAuditAndRefusals() {
+        Cell cell = new Cell(quantumforge.com.math.Matrix3D.unit(10.0));
+        cell.addAtom("Si", 0.0, 0.0, 0.0);
+        QESCFInput input = new QESCFInput();
+        QEKPoints points = input.getCard(QEKPoints.class);
+        points.setAutomatic();
+        points.setKGrid(new int[] {4, 4, 4});
+        points.setKOffset(new int[] {0, 0, 0});
+
+        AnalysisReport report = ResultAnalysisService.analyze(
+                AnalysisKind.MPI_POOLS_ADVISOR, stubProjectWithInput(this.tempDir, input,
+                        cell), new AnalysisParameters().withTotalRanks(24)
+                        .withCurrentPools(8));
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains(
+                "Exact uniform mesh: 4 x 4 x 4 = 64 k points"), report.getText());
+        assertTrue(report.getText().contains("Total MPI ranks R = 24"), report.getText());
+        assertTrue(report.getText().contains(
+                "Pool divisors of N (the rigorous window): 1, 2, 4, 8, 16, 32, 64"),
+                report.getText());
+        assertTrue(report.getText().contains(
+                "Admissible pools (divide N AND R, p <= R): 1, 2, 4, 8"), report.getText());
+        assertTrue(report.getText().contains(
+                "Recommendation: -nk 8  (8 pools of 3 rank(s) each)"), report.getText());
+        assertTrue(report.getText().contains(
+                "Audit of the supplied -nk 8: VERIFIED VALID"), report.getText());
+        assertTrue(report.getText().contains("IRREDUCIBLE"), report.getText());
+        assertTrue(report.getText().contains("RESOURCE_ESTIMATE"), report.getText());
+        assertTrue(report.getCsvLines().contains("mesh,4x4x4,verbatim-automatic"),
+                String.join("\n", report.getCsvLines()));
+        assertTrue(report.getCsvLines().contains("admissible,1;2;4;8,divide-N-and-R"),
+                String.join("\n", report.getCsvLines()));
+        assertTrue(report.getCsvLines().contains("recommended,8,largest-admissible"),
+                String.join("\n", report.getCsvLines()));
+        assertTrue(report.getCsvLines().contains("ranks_per_pool,3,exact"),
+                String.join("\n", report.getCsvLines()));
+        assertTrue(report.getCsvLines().contains("current_valid,true,audit"),
+                String.join("\n", report.getCsvLines()));
+
+        AnalysisReport invalid = ResultAnalysisService.analyze(
+                AnalysisKind.MPI_POOLS_ADVISOR, stubProjectWithInput(this.tempDir, input,
+                        cell), new AnalysisParameters().withTotalRanks(24)
+                        .withCurrentPools(5));
+        assertTrue(invalid.isSuccess(), invalid.getText());
+        assertTrue(invalid.getText().contains(
+                "Audit of the supplied -nk 5: INVALID"), invalid.getText());
+        assertTrue(invalid.getCsvLines().contains("current_valid,false,audit"),
+                String.join("\n", invalid.getCsvLines()));
+
+        AnalysisReport oversubscribed = ResultAnalysisService.analyze(
+                AnalysisKind.MPI_POOLS_ADVISOR, stubProjectWithInput(this.tempDir, input,
+                        cell), new AnalysisParameters().withTotalRanks(96));
+        assertTrue(oversubscribed.isSuccess(), oversubscribed.getText());
+        assertTrue(oversubscribed.getText().contains("Recommendation: -nk 32"),
+                "64 % 96 != 0 trims everything above 32: " + oversubscribed.getText());
+
+        QESCFInput gamma = new QESCFInput();
+        gamma.getCard(QEKPoints.class).setGamma();
+        AnalysisReport gammaRefused = ResultAnalysisService.analyze(
+                AnalysisKind.MPI_POOLS_ADVISOR, stubProjectWithInput(this.tempDir, gamma,
+                        cell), new AnalysisParameters().withTotalRanks(8));
+        assertFalse(gammaRefused.isSuccess(), "Gamma-only must fail closed");
+        assertTrue(gammaRefused.getText().contains("[POOL_MESH]"),
+                gammaRefused.getText());
+
+        AnalysisReport missing = ResultAnalysisService.analyze(
+                AnalysisKind.MPI_POOLS_ADVISOR, stubProject(this.tempDir),
+                new AnalysisParameters());
+        assertFalse(missing.isSuccess(), "no current input must fail closed");
+        assertTrue(missing.getText().contains("[POOL_INPUT]"), missing.getText());
+    }
 }

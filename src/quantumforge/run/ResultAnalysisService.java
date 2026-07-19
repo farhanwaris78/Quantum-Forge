@@ -65,6 +65,7 @@ import quantumforge.input.QEInputDiffPreview;
 import quantumforge.input.QEKpointMeshAdvisor;
 import quantumforge.input.QEPpChargePotentialBuilder;
 import quantumforge.input.QEPpWavefunctionBuilder;
+import quantumforge.hpc.PoolDivisorMath;
 import quantumforge.input.QESCFInput;
 import quantumforge.input.QEVersionRuleCatalog;
 import quantumforge.input.card.QEKPoints;
@@ -244,7 +245,8 @@ public final class ResultAnalysisService {
         CP_INPUT_DRAFT("cp.x Car-Parrinello input draft (required-edit guarded)"),
         W90_WIN_DRAFT("Wannier90 .win draft (mesh-echoed, required-edit guarded)"),
         GB_CSL_PREVIEW("Grain-boundary CSL rotation preview (exact Ranganathan law)"),
-        QE_VERSION_CHECK("QE version keyword audit (curated 7.2-7.5 window snapshot)");
+        QE_VERSION_CHECK("QE version keyword audit (curated 7.2-7.5 window snapshot)"),
+        MPI_POOLS_ADVISOR("MPI pool-divisor audit (exact uniform mesh, -nk/-npool)");
 
         private final String label;
 
@@ -291,7 +293,8 @@ public final class ResultAnalysisService {
                     || this == WORKSPACE_SEARCH || this == TEMPLATE_LIBRARY
                     || this == SPIN_CUBE_MAGNETIZATION || this == ESM_SLAB_CHECK
                     || this == MOIRE_TWIST_PREVIEW || this == CP_INPUT_DRAFT
-                    || this == W90_WIN_DRAFT || this == QE_VERSION_CHECK;
+                    || this == W90_WIN_DRAFT || this == QE_VERSION_CHECK
+                    || this == MPI_POOLS_ADVISOR;
         }
 
         /** True for project-bound kinds that additionally parse a user data file. */
@@ -366,6 +369,7 @@ public final class ResultAnalysisService {
         private int cslU = 0;                // CSL rotation axis [u v w]
         private int cslV = 0;
         private int cslW = 1;
+        private int currentPools = 0;        // existing -nk pool count to audit (0 = none)
 
         public double getFermiEv() { return this.fermiEv; }
         public int getKpointIndex() { return this.kpointIndex; }
@@ -645,6 +649,13 @@ public final class ResultAnalysisService {
         public int[] getCslAxis() {
             return new int[] {this.cslU, this.cslV, this.cslW};
         }
+
+        public AnalysisParameters withCurrentPools(int value) {
+            this.currentPools = value;
+            return this;
+        }
+
+        public int getCurrentPools() { return this.currentPools; }
     }
 
     /** A completed, self-describing analysis result. */
@@ -1193,6 +1204,8 @@ public final class ResultAnalysisService {
                 return analyzeGbCslPreview(params);
             case QE_VERSION_CHECK:
                 return analyzeQeVersionCheck(project, params);
+            case MPI_POOLS_ADVISOR:
+                return analyzeMpiPoolsAdvisor(project, params);
             default:
                 return failure(kind.getLabel(), "This analysis kind is not implemented.");
         }
@@ -5985,6 +5998,136 @@ public final class ResultAnalysisService {
                 + "REMOVED_KEYWORD rows are the action items - they were valid once and "
                 + "are undocumented across the audited window.\n");
         return new AnalysisReport(label, true, text.toString(), csv, null);
+    }
+
+    /**
+     * Roadmap #102: exact uniform-mesh pool-divisor audit. The mesh N is read
+     * verbatim from the live input (symmetry NEITHER applied nor guessed);
+     * the divisor window is rigorous, recommendations stay inside it, and the
+     * IBZ caveat is stated rather than hidden. -nb/-nt/-nd are deliberately
+     * NOT computed - they belong to measured-timing advice.
+     */
+    private static AnalysisReport analyzeMpiPoolsAdvisor(Project project,
+            AnalysisParameters params) {
+        String label = AnalysisKind.MPI_POOLS_ADVISOR.getLabel();
+        QEInput input;
+        try {
+            project.resolveQEInputs();
+            input = project.getQEInputCurrent();
+        } catch (RuntimeException ex) {
+            return failure(label, "Resolving the current QE input failed: "
+                    + ex.getMessage());
+        }
+        if (input == null) {
+            return failure(label, "[POOL_INPUT] The project has no resolvable current "
+                    + "input to audit.");
+        }
+        QEKPoints card = input.getCard(QEKPoints.class);
+        if (card == null) {
+            return failure(label, "[POOL_MESH] The live input has no K_POINTS card - "
+                    + "there is no mesh to audit pool divisibility against.");
+        }
+        if (card.isGamma()) {
+            return failure(label, "[POOL_MESH] Gamma-only is a single k point: any -nk "
+                    + "beyond 1 is nonsensical and this audit's mesh arithmetic does not "
+                    + "apply; run a uniform mesh first if k-parallel scaling matters.");
+        }
+        if (!card.isAutomatic()) {
+            return failure(label, "[POOL_MESH] The live input uses an explicit/path "
+                    + "K_POINTS list, not a uniform automatic mesh - pool arithmetic here "
+                    + "is exact-mesh only; count the list explicitly if you must.");
+        }
+        OperationResult<PoolDivisorMath.PoolAudit> audited = PoolDivisorMath.audit(
+                params.getTotalRanks(), card.getKGrid(), params.getCurrentPools());
+        if (!audited.isSuccess() || audited.getValue().isEmpty()) {
+            return failure(label, "Pool audit refused: [" + audited.getCode() + "] "
+                    + audited.getMessage());
+        }
+        PoolDivisorMath.PoolAudit audit = audited.getValue().get();
+        int[] grid = card.getKGrid();
+        int[] offset = card.getKOffset();
+        StringBuilder text = new StringBuilder();
+        text.append(String.format(Locale.ROOT,
+                "Exact uniform mesh: %d x %d x %d = %d k points (offset %d %d %d) - the "
+                        + "FULL mesh; symmetry is NEITHER applied nor guessed%n",
+                grid[0], grid[1], grid[2], audit.getMeshPoints(), offset[0], offset[1],
+                offset[2]));
+        text.append(String.format(Locale.ROOT, "Total MPI ranks R = %d%n",
+                audit.getTotalRanks()));
+        text.append(String.format(Locale.ROOT, "Pool divisors of N (the rigorous "
+                + "window): %s%n", joinLongs(audit.getMeshDivisors())));
+        text.append(String.format(Locale.ROOT,
+                "Admissible pools (divide N AND R, p <= R): %s%n",
+                joinLongs(audit.getAdmissiblePools())));
+        if (audit.getRecommended() != null) {
+            text.append(String.format(Locale.ROOT,
+                    "Recommendation: -nk %d  (%d pools of %d rank(s) each)%n",
+                    audit.getRecommended(), audit.getRecommended(),
+                    audit.getRanksPerPool()));
+            if (audit.getRecommended().longValue() == 1L
+                    && audit.getTotalRanks() > 1L) {
+                text.append("Only 1 pool is admissible for this mesh/rank pair - the "
+                        + "remaining ranks stand idle in k-parallel; plan -nb/-nt via "
+                        + "measured-timing advice or choose a mesh/rank pair with common "
+                        + "divisors (stated, not hidden).\n");
+            }
+        }
+        if (audit.hasCurrentPools()) {
+            text.append(String.format(Locale.ROOT, "Audit of the supplied -nk %d: %s%n",
+                    audit.getCurrentPools(),
+                    audit.isCurrentPoolsValid()
+                            ? "VERIFIED VALID - divides the full mesh AND the rank count"
+                            : "INVALID for this exact mesh/rank pair - it fails the "
+                                    + "divisor rules above; change it"));
+        }
+        List<String> csv = new ArrayList<>();
+        csv.add("item,value,note");
+        csv.add(String.format(Locale.ROOT, "mesh,%dx%dx%d,verbatim-automatic", grid[0],
+                grid[1], grid[2]));
+        csv.add(String.format(Locale.ROOT, "mesh_points,%d,exact", audit.getMeshPoints()));
+        csv.add(String.format(Locale.ROOT, "total_ranks,%d,param", audit.getTotalRanks()));
+        csv.add(String.format(Locale.ROOT, "divisors,%s,of-N",
+                joinLongs(audit.getMeshDivisors(), ";")));
+        csv.add(String.format(Locale.ROOT, "admissible,%s,divide-N-and-R",
+                joinLongs(audit.getAdmissiblePools(), ";")));
+        csv.add(String.format(Locale.ROOT, "recommended,%s,largest-admissible",
+                audit.getRecommended() == null ? "NONE" : audit.getRecommended()));
+        csv.add(String.format(Locale.ROOT, "ranks_per_pool,%s,exact",
+                audit.getRanksPerPool() == null ? "NONE" : audit.getRanksPerPool()));
+        if (audit.hasCurrentPools()) {
+            csv.add(String.format(Locale.ROOT, "current_pools,%d,param",
+                    audit.getCurrentPools()));
+            csv.add(String.format(Locale.ROOT, "current_valid,%s,audit",
+                    audit.isCurrentPoolsValid()));
+        }
+        text.append(String.format(Locale.ROOT,
+                "%n-nb/-nt/-nd are deliberately NOT computed here: their optima depend on "
+                        + "measured SCALAPACK/FFT timings of YOUR machine; the "
+                        + "RESOURCE_ESTIMATE kind offers a full-flag heuristic estimate "
+                        + "on a crude N/2 IBZ GUESS - where that estimate and this exact "
+                        + "audit disagree, this audit's arithmetic is the one tied to the "
+                        + "real input mesh (both are advisors: validate at runtime).%n"));
+        text.append("Honesty boundary: pw.x distributes the IRREDUCIBLE k points k <= N, "
+                + "and symmetry can reduce k arbitrarily - a p dividing N can still be "
+                + "rejected at runtime when k % p != 0 (pw.x refuses at startup with its "
+                + "own pool diagnostic). Always dry-run a short job before consuming the "
+                + "allocation; nothing measured here, the arithmetic is exact.\n");
+        return new AnalysisReport(label, true, text.toString(), csv, null);
+    }
+
+    private static String joinLongs(List<Long> values) {
+        return joinLongs(values, ", ");
+    }
+
+    private static String joinLongs(List<Long> values, String separator) {
+        StringBuilder joined = new StringBuilder();
+        for (Long value : values) {
+            if (joined.length() > 0) {
+                joined.append(separator);
+            }
+            joined.append(value);
+        }
+        return joined.toString();
     }
 
     /**

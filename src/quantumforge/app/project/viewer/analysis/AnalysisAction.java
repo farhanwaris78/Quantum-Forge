@@ -192,6 +192,18 @@ public final class AnalysisAction {
             parameters.withTotalRanks(ranks);
             break;
         }
+        case MPI_POOLS_ADVISOR: {
+            Integer ranks = askInteger("Total MPI ranks R for the pool-divisor audit", 1);
+            if (ranks == null) {
+                return null;
+            }
+            Integer pools = askInteger("Existing -nk pool count to audit (0 = none)", 0);
+            if (pools == null) {
+                return null;
+            }
+            parameters.withTotalRanks(ranks).withCurrentPools(pools);
+            break;
+        }
         case GEOMETRY_MEASURE: {
             int[] indices = askAtomIndices();
             if (indices == null) {
