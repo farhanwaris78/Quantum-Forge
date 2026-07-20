@@ -30,6 +30,7 @@ import quantumforge.app.project.viewer.result.special.HyperfineMapper;
 import quantumforge.com.math.SymmetricEigen3;
 import quantumforge.atoms.model.Atom;
 import quantumforge.atoms.model.Cell;
+import quantumforge.builder.CifStructureReader;
 import quantumforge.builder.CslSigmaMath;
 import quantumforge.builder.SlabMillerMath;
 import quantumforge.builder.MoireTwistMath;
@@ -255,7 +256,8 @@ public final class ResultAnalysisService {
         LOG_ERROR_DIAGNOSIS("QE log error diagnosis (curated signature KB, 7.x window)"),
         XSPECTRA_INPUT_DRAFT("xspectra.x XANES input draft (required-edit guarded)"),
         GIPAW_INPUT_DRAFT("gipaw.x NMR/EFG input draft (required-edit guarded)"),
-        SLAB_MILLER_PREVIEW("Surface Miller plane geometry (d-spacing, normal, ESM gate)");
+        SLAB_MILLER_PREVIEW("Surface Miller plane geometry (d-spacing, normal, ESM gate)"),
+        CIF_REVIEW("CIF structure review (fail-closed subset, no element guessing)");
 
         private final String label;
 
@@ -949,6 +951,8 @@ public final class ResultAnalysisService {
             return name.equals("crash") || name.endsWith(".crash")
                     || name.endsWith(".err") || name.endsWith(".log")
                     || name.endsWith(".out");
+        case CIF_REVIEW:
+            return name.endsWith(".cif");
         default:
             return false;
         }
@@ -1096,6 +1100,8 @@ public final class ResultAnalysisService {
                 return analyzeLammpsDataReview(source, params);
             case LOG_ERROR_DIAGNOSIS:
                 return analyzeLogErrorDiagnosis(source);
+            case CIF_REVIEW:
+                return analyzeCifReview(source);
             default:
                 return failure(kind.getLabel(), "This analysis kind is not implemented.");
             }
@@ -6486,6 +6492,93 @@ public final class ResultAnalysisService {
                 plane.getNx(), plane.getNy(), plane.getNz()));
         csv.add(String.format(Locale.ROOT, "esm_aligned,%s,z-gate-1e-8",
                 plane.isEsmAligned()));
+        return new AnalysisReport(label, true, text.toString(), csv, null);
+    }
+
+    /**
+     * Roadmap #75: CIF structure review over the fail-closed subset reader.
+     * REVIEW only - no symmetry expansion, no element guessing, nothing is
+     * applied to the project.
+     */
+    private static AnalysisReport analyzeCifReview(File source) {
+        String label = AnalysisKind.CIF_REVIEW.getLabel();
+        OperationResult<CifStructureReader.CifStructure> parsed =
+                CifStructureReader.parse(source.toPath());
+        if (!parsed.isSuccess() || parsed.getValue().isEmpty()) {
+            return failure(label, "CIF review refused the file " + source.getName()
+                    + ":\n[" + parsed.getCode() + "] " + parsed.getMessage());
+        }
+        CifStructureReader.CifStructure structure = parsed.getValue().get();
+        StringBuilder text = new StringBuilder();
+        text.append("File: ").append(source.getName()).append('\n');
+        text.append(String.format(Locale.ROOT,
+                "data_ block: %s;  atoms reviewed: %d%n", structure.getBlockName(),
+                structure.getAtoms().size()));
+        text.append(String.format(Locale.ROOT,
+                "Formula (verbatim, NOT trusted as stoichiometry proof): %s;  space "
+                        + "group (verbatim): %s%n",
+                structure.getChemicalFormula() == null ? "(absent)"
+                        : structure.getChemicalFormula(),
+                structure.getSpaceGroupName() == null ? "(absent)"
+                        : structure.getSpaceGroupName()));
+        if (structure.hasCell()) {
+            double[] cell = structure.getCell();
+            text.append(String.format(Locale.ROOT,
+                    "Cell: a=%.6f b=%.6f c=%.6f Ang, alpha=%.3f beta=%.3f gamma=%.3f deg;"
+                            + " volume = %.4f Ang^3%n",
+                    cell[0], cell[1], cell[2], cell[3], cell[4], cell[5],
+                    structure.cellVolume()));
+        } else {
+            text.append("Cell: absent (no cell tags - the fractional coordinates have no "
+                    + "metric here).\n");
+        }
+        StringBuilder composition = new StringBuilder();
+        for (Map.Entry<String, Integer> entry : structure.elementCounts().entrySet()) {
+            if (composition.length() > 0) {
+                composition.append(',');
+            }
+            composition.append(entry.getKey()).append('=').append(entry.getValue());
+        }
+        text.append(String.format(Locale.ROOT,
+                "Composition (from the type_symbol column ONLY): %s%n",
+                composition.length() == 0 ? "(no type_symbol column present)"
+                        : composition.toString()));
+        text.append(String.format(Locale.ROOT,
+                "Atoms anonymous (no type symbol; labels NEVER guessed): %d%n"
+                        + "Partial-occupancy atoms (0 < occ < 1; unresolved disorder - "
+                        + "reported, not resolved): %d%n"
+                        + "Uncertainty-stripped atoms/cell-tags (x(n) parsed as x; "
+                        + "counted, never propagated): %d%n"
+                        + "Out-of-unit-cell fractional rows (reported, never wrapped): "
+                        + "%d%n",
+                structure.getAnonymousCount(), structure.getPartialOccupancyCount(),
+                structure.getUncertaintyStripCount(), structure.getOutOfCellCount()));
+        text.append(String.format(Locale.ROOT,
+                "Symmetry-operation loops: %d row(s) - positions are ASYMMETRIC ONLY; "
+                        + "NO symmetry expansion was applied. Non-coordinate loops "
+                        + "skipped: %d.%n",
+                structure.getSymmetryOpRows(), structure.getSkippedLoops()));
+        text.append("\nREVIEW only: nothing is applied to the project; full CIF 2.0 "
+                + "namespaces, dictionary validation, and symmetry expansion remain the "
+                + "#75 depth.\n");
+        List<String> csv = new ArrayList<>();
+        csv.add("label,element,frac_x,frac_y,frac_z,occupancy,uncertainty_stripped");
+        int cap = 20000;
+        int shown = 0;
+        for (CifStructureReader.CifAtom atom : structure.getAtoms()) {
+            if (shown >= cap) {
+                break;
+            }
+            csv.add(String.format(Locale.ROOT, "%s,%s,%.6f,%.6f,%.6f,%.4f,%s",
+                    csvCell(atom.getLabel()),
+                    csvCell(atom.getElement() == null ? "" : atom.getElement()),
+                    atom.getFx(), atom.getFy(), atom.getFz(), atom.getOccupancy(),
+                    atom.isUncertaintyStripped()));
+            shown += 1;
+        }
+        if (structure.getAtoms().size() > cap) {
+            csv.add("# truncated at 20000 atom rows (cap)");
+        }
         return new AnalysisReport(label, true, text.toString(), csv, null);
     }
 

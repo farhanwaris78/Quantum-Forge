@@ -3695,4 +3695,67 @@ class ResultAnalysisServiceTest {
         assertFalse(bounds.isSuccess(), "out-of-range indices must fail closed");
         assertTrue(bounds.getText().contains("[SLAB_BOUNDS]"), bounds.getText());
     }
+
+
+    @Test
+    void testCifReviewKindSubsetMetricsAndRefusals() throws IOException {
+        File rutile = write("rutile.cif",
+                "data_rutile_TiO2\n"
+                + "_cell_length_a 4.593\n"
+                + "_cell_length_b 4.593\n"
+                + "_cell_length_c 2.959\n"
+                + "_cell_angle_alpha 90\n"
+                + "_cell_angle_beta 90\n"
+                + "_cell_angle_gamma 90\n"
+                + "_chemical_formula_sum 'Ti2 O4'\n"
+                + "_symmetry_space_group_name_H-M 'P 42/m n m'\n"
+                + "loop_\n_atom_site_label\n_atom_site_type_symbol\n"
+                + "_atom_site_fract_x\n_atom_site_fract_y\n_atom_site_fract_z\n"
+                + "Ti1 Ti 0.0 0.0 0.0\n"
+                + "O1 O 0.305(2) 0.305(2) 0.0\n"
+                + "O2 O 0.5 0.0 0.5\n");
+        AnalysisReport report = ResultAnalysisService.analyze(AnalysisKind.CIF_REVIEW,
+                new ProjectProperty(), this.tempDir.toFile(), "rutile", "run.log",
+                rutile, new AnalysisParameters());
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains("data_ block: rutile_TiO2"),
+                report.getText());
+        assertTrue(report.getText().contains("volume = 62.4220 Ang^3"), report.getText());
+        assertTrue(report.getText().contains(
+                "Composition (from the type_symbol column ONLY): O=2,Ti=1"),
+                report.getText());
+        assertTrue(report.getText().contains("ASYMMETRIC ONLY"), report.getText());
+        assertTrue(report.getText().contains("REVIEW only"), report.getText());
+        assertTrue(report.getCsvLines().contains(
+                "Ti1,Ti,0.000000,0.000000,0.000000,1.0000,false"),
+                String.join("\n", report.getCsvLines()));
+        assertTrue(report.getCsvLines().contains(
+                "O1,O,0.305000,0.305000,0.000000,1.0000,true"),
+                String.join("\n", report.getCsvLines()));
+
+        File anonymous = write("anon.cif",
+                "data_an\n"
+                + "_cell_length_a 10\n_cell_length_b 10\n_cell_length_c 10\n"
+                + "_cell_angle_alpha 90\n_cell_angle_beta 90\n_cell_angle_gamma 90\n"
+                + "loop_\n_atom_site_label\n"
+                + "_atom_site_fract_x\n_atom_site_fract_y\n_atom_site_fract_z\n"
+                + "FE1 0.0 0.0 0.0\nCA1 0.5 0.5 0.5\n");
+        AnalysisReport anon = ResultAnalysisService.analyze(AnalysisKind.CIF_REVIEW,
+                new ProjectProperty(), this.tempDir.toFile(), "an", "run.log", anonymous,
+                new AnalysisParameters());
+        assertTrue(anon.isSuccess(), anon.getText());
+        assertTrue(anon.getText().contains(
+                "Atoms anonymous (no type symbol; labels NEVER guessed): 2"),
+                anon.getText());
+        assertTrue(anon.getText().contains("(no type_symbol column present)"),
+                anon.getText());
+
+        File multi = write("two.cif", "data_one\n_cell_length_a 5\ndata_two\n");
+        AnalysisReport refused = ResultAnalysisService.analyze(AnalysisKind.CIF_REVIEW,
+                new ProjectProperty(), this.tempDir.toFile(), "two", "run.log", multi,
+                new AnalysisParameters());
+        assertFalse(refused.isSuccess(), "multi-block must fail closed");
+        assertTrue(refused.getText().contains("[CIF_MULTIBLOCK]"), refused.getText());
+        assertFalse(refused.getText().contains("data_two-reviewed"), refused.getText());
+    }
 }
