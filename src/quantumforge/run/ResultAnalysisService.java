@@ -125,6 +125,7 @@ import quantumforge.neural.ExtXyzDatasetValidator;
 import quantumforge.neural.CompositionalBaselineMath;
 import quantumforge.run.parser.SeriesAlignmentMath;
 import quantumforge.run.parser.BandsFermiReviewMath;
+import quantumforge.run.parser.BandGapBandMath;
 import quantumforge.run.parser.ScfConvergenceAnalyzer;
 import quantumforge.run.parser.ScfIterationRecord;
 import quantumforge.symmetry.MagneticSpaceGroupDetector;
@@ -267,7 +268,8 @@ public final class ResultAnalysisService {
         MOL_SDF_REVIEW("MOL/SDF molecule review (V2000 single-record subset)"),
         ML_DATASET_BASELINE("ML dataset compositional baseline (physics-informed screen)"),
         SERIES_REF_ALIGN("Two-series explicit reference alignment (Fermi/VBM/vacuum/user)"),
-        BANDS_FERMI_REVIEW("Band structure E-E_F review (explicit Fermi, crossing stats)");
+        BANDS_FERMI_REVIEW("Band structure E-E_F review (explicit Fermi, crossing stats)"),
+        BAND_GAP_BANDS("Band-gap classification (valence count, metallicity tolerance)");
 
         private final String label;
 
@@ -405,6 +407,9 @@ public final class ResultAnalysisService {
         private double alignReferenceEv1 = Double.NaN; // series-1 reference, eV (NaN = unset)
         private double alignReferenceEv2 = Double.NaN; // series-2 reference, eV
         private double alignTargetEv = 0.0;  // USER-mode landing point, eV
+        private int gapValenceBands = 0;      // BAND_GAP_BANDS: 0 = must be supplied
+        private double gapToleranceEv = Double.NaN; // metallicity tolerance (NaN = unset)
+        private double gapKTolerance = 1.0e-6;    // directness k tolerance
 
         public double getFermiEv() { return this.fermiEv; }
         public int getKpointIndex() { return this.kpointIndex; }
@@ -728,6 +733,18 @@ public final class ResultAnalysisService {
             this.alignTargetEv = target;
             return this;
         }
+
+        public int getGapValenceBands() { return this.gapValenceBands; }
+        public double getGapToleranceEv() { return this.gapToleranceEv; }
+        public double getGapKTolerance() { return this.gapKTolerance; }
+
+        public AnalysisParameters withGapClassification(int valenceBands,
+                double toleranceEv, double kTolerance) {
+            this.gapValenceBands = valenceBands;
+            this.gapToleranceEv = toleranceEv;
+            this.gapKTolerance = kTolerance;
+            return this;
+        }
     }
 
     /** A completed, self-describing analysis result. */
@@ -991,6 +1008,9 @@ public final class ResultAnalysisService {
         case BANDS_FERMI_REVIEW:
             return name.endsWith(".dat.gnu") || (name.startsWith("bands")
                     && name.endsWith(".dat"));
+        case BAND_GAP_BANDS:
+            return name.endsWith(".dat.gnu") || (name.startsWith("bands")
+                    && name.endsWith(".dat"));
         default:
             return false;
         }
@@ -1148,6 +1168,8 @@ public final class ResultAnalysisService {
                 return analyzeSeriesRefAlign(source, params);
             case BANDS_FERMI_REVIEW:
                 return analyzeBandsFermiReview(source, params);
+            case BAND_GAP_BANDS:
+                return analyzeBandGapBands(source, params);
             default:
                 return failure(kind.getLabel(), "This analysis kind is not implemented.");
             }
@@ -7011,6 +7033,90 @@ public final class ResultAnalysisService {
                     stats.getIndex(), stats.getPoints(), stats.getMinShiftedEv(),
                     stats.getMaxShiftedEv(), stats.crossesZero()));
         }
+        return new AnalysisReport(label, true, text.toString(), csv, null);
+    }
+
+    /**
+     * Roadmap #47 (curve slice): band-gap classification from band curves via
+     * an explicit valence count and metallicity tolerance. METALLIC_OVERLAP
+     * names both readings (true metal or wrong valence count for a
+     * partial-occupation system); unequal k-grids are refused, not smoothed.
+     */
+    private static AnalysisReport analyzeBandGapBands(File source,
+            AnalysisParameters params) {
+        String label = AnalysisKind.BAND_GAP_BANDS.getLabel();
+        OperationResult<BandGapBandMath.GapClassification> classified =
+                BandGapBandMath.classify(source.toPath(), params.getGapValenceBands(),
+                        params.getGapToleranceEv(), params.getGapKTolerance());
+        if (!classified.isSuccess() || classified.getValue().isEmpty()) {
+            return failure(label, "The band-gap classification refused the file "
+                    + source.getName() + ":\n[" + classified.getCode() + "] "
+                    + classified.getMessage());
+        }
+        BandGapBandMath.GapClassification gap = classified.getValue().get();
+        StringBuilder text = new StringBuilder();
+        text.append("File: ").append(source.getName()).append('\n');
+        text.append(String.format(Locale.ROOT,
+                "Inputs (ALL analyst-supplied): valence bands nV = %d of %d "
+                        + "curve(s); metallicity tolerance = %.6f eV; directness "
+                        + "k tolerance = %.3e.%n",
+                gap.getValenceBands(), gap.getBandCount(), gap.getToleranceEv(),
+                gap.getKTolerance()));
+        text.append(String.format(Locale.ROOT,
+                "VBM = %+.6f eV at sampled k = %.6f;  CBM = %+.6f eV at sampled "
+                        + "k = %.6f;  gap = %.6f eV (curve nV vs nV+1 over the "
+                        + "SAMPLED k grid - a finer mesh can move both).%n",
+                gap.getVbmEv(), gap.getVbmAtK(), gap.getCbmEv(), gap.getCbmAtK(),
+                gap.getGapEv()));
+        switch (gap.getVerdict()) {
+        case GAP_DIRECT:
+            text.append(String.format(Locale.ROOT,
+                    "Verdict: GAP, DIRECT (|k(VBM) - k(CBM)| = %.6f <= k "
+                            + "tolerance).%n",
+                    Math.abs(gap.getVbmAtK() - gap.getCbmAtK())));
+            break;
+        case GAP_INDIRECT:
+            text.append(String.format(Locale.ROOT,
+                    "Verdict: GAP, INDIRECT (|k(VBM) - k(CBM)| = %.6f > k "
+                            + "tolerance).%n",
+                    Math.abs(gap.getVbmAtK() - gap.getCbmAtK())));
+            break;
+        case METALLIC_OVERLAP:
+            text.append("Verdict: METALLIC_OVERLAP (CBM below VBM beyond "
+                    + "tolerance): the bands genuinely cross, OR the valence "
+                    + "count is wrong for a partial-occupation (alkali-like) "
+                    + "system - BOTH readings are named, neither is resolved "
+                    + "silently.\n");
+            break;
+        default:
+            text.append(String.format(Locale.ROOT,
+                    "Verdict: DEGENERATE_WITHIN_TOLERANCE (|gap| = %.6f eV <= "
+                            + "%.6f eV): at this tolerance the data CANNOT "
+                            + "decide metal vs gap, and it says so instead of "
+                            + "rounding to a comfortable answer.%n",
+                    Math.abs(gap.getGapEv()), gap.getToleranceEv()));
+            break;
+        }
+        text.append("\nHonesty notes: the classification is Fermi-free (curve "
+                + "index by valence count); spin channels arrive as SEPARATE "
+                + "files (this verdict covers only " + source.getName() + "); "
+                + "unequal k-grids would have been refused, not interpolated; "
+                + "energies are in the file's own unit (QE plotband convention "
+                + "eV); the occupation-analysis half of #47 (from the pw.x "
+                + "log) remains open depth.\n");
+        List<String> csv = new ArrayList<>();
+        csv.add("item,value,note");
+        csv.add(String.format(Locale.ROOT, "valence_bands,%d,analyst-supplied",
+                gap.getValenceBands()));
+        csv.add(String.format(Locale.ROOT, "band_curves,%d,", gap.getBandCount()));
+        csv.add(String.format(Locale.ROOT, "vbm_ev,%+.6f,at k %.6f (sampled)",
+                gap.getVbmEv(), gap.getVbmAtK()));
+        csv.add(String.format(Locale.ROOT, "cbm_ev,%+.6f,at k %.6f (sampled)",
+                gap.getCbmEv(), gap.getCbmAtK()));
+        csv.add(String.format(Locale.ROOT, "gap_ev,%.6f,cbm - vbm", gap.getGapEv()));
+        csv.add(String.format(Locale.ROOT, "tolerance_ev,%.6f,analyst-supplied",
+                gap.getToleranceEv()));
+        csv.add(String.format(Locale.ROOT, "verdict,%s,", gap.getVerdict()));
         return new AnalysisReport(label, true, text.toString(), csv, null);
     }
 

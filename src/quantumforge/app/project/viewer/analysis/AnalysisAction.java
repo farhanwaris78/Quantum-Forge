@@ -254,6 +254,25 @@ public final class AnalysisAction {
             parameters.withFermiEv(fermi);
             break;
         }
+        case BAND_GAP_BANDS: {
+            Integer valence = askInteger("Valence-band count nV (analyst-supplied; "
+                    + "must leave at least one conduction band)", 0);
+            if (valence == null) {
+                return null;
+            }
+            Double tolerance = askDouble("Metallicity tolerance in eV "
+                    + "(finite, >= 0; the data cannot supply it)", "");
+            if (tolerance == null) {
+                return null; // cancel or blank: no tolerance means no verdict
+            }
+            Double kTolerance = askDouble("Directness k tolerance (strictly "
+                    + "positive)", "1.0E-6");
+            if (kTolerance == null) {
+                return null;
+            }
+            parameters.withGapClassification(valence, tolerance, kTolerance);
+            break;
+        }
         case SLAB_MILLER_PREVIEW: {
             Integer h = askInteger("Miller index h (-16..16)", 1);
             if (h == null) {

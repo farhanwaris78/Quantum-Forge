@@ -4065,4 +4065,58 @@ class ResultAnalysisServiceTest {
         assertTrue(noFermi.getText().contains("[BANDS_REVIEW_FERMI]"),
                 noFermi.getText());
     }
+
+    @Test
+    void testBandGapBandsKindVerdictsAndRefusals() throws IOException {
+        File bands = write("gap.bands.dat.gnu",
+                "0.0 -10.0\n0.5 -9.0\n1.0 -9.5\n"
+                + "\n"
+                + "0.0 -2.0\n0.5 -1.0\n1.0 -3.0\n"
+                + "\n"
+                + "0.0 2.5\n0.5 1.5\n1.0 1.0\n"
+                + "\n"
+                + "0.0 5.0\n0.5 6.0\n1.0 5.5\n");
+        AnalysisReport report = ResultAnalysisService.analyze(
+                AnalysisKind.BAND_GAP_BANDS, new ProjectProperty(),
+                this.tempDir.toFile(), "gap", "run.log", bands,
+                new AnalysisParameters().withGapClassification(2, 0.01, 1.0e-6));
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains("valence bands nV = 2 of 4 curve(s)"),
+                report.getText());
+        assertTrue(report.getText().contains("VBM = -1.000000 eV at sampled k = "
+                + "0.500000"), report.getText());
+        assertTrue(report.getText().contains("CBM = +1.000000 eV at sampled k = "
+                + "1.000000"), report.getText());
+        assertTrue(report.getText().contains("gap = 2.000000 eV"), report.getText());
+        assertTrue(report.getText().contains("Verdict: GAP, INDIRECT"),
+                report.getText());
+        assertTrue(report.getCsvLines().contains("gap_ev,2.000000,cbm - vbm"),
+                String.join("\n", report.getCsvLines()));
+        assertTrue(report.getCsvLines().contains("verdict,GAP_INDIRECT,"),
+                String.join("\n", report.getCsvLines()));
+
+        AnalysisReport direct = ResultAnalysisService.analyze(
+                AnalysisKind.BAND_GAP_BANDS, new ProjectProperty(),
+                this.tempDir.toFile(), "gap", "run.log", bands,
+                new AnalysisParameters().withGapClassification(2, 0.01, 0.6));
+        assertTrue(direct.isSuccess(), direct.getText());
+        assertTrue(direct.getText().contains("Verdict: GAP, DIRECT"),
+                direct.getText());
+
+        AnalysisReport noValence = ResultAnalysisService.analyze(
+                AnalysisKind.BAND_GAP_BANDS, new ProjectProperty(),
+                this.tempDir.toFile(), "gap", "run.log", bands,
+                new AnalysisParameters().withGapClassification(0, 0.01, 1.0e-6));
+        assertFalse(noValence.isSuccess(), "missing valence count must fail closed");
+        assertTrue(noValence.getText().contains("[GAPMATH_VALENCE]"),
+                noValence.getText());
+
+        AnalysisReport badTol = ResultAnalysisService.analyze(
+                AnalysisKind.BAND_GAP_BANDS, new ProjectProperty(),
+                this.tempDir.toFile(), "gap", "run.log", bands,
+                new AnalysisParameters().withGapClassification(2, Double.NaN,
+                        1.0e-6));
+        assertFalse(badTol.isSuccess(), "NaN tolerance must fail closed");
+        assertTrue(badTol.getText().contains("[GAPMATH_VALUE]"), badTol.getText());
+    }
 }
