@@ -212,6 +212,17 @@ public final class SSHJob {
         return sync.sync(remoteJobRelativeDir, localDir, manifest, includeLarge);
     }
 
+    /**
+     * Adapter for GUI monitoring of a submitted job (Roadmap #96 GUI slice).
+     * Delegates to the single private owner ({@link #resolveAdapter()}) so
+     * the site-profile / legacy-server fallback graph is never duplicated by
+     * any caller. May throw the batch-134 typed {@link IllegalArgumentException}
+     * when a site profile names an unknown scheduler - callers fail closed.
+     */
+    public SchedulerAdapter monitorAdapter() {
+        return resolveAdapter();
+    }
+
     private SchedulerAdapter resolveAdapter() {
         if (this.siteProfile != null) {
             return this.siteProfile.schedulerAdapter();

@@ -506,6 +506,20 @@ def main() -> int:
     runAction = (SRC / "quantumforge/app/project/viewer/run/RunAction.java").read_text(encoding="utf-8")
     if "postJobToServerResult" not in runAction or "HostKeyAcceptance" not in runAction:
         error("RunAction still uses untyped/fake SSH submit path")
+    if "offerMonitoring" not in runAction or "QEFXJobMonitorDialog" not in runAction:
+        error("RunAction lost the job-monitor offer wiring (batch 138)")
+    if "transportHandedOff" not in runAction:
+        error("RunAction lost exactly-once transport ownership tracking (batch 138)")
+    monitorGui = SRC / "quantumforge/app/ssh/QEFXJobMonitorDialog.java"
+    monitorModel = SRC / "quantumforge/app/ssh/MonitorLogModel.java"
+    if not monitorGui.is_file() or not monitorModel.is_file():
+        error("batch-138 monitor GUI host classes missing")
+    else:
+        monitorRaw = monitorGui.read_text(encoding="utf-8")
+        if "Platform.runLater" not in monitorRaw or "shutdownNow" not in monitorRaw:
+            error("QEFXJobMonitorDialog lost its FX-thread/lifecycle discipline")
+        if "MAX_LINES" not in monitorModel.read_text(encoding="utf-8"):
+            error("MonitorLogModel lost its owned ring bound")
     neb = (SRC / "quantumforge/builder/neb/NEBPathCreator.java").read_text(encoding="utf-8")
     if "for (int k = 0; k < 3; k++)" not in neb and "for (int k = 0; k < 3; k++)" not in neb:
         # accept either classic or enhanced form
