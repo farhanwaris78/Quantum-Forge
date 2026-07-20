@@ -424,6 +424,7 @@ def main() -> int:
                 "quantumforge/hpc/ArrayTaskIntent.java",
                 "quantumforge/hpc/ArraySubmitPlan.java",
                 "quantumforge/hpc/ArraySubmitSpec.java",
+                "quantumforge/ssh/ArraySubmitExecutor.java",
                 "quantumforge/builder/ExtXyzCellExporter.java",
                 "quantumforge/run/parser/TrajectoryWindowReader.java",
                 "quantumforge/builder/SupercellMatrixValidator.java",

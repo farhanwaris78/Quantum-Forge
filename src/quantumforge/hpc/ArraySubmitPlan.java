@@ -122,6 +122,38 @@ public final class ArraySubmitPlan {
     }
 
     /**
+     * The ONE place array-submit tokens are assembled: the adapter's
+     * documented submit binary, its owned array flags for range
+     * {@code 1..count}, then the remaining submit tokens (script path at
+     * the tail). The guarded draft AND the batch-142 executor both call
+     * exactly this - draft and wire can never diverge in flag order.
+     */
+    public static String[] composeArrayTokens(SchedulerAdapter adapter, int count,
+            String scriptPath) {
+        if (adapter == null) {
+            throw new NullPointerException("adapter is required - submit tokens are "
+                    + "owned by the adapter, never hand-assembled");
+        }
+        if (count < 1) {
+            throw new IllegalArgumentException("array needs at least one task (got "
+                    + count + ")");
+        }
+        ArraySubmitSpec spec = adapter.arraySubmitSpec();
+        if (!spec.isSupported()) {
+            throw new IllegalStateException("the '" + adapter.name()
+                    + "' adapter owns no array form - " + spec.getUnsupportedReason()
+                    + "; the per-task loop executor is the remaining #93 depth");
+        }
+        String[] flags = spec.renderFlagTokens(1, count);
+        String[] submit = adapter.submitCommand(scriptPath);
+        String[] tokens = new String[submit.length + flags.length];
+        tokens[0] = submit[0];
+        System.arraycopy(flags, 0, tokens, 1, flags.length);
+        System.arraycopy(submit, 1, tokens, 1 + flags.length, submit.length - 1);
+        return tokens;
+    }
+
+    /**
      * Build the guarded submit plan for a validated sweep. Code:
      * SUBMIT_DRAFT_OK.
      */
@@ -139,17 +171,8 @@ public final class ArraySubmitPlan {
         int count = sweep.getValues().size();
         List<String> commands = new ArrayList<>();
         if (spec.isSupported()) {
-            String[] flags = spec.renderFlagTokens(1, count);
-            String[] submit = adapter.submitCommand(SCRIPT_ANCHOR);
-            StringBuilder line = new StringBuilder();
-            line.append(submit[0]);
-            for (String flag : flags) {
-                line.append(' ').append(flag);
-            }
-            for (int i = 1; i < submit.length; i++) {
-                line.append(' ').append(submit[i]);
-            }
-            commands.add(line.toString());
+            commands.add(String.join(" ",
+                    composeArrayTokens(adapter, count, SCRIPT_ANCHOR)));
             return OperationResult.success("SUBMIT_DRAFT_OK",
                     "Single-array submission drafted for " + count + " task(s) via the '"
                             + adapter.name() + "' adapter's owned array form.",
