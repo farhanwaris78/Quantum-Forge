@@ -5611,4 +5611,102 @@ class ResultAnalysisServiceTest {
                 missing, new AnalysisParameters());
         assertFalse(refused3.isSuccess(), "absent artifact refuses closed");
     }
+
+
+    @Test
+    void finalGeometryApplyRefusesWithoutConvergedTrail() {
+        AnalysisReport report = ResultAnalysisService.analyze(
+                AnalysisKind.FINAL_GEOMETRY_APPLY, stubProject(this.tempDir),
+                new AnalysisParameters());
+        assertFalse(report.isSuccess(), "an empty property has no converged trail");
+        assertTrue(report.getText().contains("[GEOMETRY_MISSING]"), report.getText(),
+                "the preview pass-through code is surfaced, not swallowed");
+        assertFalse(java.nio.file.Files.exists(this.tempDir.resolve(".quantumforge")),
+                "a refused apply stages nothing on disk");
+    }
+
+    @Test
+    void finalGeometryApplyCommitsThroughTheKind() throws IOException {
+        quantumforge.input.QESCFInput deck = new quantumforge.input.QESCFInput();
+        quantumforge.input.card.QEAtomicPositions positions =
+                deck.getCard(quantumforge.input.card.QEAtomicPositions.class);
+        positions.addPosition("Si", new double[] {0.0, 0.0, 0.0},
+                new boolean[] {true, true, true});
+        final java.util.List<java.nio.file.Path> written = new java.util.ArrayList<>();
+        quantumforge.project.property.ProjectGeometryList trail =
+                new quantumforge.project.property.ProjectGeometryList();
+        quantumforge.project.property.ProjectGeometry geometry =
+                new quantumforge.project.property.ProjectGeometry();
+        geometry.setEnergy(-15.8);
+        geometry.setTotalForce(1.0e-4);
+        geometry.addAtom("Si", 0.25, 0.5, 0.75);
+        geometry.setConverged(true);
+        trail.addGeometry(geometry);
+        trail.setConverged(true);
+        Project project = new Project(null, this.tempDir.toString()) {
+            @Override public void setNetProject(Project p) { }
+            @Override public boolean isValid() { return true; }
+            @Override public boolean isSameAs(Project p) { return false; }
+            @Override public ProjectProperty getProperty() {
+                return new ProjectProperty(this.tempDir.toString(), "espresso") {
+                    @Override
+                    public synchronized quantumforge.project.property.ProjectGeometryList
+                            getOptList() {
+                        return trail;
+                    }
+                };
+            }
+            @Override public String getPrefixName() { return "espresso"; }
+            @Override public String getInpFileName(String ext) { return "espresso.in"; }
+            @Override public String getLogFileName(String ext) { return "espresso.log"; }
+            @Override public String getErrFileName(String ext) { return "espresso.err"; }
+            @Override public String getExitFileName() { return "espresso.EXIT"; }
+            @Override public QEInput getQEInputGeometry() { return deck; }
+            @Override public QEInput getQEInputScf() { return null; }
+            @Override public QEInput getQEInputOptimiz() { return null; }
+            @Override public QEInput getQEInputMd() { return null; }
+            @Override public QEInput getQEInputDos() { return null; }
+            @Override public QEInput getQEInputBand() { return null; }
+            @Override public Cell getCell() { return null; }
+            @Override protected void loadQEInputs() { }
+            @Override public void resolveQEInputs() { }
+            @Override public void markQEInputs() { }
+            @Override public boolean isQEInputChanged() { return false; }
+            @Override public void saveQEInputs(String directoryPath) {
+                try {
+                    quantumforge.com.file.AtomicFileWriter.writeUtf8(
+                            java.nio.file.Path.of(directoryPath, "espresso.geometry.in"),
+                            deck.toString());
+                } catch (IOException ex) {
+                    throw new IllegalStateException(ex);
+                }
+                written.add(java.nio.file.Path.of(directoryPath, "espresso.geometry.in"));
+            }
+            @Override public void exportQEInputsTo(String directoryPath) { }
+            @Override public Project cloneProject(String directoryPath) { return null; }
+        };
+        AnalysisReport report = ResultAnalysisService.analyze(
+                AnalysisKind.FINAL_GEOMETRY_APPLY, project, new AnalysisParameters());
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains(
+                "Committed converged geometry (opt step 1, 1 atoms) to 1 resolved mode(s)"),
+                report.getText());
+        assertTrue(report.getText().contains("geometry   COMMITTED"), report.getText());
+        assertTrue(report.getText().contains("BOHR"), report.getText());
+        assertTrue(report.getText().contains("forfeits the recovery path")
+                || report.getText().contains("forfeits it"), report.getText(),
+                "the recovery-forfeiture warning is printed on every success");
+        String csv = String.join("\n", report.getCsvLines());
+        assertTrue(csv.startsWith("mode,state,pre_sha256,staged_sha256,reason"), csv);
+        assertTrue(csv.contains("geometry,COMMITTED,"), csv);
+        assertEquals(1, written.size(), "exactly one write-through happened");
+        String writtenText = Files.readString(written.get(0));
+        assertTrue(writtenText.contains("0.250000"), writtenText);
+        assertTrue(writtenText.contains("{bohr}"), writtenText);
+        assertTrue(Files.exists(this.tempDir.resolve(
+                ".quantumforge/final-geometry.audit.txt")));
+        String pre = Files.readString(this.tempDir.resolve(
+                ".quantumforge/geometry.pre-final-geometry"));
+        assertFalse(pre.contains("0.250000"), "pre artifact pins the ORIGINAL deck");
+    }
 }

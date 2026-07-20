@@ -109,9 +109,15 @@ public final class FinalGeometryUpdater {
         if (!preview.isSuccess()) {
             return OperationResult.failed(preview.getCode(), preview.getMessage(), null);
         }
-        // Still fail-closed for mutation: rebuilding QE cards transactionally is roadmap #40 body.
-        return OperationResult.unsupported("FINAL_GEOMETRY_APPLY_UNAVAILABLE",
-                "Transactional write-back of final geometry into QE inputs is not yet implemented; "
-                        + "preview succeeded without modifying the project.");
+        // Roadmap #40 body landed: the transactional write-back lives in
+        // FinalGeometryTransaction (staged copies, per-mode audit artifacts,
+        // verified write-through, best-effort rollback). Delegate to it.
+        OperationResult<FinalGeometryTransaction.Plan> applied =
+                FinalGeometryTransaction.apply(project);
+        if (!applied.isSuccess()) {
+            return OperationResult.failed(applied.getCode(), applied.getMessage(),
+                    applied.getCause().orElse(null));
+        }
+        return OperationResult.success("FINAL_GEOMETRY_APPLIED", applied.getMessage(), null);
     }
 }

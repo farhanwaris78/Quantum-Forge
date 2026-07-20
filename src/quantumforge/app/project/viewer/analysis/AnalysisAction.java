@@ -703,6 +703,17 @@ public final class AnalysisAction {
             parameters.withCheckpointPrefix(override);
             break;
         }
+        case FINAL_GEOMETRY_APPLY: {
+            // This kind is the first write-kind on the analysis channel: the menu pick
+            // alone is not the consent. Retype-guard like the job-cancel flow.
+            String consent = askText("This WRITES the last converged geometry into every "
+                    + "resolved input deck (staged audit + verified write + rollback; "
+                    + "pre-state pinned under .quantumforge/). Type 'apply' to proceed", "");
+            if (consent == null || !consent.trim().equals("apply")) {
+                return null; // Treated as cancelled - nothing mutates.
+            }
+            break;
+        }
         case SLAB_MILLER_PREVIEW: {
             Integer h = askInteger("Miller index h (-16..16)", 1);
             if (h == null) {

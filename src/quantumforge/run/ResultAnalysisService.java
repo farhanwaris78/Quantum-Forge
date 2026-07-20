@@ -111,6 +111,7 @@ import quantumforge.pseudo.PseudoFamilyValidator;
 import quantumforge.run.parser.BandGapParser;
 import quantumforge.run.parser.CubeGridReader;
 import quantumforge.run.parser.ElasticParser;
+import quantumforge.run.parser.FinalGeometryTransaction;
 import quantumforge.run.parser.GeometryConvergenceValidator;
 import quantumforge.run.parser.PhononDosThermodynamics;
 import quantumforge.run.parser.QEAcousticSumRuleValidator;
@@ -317,7 +318,8 @@ public final class ResultAnalysisService {
         CHECKPOINT_RESUBMIT_PLAN("Checkpoint resubmission advice (typed stop reason, no writes)"),
         JOB_QUEUE_AUDIT("Job queue store audit (read-only; raw malformed/duplicate/chain verdicts)"),
         WORKFLOW_EXPORT_AUDIT("Exported workflow audit (stage census, sync vs current, read-only)"),
-        NEB_PATH_AUDIT("NEB path ladder audit (multi-frame XYZ geometry; verdicts, no edits)");
+        NEB_PATH_AUDIT("NEB path ladder audit (multi-frame XYZ geometry; verdicts, no edits)"),
+        FINAL_GEOMETRY_APPLY("Final geometry transactional apply (staged, hashed, rollback-verified)");
 
         private final String label;
 
@@ -379,7 +381,7 @@ public final class ResultAnalysisService {
                     || this == CUTOFF_LADDER_PLAN || this == ARRAY_JOB_PLAN
                     || this == CONTAINER_PROFILE_DRAFT || this == JOB_STATE_GUARD
                     || this == PHONON_GRID_PLAN || this == CHECKPOINT_RESUBMIT_PLAN
-                    || this == WORKFLOW_EXPORT_AUDIT;
+                    || this == WORKFLOW_EXPORT_AUDIT || this == FINAL_GEOMETRY_APPLY;
         }
 
         /** True for project-bound kinds that additionally parse a user data file. */
@@ -1773,6 +1775,8 @@ public final class ResultAnalysisService {
                 return analyzeCheckpointResubmit(project, params);
             case WORKFLOW_EXPORT_AUDIT:
                 return analyzeWorkflowExportAudit(project);
+            case FINAL_GEOMETRY_APPLY:
+                return analyzeFinalGeometryApply(project);
             case SLAB_MILLER_PREVIEW:
                 return analyzeSlabMillerPreview(project, params);
             default:
@@ -9075,6 +9079,66 @@ public final class ResultAnalysisService {
         provenance.add("neb-audit: frames=" + audit.getFrames());
         provenance.add("neb-audit: spacing_ratio=" + (Double.isInfinite(audit.spacingRatio())
                 ? "infinite" : NebPathAudit.fmt(audit.spacingRatio())));
+        return new AnalysisReport(label, true, text.toString(), csv, null, provenance);
+    }
+
+    /**
+     * Roadmap #40 (transaction): commits the previewed converged geometry into
+     * every resolved mode deck through FinalGeometryTransaction - staged on
+     * copies first, audit artifacts + SHA-256 marker pinned under
+     * .quantumforge/ BEFORE any live mutation, then verified write-through
+     * with in-memory rollback on failure. This kind IS the explicit user
+     * action that justifies the write; the READ-ONLY preview remains the
+     * separate "Preview final geometry" action.
+     */
+    private static AnalysisReport analyzeFinalGeometryApply(Project project) {
+        String label = AnalysisKind.FINAL_GEOMETRY_APPLY.getLabel();
+        OperationResult<FinalGeometryTransaction.Plan> applied =
+                FinalGeometryTransaction.apply(project);
+        if (!applied.isSuccess() || applied.getValue().isEmpty()) {
+            return failure(label, "The transactional apply refused:\n[" + applied.getCode()
+                    + "] " + applied.getMessage());
+        }
+        FinalGeometryTransaction.Plan plan = applied.getValue().get();
+        StringBuilder text = new StringBuilder();
+        text.append(String.format(Locale.ROOT,
+                "Committed converged geometry (opt step %d, %d atoms) to %d resolved "
+                        + "mode(s).%n",
+                plan.getStepIndex() + 1, plan.getAtomCount(),
+                plan.getCommittedModes().size()));
+        text.append("Cell: ").append(plan.isCellWritten()
+                ? "CELL_PARAMETERS rewritten bohr for modes carrying the card (relaxed-cell "
+                        + "trail)"
+                : "not written - geometry row had no cell; deck cell kept as-is")
+                .append('\n');
+        text.append("Unit: positions rewritten explicitly BOHR (parser provenance of the "
+                + "snapshot; unit matched by declaration, never by assumption).\n\n");
+        text.append("Per-mode trail:\n");
+        for (FinalGeometryTransaction.TrailEntry entry : plan.getTrail()) {
+            text.append("  - ").append(String.format(Locale.ROOT, "%-9s %-9s %s%n",
+                    entry.getMode(), entry.getState(), entry.getReason()));
+        }
+        List<String> csv = new ArrayList<>();
+        csv.add("mode,state,pre_sha256,staged_sha256,reason");
+        for (FinalGeometryTransaction.TrailEntry entry : plan.getTrail()) {
+            csv.add(String.format(Locale.ROOT, "%s,%s,%s,%s,%s", entry.getMode(),
+                    entry.getState(), entry.getPreHash(), entry.getStagedHash(),
+                    csvCell(entry.getReason())));
+        }
+        text.append("\nAudit artifacts (recovery path - deleting them forfeits it):\n");
+        text.append("  .quantumforge/<mode>.pre-final-geometry  - original deck text "
+                + "BEFORE the apply\n");
+        text.append("  .quantumforge/<mode>.staged-geometry     - the exact text committed\n");
+        text.append("  .quantumforge/final-geometry.audit.txt   - SHA-256 hashes + mode map\n");
+        text.append("\nRollback/recovery: a mid-write failure restores the captured "
+                + "in-memory cards and re-saves, then VERIFIES; the report above says "
+                + "RESTORE-UNVERIFIABLE when even that failed (replay the pre-* artifacts "
+                + "by hand, then RELOAD the project). On success, reload the project "
+                + "before running: the deck text on disk now carries the converged "
+                + "geometry.");
+        List<String> provenance = new ArrayList<>();
+        provenance.add("final-geometry-apply: modes=" + plan.getCommittedModes());
+        provenance.add("final-geometry-apply: cell_written=" + plan.isCellWritten());
         return new AnalysisReport(label, true, text.toString(), csv, null, provenance);
     }
 
