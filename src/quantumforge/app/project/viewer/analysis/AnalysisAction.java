@@ -623,6 +623,32 @@ public final class AnalysisAction {
             parameters.withArrayJob(base, values, slurm.trim().equalsIgnoreCase("yes"));
             break;
         }
+        case CONTAINER_PROFILE_DRAFT: {
+            String runtime = askText("container runtime - TYPED: apptainer | "
+                    + "singularity", "apptainer");
+            if (runtime == null) {
+                return null;
+            }
+            String image = askText("image reference with REQUIRED digest: "
+                    + "name:tag@sha256:<64 hex> (floating tags refuse - moving "
+                    + "targets)", "");
+            if (image == null) {
+                return null;
+            }
+            String binds = askText("bind paths, comma-separated absolute POSIX "
+                    + "(blank = none declared; literal grammar - no expansion)", "");
+            if (binds == null) {
+                return null;
+            }
+            String mpi = askText("is the image host-MPI compatible? type exactly "
+                    + "'yes' or 'no' (NEUTRAL REFUSES - your declaration, not "
+                    + "verified here)", "");
+            if (mpi == null) {
+                return null;
+            }
+            parameters.withContainerProfile(runtime, image, binds, mpi);
+            break;
+        }
         case SLAB_MILLER_PREVIEW: {
             Integer h = askInteger("Miller index h (-16..16)", 1);
             if (h == null) {

@@ -5157,4 +5157,60 @@ class ResultAnalysisServiceTest {
         assertTrue(nonNumeric.getText().contains("[ARRAY_VALUES]"),
                 nonNumeric.getText());
     }
+
+
+    @Test
+    void containerProfileDraftRendersThePinnedBlock() throws IOException {
+        AnalysisReport report = ResultAnalysisService.analyze(
+                AnalysisKind.CONTAINER_PROFILE_DRAFT, stubProject(this.tempDir),
+                new AnalysisParameters().withContainerProfile("apptainer",
+                        "qe/qe:7.3@sha256:1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f801", "/scratch/farhan", "yes"));
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains("runtime=apptainer, image=qe/qe:7.3@sha256:"
+                + "1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f801") || report.getText().contains("image=qe/qe:7.3@sha256:"
+                        + "1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f801"), report.getText());
+        assertTrue(report.getText().contains("NOTHING launches"), report.getText());
+        String block = report.getGeneratedInput().orElseThrow();
+        assertTrue(block.contains("image   = qe/qe:7.3@sha256:1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f801\n"), block);
+        assertTrue(block.contains("binds = /scratch/farhan\n"), block);
+        assertTrue(block.contains("host-MPI COMPATIBLE (declared by analyst - NOT "
+                + "verified"), block);
+        assertTrue(block.contains("launched = NO"), block);
+        String csv = String.join("\n", report.getCsvLines());
+        assertTrue(csv.contains("mpi_compatibility,host-compatible,analyst declaration - "
+                + "not verified"), csv);
+    }
+
+    @Test
+    void containerProfileDraftFailClosedPaths() throws IOException {
+        AnalysisReport floating = ResultAnalysisService.analyze(
+                AnalysisKind.CONTAINER_PROFILE_DRAFT, stubProject(this.tempDir),
+                new AnalysisParameters().withContainerProfile("apptainer", "qe/qe:7.3",
+                        "", "yes"));
+        assertFalse(floating.isSuccess(), "a floating tag is a moving target - refused");
+        assertTrue(floating.getText().contains("[CONTAINER_DIGEST]"), floating.getText());
+
+        AnalysisReport neutral = ResultAnalysisService.analyze(
+                AnalysisKind.CONTAINER_PROFILE_DRAFT, stubProject(this.tempDir),
+                new AnalysisParameters().withContainerProfile("apptainer",
+                        "qe/qe@sha256:1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f801", "", ""));
+        assertFalse(neutral.isSuccess(),
+                "the profile refuses to be neutral on MPI compatibility");
+        assertTrue(neutral.getText().contains("[CONTAINER_MPI]"), neutral.getText());
+
+        AnalysisReport bind = ResultAnalysisService.analyze(
+                AnalysisKind.CONTAINER_PROFILE_DRAFT, stubProject(this.tempDir),
+                new AnalysisParameters().withContainerProfile("apptainer",
+                        "qe/qe@sha256:1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f801", "scratch/farhan", "no"));
+        assertFalse(bind.isSuccess(), "relative binds refuse");
+        assertTrue(bind.getText().contains("[CONTAINER_BIND]"), bind.getText());
+
+        AnalysisReport runtime = ResultAnalysisService.analyze(
+                AnalysisKind.CONTAINER_PROFILE_DRAFT, stubProject(this.tempDir),
+                new AnalysisParameters().withContainerProfile("docker",
+                        "qe/qe@sha256:1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f801", "", "no"));
+        assertFalse(runtime.isSuccess(),
+                "other engines are unsupported rather than renamed");
+        assertTrue(runtime.getText().contains("[CONTAINER_RUNTIME]"), runtime.getText());
+    }
 }

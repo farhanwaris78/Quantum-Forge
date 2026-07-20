@@ -81,6 +81,7 @@ import quantumforge.remote.MpApiQueryBuilder;
 import quantumforge.remote.MpSummaryParser;
 import quantumforge.input.NebInputPlanner;
 import quantumforge.remote.ArrayJobPlan;
+import quantumforge.remote.ContainerProfileSpec;
 import quantumforge.remote.JobCancelPlan;
 import quantumforge.remote.MonitorPollPlan;
 import quantumforge.remote.SftpTransferPlan;
@@ -305,7 +306,8 @@ public final class ResultAnalysisService {
         SYNC_MANIFEST_DRAFT("Selective result-sync manifest draft (role-per-name, intent not facts)"),
         SMEARING_LADDER_PLAN("Smearing down-ladder plan (degauss Ry/eV, never declares convergence)"),
         CUTOFF_LADDER_PLAN("Cutoff convergence ladder (ecutwfc Ry/eV + implied ecutrho)"),
-        ARRAY_JOB_PLAN("Scheduler array-job plan (1-based mapping, verbatim sweep tokens)");
+        ARRAY_JOB_PLAN("Scheduler array-job plan (1-based mapping, verbatim sweep tokens)"),
+        CONTAINER_PROFILE_DRAFT("Apptainer/Singularity profile draft (digest-pinned, MPI declared)");
 
         private final String label;
 
@@ -364,7 +366,8 @@ public final class ResultAnalysisService {
                     || this == SITE_PROFILE_DRAFT || this == NEB_INPUT_DRAFT
                     || this == JOB_CANCEL_PLAN || this == MONITOR_POLL_PLAN
                     || this == SYNC_MANIFEST_DRAFT || this == SMEARING_LADDER_PLAN
-                    || this == CUTOFF_LADDER_PLAN || this == ARRAY_JOB_PLAN;
+                    || this == CUTOFF_LADDER_PLAN || this == ARRAY_JOB_PLAN
+                    || this == CONTAINER_PROFILE_DRAFT;
         }
 
         /** True for project-bound kinds that additionally parse a user data file. */
@@ -512,6 +515,10 @@ public final class ResultAnalysisService {
         private String arrayBase = "";            // ARRAY_JOB_PLAN directory-seeding base
         private String arrayValues = "";          // verbatim sweep tokens
         private boolean arraySlurmLine = false;   // opt-IN review line only
+        private String containerRuntime = "";     // CONTAINER_PROFILE_DRAFT typed runtime
+        private String containerImageRef = "";    // name:tag@sha256:<64hex> REQUIRED digest
+        private String containerBinds = "";       // csv absolute POSIX, literal grammar
+        private String containerMpiAnswer = "";   // exactly 'yes'/'no' - neutral refuses
 
         public double getFermiEv() { return this.fermiEv; }
         public int getKpointIndex() { return this.kpointIndex; }
@@ -1045,6 +1052,20 @@ public final class ResultAnalysisService {
             this.arrayBase = base == null ? "" : base;
             this.arrayValues = values == null ? "" : values;
             this.arraySlurmLine = slurmLine;
+            return this;
+        }
+
+        public String getContainerRuntime() { return this.containerRuntime; }
+        public String getContainerImageRef() { return this.containerImageRef; }
+        public String getContainerBinds() { return this.containerBinds; }
+        public String getContainerMpiAnswer() { return this.containerMpiAnswer; }
+
+        public AnalysisParameters withContainerProfile(String runtime, String imageRef,
+                String binds, String mpiAnswer) {
+            this.containerRuntime = runtime == null ? "" : runtime;
+            this.containerImageRef = imageRef == null ? "" : imageRef;
+            this.containerBinds = binds == null ? "" : binds;
+            this.containerMpiAnswer = mpiAnswer == null ? "" : mpiAnswer;
             return this;
         }
     }
@@ -1685,6 +1706,8 @@ public final class ResultAnalysisService {
                 return analyzeCutoffLadderPlan(params);
             case ARRAY_JOB_PLAN:
                 return analyzeArrayJobPlan(params);
+            case CONTAINER_PROFILE_DRAFT:
+                return analyzeContainerProfileDraft(params);
             case SLAB_MILLER_PREVIEW:
                 return analyzeSlabMillerPreview(project, params);
             default:
@@ -8419,6 +8442,57 @@ public final class ResultAnalysisService {
             csv.add(String.format(Locale.ROOT, "%d,%s,%s", i, csvCell(plan.taskValue(i)),
                     csvCell(plan.taskDirectory(i))));
         }
+        return new AnalysisReport(label, true, text.toString(), csv, block);
+    }
+
+    /**
+     * Roadmap #103 (draft slice): Apptainer/Singularity profile. The
+     * reproducibility rule is STRUCTURAL: the image reference must pin
+     * sha256:<64 hex> - floating tags refuse as moving targets, truncated
+     * digests refuse as not-close-enough. MPI compatibility must be DECLARED
+     * (exactly 'yes' or 'no'; neutrality refuses), and the render labels the
+     * declaration analyst-owned, never verified by this build. Nothing
+     * launches from this build.
+     */
+    private static AnalysisReport analyzeContainerProfileDraft(AnalysisParameters params) {
+        String label = AnalysisKind.CONTAINER_PROFILE_DRAFT.getLabel();
+        OperationResult<ContainerProfileSpec.ContainerProfile> validated =
+                ContainerProfileSpec.validate(params.getContainerRuntime(),
+                        params.getContainerImageRef(), params.getContainerBinds(),
+                        params.getContainerMpiAnswer());
+        if (!validated.isSuccess() || validated.getValue().isEmpty()) {
+            return failure(label, "The container profile draft was refused:\n["
+                    + validated.getCode() + "] " + validated.getMessage());
+        }
+        ContainerProfileSpec.ContainerProfile profile = validated.getValue().get();
+        String block = profile.render();
+        StringBuilder text = new StringBuilder();
+        text.append(String.format(Locale.ROOT,
+                "runtime=%s, image=%s@%s, binds=%d, MPI=%s.%n",
+                profile.getRuntime(), profile.getImageName(), profile.getDigest(),
+                profile.getBinds().size(),
+                profile.isHostMpiCompatible() ? "host-compatible (declared)"
+                        : "container-internal (declared)"));
+        text.append("\nProfile block (also in the draft channel):\n\n").append(block);
+        text.append("\nHonesty block: NOTHING launches from this build. The digest pin "
+                + "is structural - a floating tag is a moving target and refuses; the "
+                + "bind list is literal (no expansion/whitespace/separators); and the "
+                + "MPI line is a DECLARATION by you, labeled as such - a wrong "
+                + "declaration breaks multi-node jobs, and this build does not verify "
+                + "ABIs. Image pull/verify, bind enforcement and launch are the #103 "
+                + "runtime depth.\n");
+        List<String> csv = new ArrayList<>();
+        csv.add("item,value,note");
+        csv.add(String.format(Locale.ROOT, "runtime,%s,typed enum", profile.getRuntime()));
+        csv.add(String.format(Locale.ROOT, "image,%s,floating tags refused",
+                csvCell(profile.getImageName())));
+        csv.add(String.format(Locale.ROOT, "digest,%s,sha256 64-hex required",
+                profile.getDigest()));
+        csv.add(String.format(Locale.ROOT, "binds,%d,literal absolute POSIX",
+                profile.getBinds().size()));
+        csv.add(String.format(Locale.ROOT, "mpi_compatibility,%s,analyst declaration - "
+                + "not verified",
+                profile.isHostMpiCompatible() ? "host-compatible" : "container-internal"));
         return new AnalysisReport(label, true, text.toString(), csv, block);
     }
 
