@@ -56,6 +56,7 @@ import quantumforge.builder.QEConstraintSpec;
 import quantumforge.builder.QEIonicConstraintManager;
 import quantumforge.hpc.ArrayDeckTemplate;
 import quantumforge.hpc.ArraySweepPlanner;
+import quantumforge.hpc.ArrayTaskIntent;
 import quantumforge.hpc.SiteProfile;
 import quantumforge.hpc.SiteProfileValidator;
 import quantumforge.input.QEExxPlanner;
@@ -4727,6 +4728,45 @@ public final class ResultAnalysisService {
         text.append(plan.sbatchPreview()).append('\n');
         DeckTemplateOutcome deck = templatesProjectDeck(project, plan);
         text.append('\n').append(deck.reportSection);
+        String intentSection = "";
+        String intentCsvRow = "task_intent,not_exercised,deck templating did not produce "
+                + "a validated template";
+        if (deck.template != null) {
+            OperationResult<ArrayTaskIntent.TaskIntentPlan> intents =
+                    ArrayTaskIntent.plan(plan, deck.template);
+            ArrayTaskIntent.TaskIntentPlan intentPlan =
+                    intents.getValue().orElse(null);
+            StringBuilder section = new StringBuilder(
+                    "\nPer-task run intents (the #28 provenance seam):\n");
+            if (intents.isSuccess() && intentPlan != null) {
+                List<ArrayTaskIntent.TaskIntent> tasks = intentPlan.getTasks();
+                section.append(String.format(Locale.ROOT,
+                        "  [TASK_INTENT_OK] %d intent(s); each task's rendered deck is "
+                                + "hashed NOW so its future site-side run manifest can be "
+                                + "DIFFED against this plan (the input-sha field name "
+                                + "deliberately mirrors the execution-time writer).%n",
+                        tasks.size()));
+                section.append("  first intent: ").append(intentPlan.toJsonLine(tasks.get(0)))
+                        .append('\n');
+                section.append("  last intent:  ")
+                        .append(intentPlan.toJsonLine(tasks.get(tasks.size() - 1)))
+                        .append('\n');
+                section.append("  Boundary: stage is pinned to 'rendered-deck-only' - no "
+                        + "task ran, no directory was created; the site-side executor "
+                        + "would write the real provenance record and the verifier checks "
+                        + "input_sha256, never directory-name trust alone.\n");
+                intentCsvRow = String.format(Locale.ROOT,
+                        "task_intent,TASK_INTENT_OK,%d intents; first sha %s", tasks.size(),
+                        tasks.get(0).getInputSha256());
+            } else {
+                section.append(String.format(Locale.ROOT,
+                        "  [TASK_DECK_DUPLICATE] %s (a FINDING; the sweep and the deck "
+                                + "template above stand).%n", intents.getMessage()));
+                intentCsvRow = String.format(Locale.ROOT, "task_intent,refused,%s",
+                        csvCell(intents.getCode()));
+            }
+            intentSection = section.toString();
+        }
         List<String> csv = new ArrayList<>();
         csv.add("task_index,value,directory");
         for (int i = 0; i < plan.getValues().size(); i++) {
@@ -4734,6 +4774,8 @@ public final class ResultAnalysisService {
                     Double.toString(plan.getValues().get(i)), plan.taskDirectory(i + 1)));
         }
         csv.add(deck.csvRow);
+        csv.add(intentCsvRow);
+        text.append(intentSection);
         text.append("\nHonesty boundary: the JSONL task manifest and the sbatch preview are "
                 + "drafts - nothing was submitted, no directory was created, and the script "
                 + "carries an exit-2 guard plus REQUIRED-EDIT lines so it cannot be queued "
@@ -4748,10 +4790,17 @@ public final class ResultAnalysisService {
     private static final class DeckTemplateOutcome {
         private final String reportSection;
         private final String csvRow;
+        private final ArrayDeckTemplate.DeckTemplate template;  // non-null only on success
 
         DeckTemplateOutcome(String reportSection, String csvRow) {
+            this(reportSection, csvRow, null);
+        }
+
+        DeckTemplateOutcome(String reportSection, String csvRow,
+                ArrayDeckTemplate.DeckTemplate template) {
             this.reportSection = reportSection;
             this.csvRow = csvRow;
+            this.template = template;
         }
     }
 
@@ -4811,7 +4860,7 @@ public final class ResultAnalysisService {
                 + "deck on disk stays exactly as you saved it).\n");
         return new DeckTemplateOutcome(section.toString(), String.format(Locale.ROOT,
                 "deck_template,DECK_TEMPLATE_OK,one sweep point; %d tasks render exactly",
-                template.getTaskCount()));
+                template.getTaskCount()), template);
     }
 
     /**

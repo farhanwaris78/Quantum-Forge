@@ -6237,4 +6237,55 @@ class ResultAnalysisServiceTest {
         String csv = String.join("\n", report.getCsvLines());
         assertTrue(csv.contains("deck_template,refused,DECK_KEYWORD"), csv);
     }
+
+    @Test
+    void arraySweepPlanRendersPerTaskRunIntents() throws IOException {
+        String deck = "&SYSTEM\n    ecutwfc = 30.0,  ! cutoff\n/\n"
+                + "ATOMIC_SPECIES\nSi 28.0855 Si.UPF\n";
+        java.nio.file.Files.writeString(this.tempDir.resolve("espresso.in"), deck);
+        AnalysisReport report = ResultAnalysisService.analyze(AnalysisKind.ARRAY_SWEEP_PLAN,
+                stubProject(this.tempDir),
+                new AnalysisParameters().withSeriesKeyword("ecutwfc").withSeriesStart(30.0)
+                        .withSeriesStep(10.0).withSeriesCount(3).withJobBaseName("si-cut"));
+        assertTrue(report.isSuccess(), report.getText());
+        String text = report.getText();
+        assertTrue(text.contains("Per-task run intents (the #28 provenance seam):"), text);
+        assertTrue(text.contains("[TASK_INTENT_OK] 3 intent(s)"), text);
+        assertTrue(text.contains(""task_index\":1,\"keyword\":\"ecutwfc\","
+                + "\"value_exact\":\"30.0\",\"directory\":\"si-cut-001\""), text);
+        assertTrue(text.contains("\"stage\":\"rendered-deck-only\"}"), text,
+                "the stage pin keeps intents from masquerading as run records");
+        // Task 1 re-renders the deck's own value, so its digest equals the deck's.
+        String expectedSha = sha256Hex(deck);
+        assertTrue(text.contains("input_sha256\":\"" + expectedSha + "\""), text,
+                "the plan-side digest provably matches task 1's rendered bytes");
+        assertTrue(text.contains("never directory-name trust alone"), text);
+        String csv = String.join("\n", report.getCsvLines());
+        assertTrue(csv.contains("task_intent,TASK_INTENT_OK,3 intents; first sha "
+                + expectedSha), csv);
+    }
+
+    @Test
+    void arraySweepPlanStatesIntentOmissionWhenDeckMissing() throws IOException {
+        AnalysisReport report = ResultAnalysisService.analyze(AnalysisKind.ARRAY_SWEEP_PLAN,
+                stubProject(this.tempDir),
+                new AnalysisParameters().withSeriesKeyword("ecutwfc").withSeriesStart(30.0)
+                        .withSeriesStep(10.0).withSeriesCount(2).withJobBaseName("si-cut"));
+        assertTrue(report.isSuccess(), report.getText());
+        String csv = String.join("\n", report.getCsvLines());
+        assertTrue(csv.contains(
+                "task_intent,not_exercised,deck templating did not produce a validated template"),
+                csv,
+                "without a deck there is no intent - stated, never omitted silently");
+    }
+
+    private static String sha256Hex(String text) {
+        try {
+            java.security.MessageDigest digest = java.security.MessageDigest.getInstance("SHA-256");
+            digest.update(text.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            return java.util.HexFormat.of().formatHex(digest.digest());
+        } catch (java.security.NoSuchAlgorithmException ex) {
+            throw new IllegalStateException(ex);
+        }
+    }
 }
