@@ -30,7 +30,13 @@ import quantumforge.operation.OperationResult;
  *       silence on hybrid-MPI compatibility is how broken multi-node jobs
  *       happen, so the profile refuses to be neutral;</li>
  *   <li>nothing launches from this build - the render is a reviewed profile
- *       block with an explicit not-launched footer.</li>
+ *       block with an explicit not-launched footer;</li>
+ *   <li>{@code execPreview} (batch 132) renders the typed runtimes' shared
+ *       exec shape as one REVIEW line: the pull-source prefix is a
+ *       REQUIRED-EDIT (a digest-pinned name does not say where it resolves),
+ *       and the MPI declaration decides whether the MPI runner sits OUTSIDE
+ *       (host-compatible) or INSIDE (container-internal) - both as edit
+ *       points, never guessed.</li>
  * </ul>
  */
 public final class ContainerProfileSpec {
@@ -88,6 +94,81 @@ public final class ContainerProfileSpec {
                     .append('\n');
             text.append("launched = NO - profile slice only\n");
             return text.toString();
+        }
+
+        /**
+         * REVIEW-only container exec preview for one command (batch 132,
+         * Roadmap #103 runtime-shape slice). Never launched. The shape both
+         * typed runtimes share is {@code <runtime> exec [--bind a,b] <image>
+         * <cmd...>}. Two things are deliberately NOT invented: (a) the pull
+         * source prefix of the image reference (docker://, oras://,
+         * library://, or a local .sif path - forced to a REQUIRED-EDIT
+         * comment, since the digest-pinned name alone does not say where it
+         * resolves), and (b) the MPI launch consequence: a host-MPI
+         * declaration renders the mpi-runner OUTSIDE the container with the
+         * site profile's counts as edit points, a container-internal
+         * declaration renders the mpi-runner INSIDE. Command tokens follow a
+         * one-line literal grammar (no blanks, whitespace, quotes, expansion
+         * or separators - the preview is a single review line, not a quoting
+         * contest). Code: CONTAINER_EXEC.
+         */
+        public OperationResult<String> execPreview(List<String> commandTokens) {
+            if (commandTokens == null || commandTokens.isEmpty()) {
+                return OperationResult.failed("CONTAINER_EXEC",
+                        "the exec preview needs at least one command token - a"
+                                + " container that runs nothing is ceremonial.", null);
+            }
+            List<String> tokens = new ArrayList<>();
+            for (String token : commandTokens) {
+                String t = token == null ? "" : token.trim();
+                if (t.isEmpty() || t.chars().anyMatch(Character::isWhitespace)
+                        || t.contains("\"") || t.contains("'") || t.contains("$")
+                        || t.contains("`") || t.contains(";") || t.contains("|")
+                        || t.contains("&") || t.contains("<") || t.contains(">")) {
+                    return OperationResult.failed("CONTAINER_EXEC",
+                            "command token '" + token + "' violates the one-line literal"
+                                    + " grammar (no blanks, whitespace, quotes,"
+                                    + " expansion or separators) - the preview is a"
+                                    + " single review line, never a micro-script.",
+                            null);
+                }
+                tokens.add(t);
+            }
+            StringBuilder preview = new StringBuilder();
+            preview.append("# container exec PREVIEW (REVIEW line only - not launched)\n");
+            preview.append("# REQUIRED-EDIT: prefix the image reference with YOUR pull"
+                    + " source\n# (docker://, oras://, library://, or a local .sif path)"
+                    + " - this build\n# never guesses where the digest-pinned name"
+                    + " resolves.\n");
+            String image = this.imageName + '@' + this.digest;
+            StringBuilder exec = new StringBuilder();
+            exec.append(this.runtime).append(" exec");
+            if (!this.binds.isEmpty()) {
+                exec.append(" --bind ").append(String.join(",", this.binds));
+            }
+            exec.append(' ').append(image);
+            StringBuilder line = new StringBuilder();
+            if (this.hostMpiCompatible) {
+                line.append("# mpi shape: host-MPI compatible (DECLARED by you) ->"
+                        + " the MPI runner stays OUTSIDE:\n");
+                line.append("# REQUIRED-EDIT: <mpirun/srun + counts from site profile>"
+                        + " ").append(exec);
+            } else {
+                line.append("# mpi shape: container-internal MPI -> the MPI runner"
+                        + " lives INSIDE:\n");
+                line.append(exec).append(" <mpirun/srun + counts inside image>");
+            }
+            for (String token : tokens) {
+                line.append(' ').append(token);
+            }
+            preview.append(line).append('\n');
+            if (this.binds.isEmpty()) {
+                preview.append("# no --bind flag rendered: no binds declared - the"
+                        + " default namespace holds.\n");
+            }
+            preview.append("launched = NO - exec-shape review only\n");
+            return OperationResult.success("CONTAINER_EXEC_OK",
+                    "Exec-shape preview rendered.", preview.toString());
         }
     }
 

@@ -553,6 +553,7 @@ public final class ResultAnalysisService {
         private String containerRuntime = "";     // CONTAINER_PROFILE_DRAFT typed runtime
         private String containerImageRef = "";    // name:tag@sha256:<64hex> REQUIRED digest
         private String containerBinds = "";       // csv absolute POSIX, literal grammar
+        private String containerExecCommand = ""; // blank = canned 'pw.x -i pw.in' preview
         private String containerMpiAnswer = "";   // exactly 'yes'/'no' - neutral refuses
         private String jobStateMode = "";         // JOB_STATE_GUARD: transition|signal
         private String jobStateFrom = "";
@@ -1156,6 +1157,14 @@ public final class ResultAnalysisService {
         public String getContainerImageRef() { return this.containerImageRef; }
         public String getContainerBinds() { return this.containerBinds; }
         public String getContainerMpiAnswer() { return this.containerMpiAnswer; }
+
+        public String getContainerExecCommand() { return this.containerExecCommand; }
+
+        /** Blank = the canned 'pw.x -i pw.in' preview tokens (stated). */
+        public AnalysisParameters withContainerExec(String commandTokens) {
+            this.containerExecCommand = commandTokens == null ? "" : commandTokens;
+            return this;
+        }
 
         public AnalysisParameters withContainerProfile(String runtime, String imageRef,
                 String binds, String mpiAnswer) {
@@ -9215,6 +9224,30 @@ public final class ResultAnalysisService {
                 profile.isHostMpiCompatible() ? "host-compatible (declared)"
                         : "container-internal (declared)"));
         text.append("\nProfile block (also in the draft channel):\n\n").append(block);
+        // Batch-132 exec-shape slice: the typed runtimes' shared exec shape as
+        // one REVIEW line. The command tokens come from the user (blank = the
+        // canned 'pw.x -i pw.in' example, stated); a token-grammar refusal is
+        // a FINDING on the tokens, the profile stays validated.
+        String execTokens = params.getContainerExecCommand().trim();
+        List<String> tokens = new ArrayList<>();
+        boolean canned = execTokens.isEmpty();
+        for (String token : (canned ? "pw.x,-i,pw.in" : execTokens).split(",", -1)) {
+            if (!token.trim().isEmpty()) {
+                tokens.add(token.trim());
+            }
+        }
+        OperationResult<String> preview = profile.execPreview(tokens);
+        text.append('\n');
+        if (preview.isSuccess() && preview.getValue().isPresent()) {
+            text.append(String.format(Locale.ROOT,
+                    "Exec-shape preview (%s tokens; REVIEW lines only - not launched):%n%n%s",
+                    canned ? "canned 'pw.x -i pw.in'" : "your", preview.getValue().get()));
+        } else {
+            text.append(String.format(Locale.ROOT,
+                    "Exec-shape preview: tokens REFUSED - [%s] %s (a FINDING on the"
+                            + " tokens; the profile itself validated fine).%n",
+                    preview.getCode(), preview.getMessage()));
+        }
         text.append("\nHonesty block: NOTHING launches from this build. The digest pin "
                 + "is structural - a floating tag is a moving target and refuses; the "
                 + "bind list is literal (no expansion/whitespace/separators); and the "
@@ -9234,6 +9267,8 @@ public final class ResultAnalysisService {
         csv.add(String.format(Locale.ROOT, "mpi_compatibility,%s,analyst declaration - "
                 + "not verified",
                 profile.isHostMpiCompatible() ? "host-compatible" : "container-internal"));
+        csv.add(String.format(Locale.ROOT, "exec_preview,%s,%s",
+                preview.isSuccess() ? "rendered" : "refused", preview.getCode()));
         return new AnalysisReport(label, true, text.toString(), csv, block);
     }
 

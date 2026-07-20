@@ -724,6 +724,13 @@ public final class AnalysisAction {
             if (mpi == null) {
                 return null;
             }
+            String exec = askText("command tokens for the exec-shape REVIEW preview,"
+                    + " comma-separated (BLANK = canned 'pw.x -i pw.in'; one-line"
+                    + " literal grammar; nothing launches)", "");
+            if (exec == null) {
+                return null;
+            }
+            parameters.withContainerExec(exec);
             parameters.withContainerProfile(runtime, image, binds, mpi);
             break;
         }

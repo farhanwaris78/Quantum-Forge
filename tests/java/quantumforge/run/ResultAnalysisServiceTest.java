@@ -6061,4 +6061,36 @@ class ResultAnalysisServiceTest {
         assertFalse(report.isSuccess());
         assertTrue(report.getText().contains("[ARRAY_AUDIT_COUNT]"), report.getText());
     }
+
+    @Test
+    void containerDraftSurfacesTheExecShapeTrail() throws IOException {
+        AnalysisReport canned = ResultAnalysisService.analyze(
+                AnalysisKind.CONTAINER_PROFILE_DRAFT, stubProject(this.tempDir),
+                new AnalysisParameters().withContainerProfile("apptainer",
+                        "library/qe:7.3@sha256:0000000000000000000000000000000000000000000000000000000000000000", "/scratch", "yes"));
+        assertTrue(canned.isSuccess(), canned.getText());
+        String text = canned.getText();
+        assertTrue(text.contains("Exec-shape preview (canned 'pw.x -i pw.in' tokens;"
+                + " REVIEW lines only - not launched)"), text);
+        assertTrue(text.contains("apptainer exec --bind /scratch library/qe:7.3@sha256:0000000000000000000000000000000000000000000000000000000000000000 pw.x -i pw.in"),
+                text);
+        assertTrue(text.contains("the MPI runner stays OUTSIDE"), text);
+        assertTrue(text.contains("REQUIRED-EDIT: prefix the image reference with YOUR"
+                + " pull source"), text);
+        String csv = String.join("\n", canned.getCsvLines());
+        assertTrue(csv.contains("exec_preview,rendered,CONTAINER_EXEC_OK"), csv);
+
+        AnalysisReport refused = ResultAnalysisService.analyze(
+                AnalysisKind.CONTAINER_PROFILE_DRAFT, stubProject(this.tempDir),
+                new AnalysisParameters().withContainerProfile("singularity",
+                        "library/qe:7.3@sha256:0000000000000000000000000000000000000000000000000000000000000000", "", "no").withContainerExec("pw.x; rm -rf /"));
+        assertTrue(refused.isSuccess(),
+                "a token-grammar refusal is a FINDING - the validated profile stands");
+        assertTrue(refused.getText().contains("tokens library/qe:7.3@sha256:0000000000000000000000000000000000000000000000000000000000000000USED - [CONTAINER_EXEC]"),
+                refused.getText());
+        assertTrue(refused.getText().contains("the profile itself validated fine"),
+                refused.getText());
+        String csv2 = String.join("\n", refused.getCsvLines());
+        assertTrue(csv2.contains("exec_preview,refused,CONTAINER_EXEC"), csv2);
+    }
 }
