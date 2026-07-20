@@ -383,6 +383,7 @@ def main() -> int:
                   "MpApiQueryBuilder", "MP_QUERY_DRAFT",
                   "SshTargetSpec", "SSH_CONFIG_DRAFT",
                   "SftpTransferPlan", "SFTP_TRANSFER_PLAN",
+                  "OptimadeStructuresParser", "OPTIMADE_RESPONSE_PARSE",
                   "JournalReplayMath", "replay_combined_det"]:
         if token not in service:
             error(f"ResultAnalysisService is not bound to {token}")
@@ -432,6 +433,7 @@ def main() -> int:
                 "quantumforge/remote/MpApiQueryBuilder.java",
                 "quantumforge/remote/SshTargetSpec.java",
                 "quantumforge/remote/SftpTransferPlan.java",
+                "quantumforge/remote/OptimadeStructuresParser.java",
                 "quantumforge/builder/JournalReplayMath.java"]:
         text = (SRC / rel).read_text(encoding="utf-8")
         if "class " not in text:

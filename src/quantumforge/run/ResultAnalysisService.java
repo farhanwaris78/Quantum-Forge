@@ -76,6 +76,7 @@ import quantumforge.input.QEPpWavefunctionBuilder;
 import quantumforge.hpc.PoolDivisorMath;
 import quantumforge.hpc.JobDbSchema;
 import quantumforge.remote.OptimadeQueryBuilder;
+import quantumforge.remote.OptimadeStructuresParser;
 import quantumforge.remote.MpApiQueryBuilder;
 import quantumforge.remote.SftpTransferPlan;
 import quantumforge.remote.SshTargetSpec;
@@ -282,6 +283,7 @@ public final class ResultAnalysisService {
         JOB_DB_SCHEMA_PLAN("Job database schema + migration plan (SQLite WAL target)"),
         OPTIMADE_QUERY_DRAFT("OPTIMADE /structures query draft (validated, unfetched)"),
         OCCUPATION_LEVELS_REVIEW("HOMO/LUMO occupation-level review (line-provenanced)"),
+        OPTIMADE_RESPONSE_PARSE("OPTIMADE structures response parse (local JSON, unfetched)"),
         MP_QUERY_DRAFT("Materials Project summary query draft (validated, unfetched, key-safe)"),
         SSH_CONFIG_DRAFT("SSH target ssh_config draft (publickey-only, validated)"),
         SFTP_TRANSFER_PLAN("SFTP staging plan (upload, hash-pinned, explicit overwrite)");
@@ -1091,6 +1093,9 @@ public final class ResultAnalysisService {
             return name.endsWith(".mol") || name.endsWith(".sdf");
         case OCCUPATION_LEVELS_REVIEW:
             return name.endsWith(".log") || name.endsWith(".out");
+        case OPTIMADE_RESPONSE_PARSE:
+            return name.endsWith(".json") && (name.contains("optimade")
+                    || name.contains("structures"));
         case ML_DATASET_BASELINE:
             return name.endsWith(".xyz") || name.contains("extxyz");
         case SERIES_REF_ALIGN:
@@ -1256,6 +1261,8 @@ public final class ResultAnalysisService {
                 return analyzeMolSdfReview(source);
             case OCCUPATION_LEVELS_REVIEW:
                 return analyzeOccupationLevelsReview(source);
+            case OPTIMADE_RESPONSE_PARSE:
+                return analyzeOptimadeResponseParse(source);
             case ML_DATASET_BASELINE:
                 return analyzeMlDatasetBaseline(source);
             case SERIES_REF_ALIGN:
@@ -7605,6 +7612,78 @@ public final class ResultAnalysisService {
                 step.isOverwriteAllowed() ? "ALLOWED" : "REFUSE-IF-EXISTS"));
         csv.add("verify_after,sha256-mandatory,no silent acceptance");
         return new AnalysisReport(label, true, text.toString(), csv, plan);
+    }
+
+    /**
+     * Roadmap #117 (parse slice): reads a LOCAL, already-saved OPTIMADE
+     * JSON:API /structures response. Nothing is fetched here - the fetch,
+     * pagination, provider-filter and cache work remains #117 runtime depth.
+     * The report says plainly that the artifact is the only provenance, that
+     * absent optional fields are "(not supplied)" rather than invented, that
+     * OPTIMADE lattice vectors carry nm units by specification, and that
+     * meta.* values are claims made by the file, not verified facts.
+     */
+    private static AnalysisReport analyzeOptimadeResponseParse(File source) {
+        String label = AnalysisKind.OPTIMADE_RESPONSE_PARSE.getLabel();
+        OperationResult<OptimadeStructuresParser.OptimadeResponse> parsed =
+                OptimadeStructuresParser.parseFile(source.toPath());
+        if (!parsed.isSuccess() || parsed.getValue().isEmpty()) {
+            return failure(label, "The OPTIMADE response parse refused "
+                    + source.getName() + ":\n[" + parsed.getCode() + "] "
+                    + parsed.getMessage());
+        }
+        OptimadeStructuresParser.OptimadeResponse response = parsed.getValue().get();
+        StringBuilder text = new StringBuilder();
+        text.append("Artifact: ").append(source.getName())
+                .append("  (LOCAL unfetched file - it is the only provenance "
+                        + "available; nothing was downloaded or verified against a "
+                        + "database.)\n");
+        text.append(String.format(Locale.ROOT, "data_returned claim by the file: %s%n",
+                response.getDataReturnedClaim() == null ? "(not supplied)"
+                        : response.getDataReturnedClaim()));
+        text.append("provider.name claim by the file: ").append(
+                response.getProviderNameClaim().isEmpty() ? "(not supplied)"
+                        : response.getProviderNameClaim()).append('\n');
+        text.append(String.format(Locale.ROOT, "Structures parsed exactly as given: %d%n%n",
+                response.getStructures().size()));
+        int cap = 40;
+        int shown = 0;
+        for (OptimadeStructuresParser.Structure structure : response.getStructures()) {
+            shown += 1;
+            if (shown > cap) {
+                text.append(String.format(Locale.ROOT,
+                        "... %d further structure(s) follow (ALL parsed; display capped at "
+                                + "%d, nothing dropped from the CSV).%n",
+                        response.getStructures().size() - cap, cap));
+                break;
+            }
+            text.append(String.format(Locale.ROOT,
+                    "  id=%s  formula=%s  nsites=%s  elements=%s  lattice=%s%n",
+                    structure.getId(), structure.getFormula(),
+                    structure.getNsites() == null ? "(not supplied)"
+                            : structure.getNsites().toString(),
+                    structure.getElements().isEmpty() ? "(not supplied)"
+                            : String.join(" ", structure.getElements()),
+                    structure.hasLattice() ? "present (OPTIMADE units: nm - not "
+                            + "re-based here)" : "absent"));
+        }
+        text.append("\nHonesty block: ids are REQUIRED and never invented; optional "
+                + "fields absent from the file print as '(not supplied)', never as "
+                + "defaults. Retrieval + caching + provider filtering remain the #117 "
+                + "runtime work; pairing this parse with the OPTIMADE_QUERY_DRAFT is "
+                + "the intended review workflow.\n");
+        List<String> csv = new ArrayList<>();
+        csv.add("id,formula_reduced,nsites,elements,lattice,nm_units_stated");
+        for (OptimadeStructuresParser.Structure structure : response.getStructures()) {
+            csv.add(String.format(Locale.ROOT, "%s,%s,%s,%s,%s,%s",
+                    csvCell(structure.getId()), csvCell(structure.getFormula()),
+                    structure.getNsites() == null ? "" : structure.getNsites().toString(),
+                    csvCell(structure.getElements().isEmpty() ? ""
+                            : String.join(" ", structure.getElements())),
+                    structure.hasLattice() ? "present" : "absent",
+                    structure.hasLattice() ? "nm" : ""));
+        }
+        return new AnalysisReport(label, true, text.toString(), csv, null);
     }
 
     /**

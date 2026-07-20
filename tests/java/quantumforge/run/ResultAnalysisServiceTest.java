@@ -4466,4 +4466,68 @@ class ResultAnalysisServiceTest {
                 allowed.getText(),
                 "flipping clobber posture is a deliberate act, printed in uppercase");
     }
+
+
+    @Test
+    void optimadeResponseParseRendersFileClaimsAndHonesty() throws IOException {
+        File artifact = write("optimade_structures.json",
+                "{\"meta\": {\"data_returned\": 2, \"provider\": {\"name\": \"Materials Cloud\"}},"
+                + "\"data\": ["
+                + " {\"id\": \"mpf-1\", \"attributes\": {\"chemical_formula_reduced\": \"Si\","
+                + "  \"nsites\": 2, \"elements\": [\"Si\"],"
+                + "  \"lattice_vectors\": [[1,0,0],[0,1,0],[0,0,1]]}},"
+                + " {\"id\": \"odbx-42\", \"attributes\": {\"nsites\": 8}}"
+                + "]}");
+        AnalysisReport report = ResultAnalysisService.analyze(
+                AnalysisKind.OPTIMADE_RESPONSE_PARSE, new ProjectProperty(),
+                this.tempDir.toFile(), "pw", "scf.out", artifact,
+                new AnalysisParameters());
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains("LOCAL unfetched file"), report.getText());
+        assertTrue(report.getText().contains("data_returned claim by the file: 2"),
+                report.getText());
+        assertTrue(report.getText().contains("provider.name claim by the file: Materials Cloud"),
+                report.getText());
+        assertTrue(report.getText().contains(
+                "id=mpf-1  formula=Si  nsites=2  elements=Si  lattice=present "
+                        + "(OPTIMADE units: nm - not re-based here)"),
+                report.getText());
+        assertTrue(report.getText().contains("id=odbx-42  formula=(not supplied)"),
+                report.getText());
+        assertTrue(report.getText().contains("never as defaults"), report.getText());
+        String csv = String.join("\n", report.getCsvLines());
+        assertTrue(csv.contains("id,formula_reduced,nsites,elements,lattice,nm_units_stated"),
+                csv);
+        assertTrue(csv.contains("mpf-1,Si,2,Si,present,nm"), csv);
+        assertTrue(csv.contains("odbx-42,(not supplied),8,,absent,"), csv);
+    }
+
+    @Test
+    void optimadeResponseParseFailsClosedOnBadArtifacts() throws IOException {
+        File truncated = write("optimade_structures.json",
+                "{\"data\": [ {\"id\": \"x\"}, ");
+        AnalysisReport tReport = ResultAnalysisService.analyze(
+                AnalysisKind.OPTIMADE_RESPONSE_PARSE, new ProjectProperty(),
+                this.tempDir.toFile(), "pw", "scf.out", truncated,
+                new AnalysisParameters());
+        assertFalse(tReport.isSuccess());
+        assertTrue(tReport.getText().contains("[OPTIMADE_JSON]"), tReport.getText());
+
+        File noId = write("optimade_noid.json", "{\"data\": [{\"attributes\": {}}]}");
+        AnalysisReport sReport = ResultAnalysisService.analyze(
+                AnalysisKind.OPTIMADE_RESPONSE_PARSE, new ProjectProperty(),
+                this.tempDir.toFile(), "pw", "scf.out", noId,
+                new AnalysisParameters());
+        assertFalse(sReport.isSuccess(), "ids are REQUIRED and never invented");
+        assertTrue(sReport.getText().contains("[OPTIMADE_SHAPE]"), sReport.getText());
+
+        File wrongType = write("optimade_badtype.json",
+                "{\"data\": [{\"id\": \"a\", \"attributes\": {\"nsites\": \"2\"}}]}");
+        AnalysisReport wReport = ResultAnalysisService.analyze(
+                AnalysisKind.OPTIMADE_RESPONSE_PARSE, new ProjectProperty(),
+                this.tempDir.toFile(), "pw", "scf.out", wrongType,
+                new AnalysisParameters());
+        assertFalse(wReport.isSuccess(), "wrong-typed fields refuse - no coercion");
+        assertTrue(wReport.getText().contains("[OPTIMADE_SHAPE]"), wReport.getText());
+    }
 }
