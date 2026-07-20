@@ -481,6 +481,7 @@ def main() -> int:
                 "quantumforge/remote/ArrayJobPlan.java",
                 "quantumforge/remote/ContainerProfileSpec.java",
                 "quantumforge/remote/ContainerLaunchBridge.java",
+                "quantumforge/remote/ContainerImageAttestor.java",
                 "quantumforge/remote/JobStateGuard.java",
                 "quantumforge/run/PhononGridLadderPlan.java",
                 "quantumforge/run/ResubmitAdvice.java",
