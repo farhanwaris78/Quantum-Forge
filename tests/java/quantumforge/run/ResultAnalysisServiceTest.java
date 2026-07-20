@@ -3973,4 +3973,54 @@ class ResultAnalysisServiceTest {
         assertTrue(noenergy.getText().contains("[BASELINE_ENERGY]"),
                 noenergy.getText());
     }
+
+    @Test
+    void testSeriesRefAlignKindExplicitShiftAndRefusals() throws IOException {
+        File csv = write("two-series.align.csv",
+                "parameter,e1,e2\n"
+                + "0.0,-10.0,-5.0\n"
+                + "0.5,-11.0,-5.5\n"
+                + "1.0,-12.0,-6.0\n");
+        AnalysisReport report = ResultAnalysisService.analyze(
+                AnalysisKind.SERIES_REF_ALIGN, new ProjectProperty(),
+                this.tempDir.toFile(), "cmp", "run.log", csv,
+                new AnalysisParameters().withAlignment("vbm", -10.5, -5.4,
+                        Double.NaN));
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains("EXPLICIT VBM-reference alignment"),
+                report.getText());
+        assertTrue(report.getText().contains("reference = -10.500000000 eV"),
+                report.getText());
+        assertTrue(report.getText().contains("ref2 - ref1 = +5.100000000 eV"),
+                report.getText());
+        assertTrue(report.getText().contains("LOUD FLAG"), report.getText());
+        assertTrue(report.getText().contains("RMS = 0.571547607 eV"),
+                report.getText());
+        assertTrue(report.getText().contains("NOT visible here"), report.getText());
+        assertTrue(report.getCsvLines().get(0).startsWith(
+                "# explicit VBM alignment: ref1=-10.500000000 eV"),
+                String.join("\n", report.getCsvLines()));
+        assertTrue(report.getCsvLines().contains(
+                "0.000000000,0.500000000,0.400000000,-0.100000000"),
+                String.join("\n", report.getCsvLines()));
+        assertTrue(report.getCsvLines().contains(
+                "1.000000000,-1.500000000,-0.600000000,+0.900000000"),
+                String.join("\n", report.getCsvLines()));
+
+        AnalysisReport badMode = ResultAnalysisService.analyze(
+                AnalysisKind.SERIES_REF_ALIGN, new ProjectProperty(),
+                this.tempDir.toFile(), "cmp", "run.log", csv,
+                new AnalysisParameters().withAlignment("guess", -10.5, -5.4,
+                        Double.NaN));
+        assertFalse(badMode.isSuccess(), "unknown modes must fail closed");
+        assertTrue(badMode.getText().contains("[ALIGN_MODE]"), badMode.getText());
+
+        AnalysisReport noRef = ResultAnalysisService.analyze(
+                AnalysisKind.SERIES_REF_ALIGN, new ProjectProperty(),
+                this.tempDir.toFile(), "cmp", "run.log", csv,
+                new AnalysisParameters().withAlignment("fermi", Double.NaN,
+                        -5.4, Double.NaN));
+        assertFalse(noRef.isSuccess(), "references are never inferred");
+        assertTrue(noRef.getText().contains("[ALIGN_VALUE]"), noRef.getText());
+    }
 }

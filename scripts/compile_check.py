@@ -372,7 +372,8 @@ def main() -> int:
                   "CifStructureReader", "CIF_REVIEW",
                   "SdfStructureReader", "MOL_SDF_REVIEW",
                   "TurboLanczosInputPlanner", "TDDFPT_INPUT_DRAFT",
-                  "CompositionalBaselineMath", "ML_DATASET_BASELINE"]:
+                  "CompositionalBaselineMath", "ML_DATASET_BASELINE",
+                  "SeriesAlignmentMath", "SERIES_REF_ALIGN"]:
         if token not in service:
             error(f"ResultAnalysisService is not bound to {token}")
     for rel in ["quantumforge/com/math/SymmetricEigen3.java",
@@ -410,7 +411,8 @@ def main() -> int:
                 "quantumforge/builder/CifStructureReader.java",
                 "quantumforge/builder/SdfStructureReader.java",
                 "quantumforge/input/TurboLanczosInputPlanner.java",
-                "quantumforge/neural/CompositionalBaselineMath.java"]:
+                "quantumforge/neural/CompositionalBaselineMath.java",
+                "quantumforge/run/parser/SeriesAlignmentMath.java"]:
         text = (SRC / rel).read_text(encoding="utf-8")
         if "class " not in text:
             error(f"{rel} does not declare a type")

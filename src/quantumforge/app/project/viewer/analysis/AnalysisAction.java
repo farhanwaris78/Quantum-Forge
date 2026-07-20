@@ -221,6 +221,30 @@ public final class AnalysisAction {
             parameters.withUnitConversion(value, from, to);
             break;
         }
+        case SERIES_REF_ALIGN: {
+            String mode = askText("Reference mode (FERMI, VBM, VACUUM, USER) - the "
+                    + "tool never infers references from the data", "FERMI");
+            if (mode == null) {
+                return null;
+            }
+            Double ref1 = askDouble("Series-1 reference value in eV "
+                    + "(e.g. its Fermi/VBM/vacuum level, analyst-supplied)", "");
+            if (ref1 == null) {
+                return null; // cancel or blank: no reference means no alignment
+            }
+            Double ref2 = askDouble("Series-2 reference value in eV "
+                    + "(same physical origin asserted)", "");
+            if (ref2 == null) {
+                return null;
+            }
+            Double target = askDouble("USER-mode landing point in eV "
+                    + "(ignored for FERMI/VBM/VACUUM)", "0.0");
+            if (target == null) {
+                return null;
+            }
+            parameters.withAlignment(mode, ref1, ref2, target);
+            break;
+        }
         case SLAB_MILLER_PREVIEW: {
             Integer h = askInteger("Miller index h (-16..16)", 1);
             if (h == null) {

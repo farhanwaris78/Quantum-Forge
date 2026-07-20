@@ -123,6 +123,7 @@ import quantumforge.run.parser.TrajectoryWindowReader;
 import quantumforge.run.parser.EnergySeriesComparer;
 import quantumforge.neural.ExtXyzDatasetValidator;
 import quantumforge.neural.CompositionalBaselineMath;
+import quantumforge.run.parser.SeriesAlignmentMath;
 import quantumforge.run.parser.ScfConvergenceAnalyzer;
 import quantumforge.run.parser.ScfIterationRecord;
 import quantumforge.symmetry.MagneticSpaceGroupDetector;
@@ -263,7 +264,8 @@ public final class ResultAnalysisService {
         SLAB_MILLER_PREVIEW("Surface Miller plane geometry (d-spacing, normal, ESM gate)"),
         CIF_REVIEW("CIF structure review (fail-closed subset, no element guessing)"),
         MOL_SDF_REVIEW("MOL/SDF molecule review (V2000 single-record subset)"),
-        ML_DATASET_BASELINE("ML dataset compositional baseline (physics-informed screen)");
+        ML_DATASET_BASELINE("ML dataset compositional baseline (physics-informed screen)"),
+        SERIES_REF_ALIGN("Two-series explicit reference alignment (Fermi/VBM/vacuum/user)");
 
         private final String label;
 
@@ -397,6 +399,10 @@ public final class ResultAnalysisService {
         private int millerH = 1;             // SLAB_MILLER_PREVIEW: plane (h k l)
         private int millerK = 0;
         private int millerL = 0;
+        private String alignMode = "";       // SERIES_ALIGN: FERMI, VBM, VACUUM, USER
+        private double alignReferenceEv1 = Double.NaN; // series-1 reference, eV (NaN = unset)
+        private double alignReferenceEv2 = Double.NaN; // series-2 reference, eV
+        private double alignTargetEv = 0.0;  // USER-mode landing point, eV
 
         public double getFermiEv() { return this.fermiEv; }
         public int getKpointIndex() { return this.kpointIndex; }
@@ -706,6 +712,20 @@ public final class ResultAnalysisService {
         public int[] getMillerIndices() {
             return new int[] {this.millerH, this.millerK, this.millerL};
         }
+
+        public String getAlignMode() { return this.alignMode; }
+        public double getAlignReferenceEv1() { return this.alignReferenceEv1; }
+        public double getAlignReferenceEv2() { return this.alignReferenceEv2; }
+        public double getAlignTargetEv() { return this.alignTargetEv; }
+
+        public AnalysisParameters withAlignment(String mode, double ref1,
+                double ref2, double target) {
+            this.alignMode = mode == null ? "" : mode.trim();
+            this.alignReferenceEv1 = ref1;
+            this.alignReferenceEv2 = ref2;
+            this.alignTargetEv = target;
+            return this;
+        }
     }
 
     /** A completed, self-describing analysis result. */
@@ -964,6 +984,8 @@ public final class ResultAnalysisService {
             return name.endsWith(".mol") || name.endsWith(".sdf");
         case ML_DATASET_BASELINE:
             return name.endsWith(".xyz") || name.contains("extxyz");
+        case SERIES_REF_ALIGN:
+            return name.contains("align");
         default:
             return false;
         }
@@ -1117,6 +1139,8 @@ public final class ResultAnalysisService {
                 return analyzeMolSdfReview(source);
             case ML_DATASET_BASELINE:
                 return analyzeMlDatasetBaseline(source);
+            case SERIES_REF_ALIGN:
+                return analyzeSeriesRefAlign(source, params);
             default:
                 return failure(kind.getLabel(), "This analysis kind is not implemented.");
             }
@@ -6817,6 +6841,87 @@ public final class ResultAnalysisService {
             CompositionalBaselineMath.ResidualOutlier top = report.getOutliers().get(0);
             csv.add(String.format(Locale.ROOT, "top_outlier_frame,%d,%+.6f eV residual",
                     top.getFrame(), top.getResidualEv()));
+        }
+        return new AnalysisReport(label, true, text.toString(), csv, null);
+    }
+
+    /**
+     * Roadmap #124 (alignment slice): explicit Fermi/VBM/vacuum/user reference
+     * alignment of a two-series comparison. Both references are REQUIRED
+     * analyst input; the shift is printed and embedded in every CSV header,
+     * never hidden.
+     */
+    private static AnalysisReport analyzeSeriesRefAlign(File source,
+            AnalysisParameters params) {
+        String label = AnalysisKind.SERIES_REF_ALIGN.getLabel();
+        OperationResult<SeriesAlignmentMath.AlignedComparison> aligned =
+                SeriesAlignmentMath.align(source.toPath(), params.getAlignMode(),
+                        params.getAlignReferenceEv1(), params.getAlignReferenceEv2(),
+                        params.getAlignTargetEv());
+        if (!aligned.isSuccess() || aligned.getValue().isEmpty()) {
+            return failure(label, "The reference alignment refused the file "
+                    + source.getName() + ":\n[" + aligned.getCode() + "] "
+                    + aligned.getMessage());
+        }
+        SeriesAlignmentMath.AlignedComparison result = aligned.getValue().get();
+        StringBuilder text = new StringBuilder();
+        text.append("File: ").append(source.getName()).append('\n');
+        text.append(String.format(Locale.ROOT,
+                "EXPLICIT %s-reference alignment (analyst-supplied; NOTHING was "
+                        + "inferred from the data):%n", result.getMode()));
+        text.append(String.format(Locale.ROOT,
+                "  series 1 '%s' reference = %.9f eV;  series 2 '%s' reference = "
+                        + "%.9f eV%n",
+                result.getFirstSeriesLabel(), result.getReferenceEv1(),
+                result.getSecondSeriesLabel(), result.getReferenceEv2()));
+        text.append(String.format(Locale.ROOT,
+                "  applied shift (E - reference, landing at %s eV);  reference "
+                        + "difference ref2 - ref1 = %+.9f eV%s%n",
+                "USER".equals(result.getMode())
+                        ? String.format(Locale.ROOT, "%.9f", result.getTargetEv())
+                        : "0.000000000",
+                result.getReferenceShiftEv(),
+                result.isLoudShift()
+                        ? "  ** LOUD FLAG: |shift| exceeds 1 eV - probable units "
+                                + "slip or an incomparable reference; flagged, "
+                                + "never hidden **"
+                        : ""));
+        text.append(String.format(Locale.ROOT,
+                "Aligned deltas (series 2 - series 1): RMS = %.9f eV;  mean = "
+                        + "%+.9f eV;  max |delta| = %.9f eV at %s = %.9f%n",
+                result.getRmsEv(), result.getMeanEv(), result.getMaxAbsEv(),
+                result.getParameterLabel(), result.getMaxAbsAtParameter()));
+        text.append(String.format(Locale.ROOT,
+                "Rows: %d aligned (%d rejected by the scanner, counted);  the "
+                        + "aligned DELTAS are identical in every reference mode "
+                        + "(the landing point cancels).%n",
+                result.getRowCount(), result.getRejectedRows()));
+        text.append("\nYou are ASSERTING the two references share a comparable "
+                + "physical origin (e.g. vacuum levels of the same slab "
+                + "termination). Grid agreement holds by construction of this CSV; "
+                + "cutoff/k-mesh sampling comparability is NOT visible here and "
+                + "stays your burden. Multi-project overlays beyond the two-series "
+                + "CSV remain the #124 depth.\n");
+        List<String> csv = new ArrayList<>();
+        csv.add(String.format(Locale.ROOT,
+                "# explicit %s alignment: ref1=%.9f eV; ref2=%.9f eV; shift ref2-ref1 "
+                        + "= %+.9f eV%s",
+                result.getMode(), result.getReferenceEv1(), result.getReferenceEv2(),
+                result.getReferenceShiftEv(),
+                result.isLoudShift() ? "; LOUD FLAG |shift| > 1 eV" : ""));
+        csv.add("parameter,e1_aligned_ev,e2_aligned_ev,delta_aligned_ev");
+        int cap = 20000;
+        int shown = 0;
+        for (double[] row : result.getRows()) {
+            if (shown >= cap) {
+                break;
+            }
+            csv.add(String.format(Locale.ROOT, "%.9f,%.9f,%.9f,%+.9f",
+                    row[0], row[1], row[2], row[3]));
+            shown += 1;
+        }
+        if (result.getRows().size() > cap) {
+            csv.add("# truncated at 20000 rows (cap)");
         }
         return new AnalysisReport(label, true, text.toString(), csv, null);
     }
