@@ -142,7 +142,8 @@ public final class ArraySubmitPlan {
         if (!spec.isSupported()) {
             throw new IllegalStateException("the '" + adapter.name()
                     + "' adapter owns no array form - " + spec.getUnsupportedReason()
-                    + "; the per-task loop executor is the remaining #93 depth");
+                    + "; the batch-143 per-task loop executor (ssh ArrayLoopSubmitExecutor) "
+                    + "is the honest shape for that adapter, never hand-assembled flags");
         }
         String[] flags = spec.renderFlagTokens(1, count);
         String[] submit = adapter.submitCommand(scriptPath);

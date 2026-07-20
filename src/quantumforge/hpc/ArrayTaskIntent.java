@@ -122,7 +122,7 @@ public final class ArrayTaskIntent {
         int count = deck.getTaskCount();
         for (int i = 1; i <= count; i++) {
             String rendered = deck.renderTaskDeck(i);
-            String sha = sha256Hex(rendered);
+            String sha = digestOfRenderedDeck(rendered);
             for (TaskIntent other : tasks) {
                 if (other.getInputSha256().equals(sha)) {
                     return OperationResult.failed("TASK_DECK_DUPLICATE",
@@ -144,11 +144,18 @@ public final class ArrayTaskIntent {
     }
 
     /**
-     * sha256 hex of the rendered deck bytes (UTF-8) - the same digest family
-     * the execution-time manifest writer and the verified-transfer layer
-     * already use; computed here because intents hash TEXT, not files.
+     * THE single owner of the rendered-deck digest: sha256 hex of the deck
+     * TEXT's UTF-8 bytes - the same digest family the verified-transfer
+     * layer already uses for files. The intent planner, the batch-143
+     * per-task loop executor's staging pin and every future provenance
+     * record MUST call exactly this (intents hash TEXT, not files), so a
+     * deck's identity can never drift between the plan and the wire.
      */
-    private static String sha256Hex(String text) {
+    public static String digestOfRenderedDeck(String text) {
+        if (text == null) {
+            throw new NullPointerException("rendered deck text is required - a "
+                    + "digest of nothing would be a provenance lie");
+        }
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
             digest.update(text.getBytes(StandardCharsets.UTF_8));

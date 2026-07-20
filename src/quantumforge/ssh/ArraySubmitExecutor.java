@@ -34,8 +34,9 @@ import quantumforge.operation.OperationResult;
  *       (SUBMIT_GUARD_PRESENT);</li>
  *   <li>ONLY the single-array shape executes: an adapter without owned
  *       array knowledge refuses early with its reason and the named next
- *       step (SUBMIT_ARRAY_UNSUPPORTED_SHAPE - the per-task loop executor
- *       is the remaining #93 depth, not something silently simulated);</li>
+ *       step (SUBMIT_ARRAY_UNSUPPORTED_SHAPE - the batch-143 per-task loop
+ *       executor {@code ArrayLoopSubmitExecutor} is the honest wire for
+ *       that shape, not something silently simulated here);</li>
  *   <li>staging rides the batch-133 verified upload (temp-&gt;sha256-&gt;mv);
  *       the pin is computed from the local bytes with the same-package
  *       digest owner, never re-derived;</li>
@@ -110,8 +111,9 @@ public final class ArraySubmitExecutor {
             return OperationResult.failed("SUBMIT_ARRAY_UNSUPPORTED_SHAPE",
                     "the '" + adapter.name() + "' adapter owns no array form - "
                             + adapter.arraySubmitSpec().getUnsupportedReason()
-                            + "; the per-task loop executor is the remaining #93 depth, "
-                            + "and nothing was staged or submitted here either.",
+                            + "; submit this sweep through the batch-143 per-task loop "
+                            + "executor (ArrayLoopSubmitExecutor) instead - nothing was "
+                            + "staged or submitted here either.",
                     null);
         }
         int count = sweep.getValues().size();

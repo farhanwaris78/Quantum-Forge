@@ -116,8 +116,9 @@ class ArraySubmitExecutorTest {
         assertEquals("SUBMIT_ARRAY_UNSUPPORTED_SHAPE", refused.getCode());
         assertTrue(refused.getMessage().contains("PBS Professional"), refused.getMessage(),
                 "the adapter's divergence reason rides the refusal");
-        assertTrue(refused.getMessage().contains("per-task loop executor is the remaining"),
-                refused.getMessage());
+        assertTrue(refused.getMessage().contains("ArrayLoopSubmitExecutor"),
+                "batch 143: the refusal names the now-existing loop executor: "
+                        + refused.getMessage());
         assertTrue(fake.steps.isEmpty(), "the shape check precedes all staging");
     }
 
