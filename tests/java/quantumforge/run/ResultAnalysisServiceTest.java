@@ -5491,4 +5491,71 @@ class ResultAnalysisServiceTest {
                 missing, new AnalysisParameters());
         assertFalse(refused.isSuccess(), "an absent queue artifact refuses closed");
     }
+
+
+    @Test
+    void workflowExportAuditMatchesAndJudgesTheArtifact() {
+        // Artifact written by the SCF DAG while the stub project IS scf-mode.
+        Path dir = this.tempDir.resolve("wf-sync");
+        try {
+            java.nio.file.Files.createDirectories(dir);
+            quantumforge.operation.OperationResult<Path> exported =
+                    WorkflowExporter.export(dir.resolve(".quantumforge.workflow.sh"),
+                            QECommandDag.build(RunningType.SCF, "espresso.in", 1),
+                            WorkflowExporter.Format.BASH, "espresso", 1, 1, null);
+            assertTrue(exported.isSuccess(), exported.toString());
+        } catch (java.io.IOException ex) {
+            throw new RuntimeException(ex);
+        }
+        AnalysisReport report = ResultAnalysisService.analyze(
+                AnalysisKind.WORKFLOW_EXPORT_AUDIT, stubProject(dir),
+                new AnalysisParameters());
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains("Exported stages (1):"), report.getText());
+        assertTrue(report.getText().contains("#0   scf"), report.getText());
+        assertTrue(report.getText().contains("IN_SYNC"), report.getText(),
+                "a fresh export of the current config is IN_SYNC");
+        assertTrue(report.getText().contains("Read-only boundary"), report.getText());
+        String csv = String.join("\n", report.getCsvLines());
+        assertTrue(csv.contains("0,scf,false,true,false"), csv);
+        assertTrue(String.join("\n", report.getProvenanceLines()).contains(
+                "sync_verdict=IN_SYNC"));
+    }
+
+    @Test
+    void workflowExportAuditNamesDivergenceAndRefusesCleanly() throws IOException {
+        // Artifact is a PHONON export; the stub stays in its default SCF mode.
+        Path dir = this.tempDir.resolve("wf-stale");
+        Files.createDirectories(dir);
+        quantumforge.operation.OperationResult<Path> exported = WorkflowExporter.export(
+                dir.resolve(".quantumforge.workflow.sh"),
+                QECommandDag.build(RunningType.PHONON, "espresso.in", 1),
+                WorkflowExporter.Format.BASH, "espresso", 1, 1, null);
+        assertTrue(exported.isSuccess(), exported.toString());
+        AnalysisReport report = ResultAnalysisService.analyze(
+                AnalysisKind.WORKFLOW_EXPORT_AUDIT, stubProject(dir),
+                new AnalysisParameters());
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains("Workflow type stamped in artifact: PHONON"),
+                report.getText());
+        assertTrue(report.getText().contains("MISMATCH with the current type SCF"),
+                report.getText(), "a pre-type-change artifact is flagged, never trusted quietly");
+        assertTrue(report.getText().contains("AHEAD_OF_CONFIG"), report.getText(),
+                "artifact carries stages the current SCF config lacks");
+        assertTrue(report.getText().contains(
+                "stage(s) in the artifact but NOT in the current config: [ph, q2r, matdyn]"),
+                report.getText());
+        String csv = String.join("\n", report.getCsvLines());
+        assertTrue(csv.contains("1,ph,false,true,false"), csv);
+
+        // No artifact at all: fail closed with repair guidance.
+        Path dir2 = this.tempDir.resolve("wf-none");
+        Files.createDirectories(dir2);
+        AnalysisReport refused = ResultAnalysisService.analyze(
+                AnalysisKind.WORKFLOW_EXPORT_AUDIT, stubProject(dir2),
+                new AnalysisParameters());
+        assertFalse(refused.isSuccess(), "no artifact -> the kind says so, no fake audit");
+        assertTrue(refused.getText().contains("[WORKFLOW_FILE]"), refused.getText());
+        assertTrue(refused.getText().contains("Export workflow script"), refused.getText());
+    }
 }

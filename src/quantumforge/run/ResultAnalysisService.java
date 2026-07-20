@@ -314,7 +314,8 @@ public final class ResultAnalysisService {
         JOB_STATE_GUARD("Job state transition/signal guard (typed edges, unknown-honest)"),
         PHONON_GRID_PLAN("Phonon q-grid ladder plan (k/q commensurability verdicts, named)"),
         CHECKPOINT_RESUBMIT_PLAN("Checkpoint resubmission advice (typed stop reason, no writes)"),
-        JOB_QUEUE_AUDIT("Job queue store audit (read-only; raw malformed/duplicate/chain verdicts)");
+        JOB_QUEUE_AUDIT("Job queue store audit (read-only; raw malformed/duplicate/chain verdicts)"),
+        WORKFLOW_EXPORT_AUDIT("Exported workflow audit (stage census, sync vs current, read-only)");
 
         private final String label;
 
@@ -375,7 +376,8 @@ public final class ResultAnalysisService {
                     || this == SYNC_MANIFEST_DRAFT || this == SMEARING_LADDER_PLAN
                     || this == CUTOFF_LADDER_PLAN || this == ARRAY_JOB_PLAN
                     || this == CONTAINER_PROFILE_DRAFT || this == JOB_STATE_GUARD
-                    || this == PHONON_GRID_PLAN || this == CHECKPOINT_RESUBMIT_PLAN;
+                    || this == PHONON_GRID_PLAN || this == CHECKPOINT_RESUBMIT_PLAN
+                    || this == WORKFLOW_EXPORT_AUDIT;
         }
 
         /** True for project-bound kinds that additionally parse a user data file. */
@@ -1763,6 +1765,8 @@ public final class ResultAnalysisService {
                 return analyzePhononGridPlan(project, params);
             case CHECKPOINT_RESUBMIT_PLAN:
                 return analyzeCheckpointResubmit(project, params);
+            case WORKFLOW_EXPORT_AUDIT:
+                return analyzeWorkflowExportAudit(project);
             case SLAB_MILLER_PREVIEW:
                 return analyzeSlabMillerPreview(project, params);
             default:
@@ -8869,6 +8873,119 @@ public final class ResultAnalysisService {
         List<String> provenance = new ArrayList<>();
         provenance.add("queue-audit: total_problem_count=" + audit.getProblemTotal());
         provenance.add("queue-audit: reconciliation_edges=" + reconciliationTotal);
+        return new AnalysisReport(label, true, text.toString(), csv, null, provenance);
+    }
+
+    /**
+     * Roadmap #104 (audit slice): READ-ONLY structural audit of the project's
+     * exported workflow script (.quantumforge.workflow.sh) against the CURRENT
+     * stage list. The artifact's promise is GUI-independence; this kind states
+     * its stage census, which required stages would abort unconfigured
+     * ("No command recorded" -> exit 2), its safety markers, and an
+     * order-sensitive SYNC verdict naming differing stage ids. The refresh
+     * path is the deliberate rerun/export - nothing is rewritten here.
+     */
+    private static AnalysisReport analyzeWorkflowExportAudit(Project project) {
+        String label = AnalysisKind.WORKFLOW_EXPORT_AUDIT.getLabel();
+        File directory = project.getDirectory();
+        if (directory == null) {
+            return failure(label, "The project has no on-disk directory to inspect.");
+        }
+        File script = new File(directory, ".quantumforge.workflow.sh");
+        OperationResult<WorkflowAudit.Audit> audited = WorkflowAudit.audit(script.toPath());
+        if (!audited.isSuccess() || audited.getValue().isEmpty()) {
+            return failure(label, "The workflow audit refused:\\n[" + audited.getCode()
+                    + "] " + audited.getMessage()
+                    + "\\n\\n(No artifact at the standard path either - exports happen "
+                    + "per run or via the deliberate Export workflow script action.)");
+        }
+        WorkflowAudit.Audit audit = audited.getValue().get();
+
+        RunningType type = RunningType.getRunningType(project);
+        List<String> expectedIds = null;
+        String expectedNote;
+        try {
+            if (type == null) {
+                expectedNote = "current workflow type is unset - DAG not rebuildable";
+            } else {
+                QECommandDag dag = QECommandDag.build(project, type, 1);
+                expectedIds = new ArrayList<>();
+                for (QECommandStage stage : dag.getStages()) {
+                    expectedIds.add(stage.getId());
+                }
+                expectedNote = "current " + type.name() + " DAG ("
+                        + expectedIds.size() + " stage(s)); numProc/input-name never "
+                        + "affect stage ids - only command tokens";
+            }
+        } catch (UnsupportedOperationException ex) {
+            expectedNote = "current " + type.name() + " DAG is NOT honestly rebuildable ("
+                    + ex.getMessage() + " in one line: a sweep DAG needs a configured "
+                    + "parameter set) - comparison refused, never faked";
+        } catch (RuntimeException ex) {
+            expectedNote = "rebuilding the current DAG failed closed: " + ex.getMessage();
+        }
+        WorkflowAudit.SyncVerdict verdict = WorkflowAudit.sync(audit.stageIds(), expectedIds);
+        List<String> missing = WorkflowAudit.missingFromArtifact(audit.stageIds(), expectedIds);
+        List<String> extra = WorkflowAudit.extraInArtifact(audit.stageIds(), expectedIds);
+
+        StringBuilder text = new StringBuilder();
+        text.append("Artifact: ").append(audit.getFile()).append('\n');
+        text.append("Recognizable export markers: shebang=").append(audit.hasShebang())
+                .append(", set -euo pipefail=").append(audit.hasSetOptions())
+                .append(", SLURM block=").append(audit.hasSlurmBlock()).append('\n');
+        if (!audit.getGeneratorLine().isBlank()) {
+            text.append("Generator: # Generated by ").append(audit.getGeneratorLine())
+                    .append("  (a CLAIM made by the file, not a verified fact)\n");
+        }
+        if (!audit.getWorkflowType().isBlank()) {
+            text.append("Workflow type stamped in artifact: ")
+                    .append(audit.getWorkflowType());
+            if (type != null && !audit.getWorkflowType().equals(type.name())) {
+                text.append("  <-- MISMATCH with the current type ").append(type.name())
+                        .append(": the artifact predates a workflow-type change");
+            }
+            text.append('\n');
+        }
+        text.append(String.format(Locale.ROOT, "%nExported stages (%d):%n",
+                audit.getStages().size()));
+        for (WorkflowAudit.StageVerdict stage : audit.getStages()) {
+            text.append(String.format(Locale.ROOT, "  #%-3d %-14s %-9s %-9s %s%n",
+                    stage.getIndex(), stage.getId(),
+                    stage.isOptional() ? "optional" : "required",
+                    stage.hasCommand() ? "has-cmd" : "NO-COMMAND",
+                    stage.isAbortsWhenEmpty() ? "WOULD EXIT 2 at runtime" : ""));
+        }
+        if (!audit.abortStageIds().isEmpty()) {
+            text.append("\nWARNING: required stage(s) ").append(audit.abortStageIds())
+                    .append(" carry no command - running the artifact would abort there. "
+                            + "Configure QE executable paths and re-export.\n");
+        }
+        text.append("\nSync vs current configuration (").append(expectedNote)
+                .append("): ").append(verdict).append('\n');
+        if (verdict == WorkflowAudit.SyncVerdict.BEHIND_CONFIG
+                || verdict == WorkflowAudit.SyncVerdict.DIVERGED) {
+            text.append("  stage(s) in the CURRENT config but NOT in the artifact: ")
+                    .append(missing).append('\n');
+        }
+        if (verdict == WorkflowAudit.SyncVerdict.AHEAD_OF_CONFIG
+                || verdict == WorkflowAudit.SyncVerdict.DIVERGED) {
+            text.append("  stage(s) in the artifact but NOT in the current config: ")
+                    .append(extra).append('\n');
+        }
+        text.append("\nRead-only boundary: the artifact was READ and judged; nothing was "
+                + "rewritten, refreshed, or re-exported, and no stage was executed. A stale "
+                + "artifact is refreshed by your deliberate rerun or Export action, matching "
+                + "the artifact's own purpose: staying usable when QuantumForge is absent.");
+        List<String> csv = new ArrayList<>();
+        csv.add("stage_index,stage_id,optional,has_command,aborts_when_empty");
+        for (WorkflowAudit.StageVerdict stage : audit.getStages()) {
+            csv.add(String.format(Locale.ROOT, "%d,%s,%s,%s,%s", stage.getIndex(),
+                    csvCell(stage.getId()), stage.isOptional(), stage.hasCommand(),
+                    stage.isAbortsWhenEmpty()));
+        }
+        List<String> provenance = new ArrayList<>();
+        provenance.add("workflow-audit: sync_verdict=" + verdict);
+        provenance.add("workflow-audit: stages=" + audit.getStages().size());
         return new AnalysisReport(label, true, text.toString(), csv, null, provenance);
     }
 
