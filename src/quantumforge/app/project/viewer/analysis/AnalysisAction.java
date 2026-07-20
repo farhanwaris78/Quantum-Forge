@@ -603,6 +603,26 @@ public final class AnalysisAction {
             parameters.withCutoffPlan(ladder, ratio.doubleValue());
             break;
         }
+        case ARRAY_JOB_PLAN: {
+            String base = askText("array base name ([A-Za-z][A-Za-z0-9._-]{0,63}; "
+                    + "seeds <base>/task_<i> directories)", "sweep");
+            if (base == null) {
+                return null;
+            }
+            String values = askText("sweep values, comma-separated plain numbers "
+                    + "(echoed VERBATIM; numeric duplicates refuse - e.g. '30, 30.0' "
+                    + "is one point twice)", "");
+            if (values == null) {
+                return null;
+            }
+            String slurm = askText("incorporate a '#SBATCH --array=1-N' REVIEW line? "
+                    + "type exactly 'yes' to opt in", "no");
+            if (slurm == null) {
+                return null;
+            }
+            parameters.withArrayJob(base, values, slurm.trim().equalsIgnoreCase("yes"));
+            break;
+        }
         case SLAB_MILLER_PREVIEW: {
             Integer h = askInteger("Miller index h (-16..16)", 1);
             if (h == null) {

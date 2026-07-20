@@ -5110,4 +5110,51 @@ class ResultAnalysisServiceTest {
         assertFalse(belowBand.isSuccess());
         assertTrue(belowBand.getText().contains("[CUTOFF_VALUE]"), belowBand.getText());
     }
+
+
+    @Test
+    void arrayJobPlanPinsTheOneBasedVerbatimMapping() throws IOException {
+        AnalysisReport report = ResultAnalysisService.analyze(
+                AnalysisKind.ARRAY_JOB_PLAN, stubProject(this.tempDir),
+                new AnalysisParameters().withArrayJob("ecut-sweep", "30.00, 40, 60.000000",
+                        true));
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains(
+                "Array 'ecut-sweep': 3 task(s), 1-based mapping"), report.getText());
+        assertTrue(report.getText().contains("VERBATIM"), report.getText());
+        String block = report.getGeneratedInput().orElseThrow();
+        assertTrue(block.contains("slurm_array_line = #SBATCH --array=1-3"), block);
+        assertTrue(block.contains("task 1 = 30.00   (dir ecut-sweep/task_1)"), block,
+                "echo stays verbatim - '30.00' is never re-rounded to '30'");
+        assertTrue(block.contains("task 3 = 60.000000   (dir ecut-sweep/task_3)"), block);
+        String csv = String.join("\n", report.getCsvLines());
+        assertTrue(csv.contains("task,value_verbatim,directory"), csv);
+        assertTrue(csv.contains("2,40,ecut-sweep/task_2"), csv);
+    }
+
+    @Test
+    void arrayJobPlanFailClosedPaths() throws IOException {
+        AnalysisReport numericDup = ResultAnalysisService.analyze(
+                AnalysisKind.ARRAY_JOB_PLAN, stubProject(this.tempDir),
+                new AnalysisParameters().withArrayJob("sweep", "30, 30.0", false));
+        assertFalse(numericDup.isSuccess(),
+                "'30' and '30.0' are the same point numerically - refused");
+        assertTrue(numericDup.getText().contains("[ARRAY_DUPLICATE]"),
+                numericDup.getText());
+
+        AnalysisReport pathFragment = ResultAnalysisService.analyze(
+                AnalysisKind.ARRAY_JOB_PLAN, stubProject(this.tempDir),
+                new AnalysisParameters().withArrayJob("../sweep", "30", false));
+        assertFalse(pathFragment.isSuccess(),
+                "the base seeds directories - path fragments refuse");
+        assertTrue(pathFragment.getText().contains("[ARRAY_NAME]"),
+                pathFragment.getText());
+
+        AnalysisReport nonNumeric = ResultAnalysisService.analyze(
+                AnalysisKind.ARRAY_JOB_PLAN, stubProject(this.tempDir),
+                new AnalysisParameters().withArrayJob("sweep", "30, oops", false));
+        assertFalse(nonNumeric.isSuccess());
+        assertTrue(nonNumeric.getText().contains("[ARRAY_VALUES]"),
+                nonNumeric.getText());
+    }
 }

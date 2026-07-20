@@ -80,6 +80,7 @@ import quantumforge.remote.OptimadeStructuresParser;
 import quantumforge.remote.MpApiQueryBuilder;
 import quantumforge.remote.MpSummaryParser;
 import quantumforge.input.NebInputPlanner;
+import quantumforge.remote.ArrayJobPlan;
 import quantumforge.remote.JobCancelPlan;
 import quantumforge.remote.MonitorPollPlan;
 import quantumforge.remote.SftpTransferPlan;
@@ -303,7 +304,8 @@ public final class ResultAnalysisService {
         MONITOR_POLL_PLAN("Remote-monitoring poll plan (bounded backoff, offline semantics)"),
         SYNC_MANIFEST_DRAFT("Selective result-sync manifest draft (role-per-name, intent not facts)"),
         SMEARING_LADDER_PLAN("Smearing down-ladder plan (degauss Ry/eV, never declares convergence)"),
-        CUTOFF_LADDER_PLAN("Cutoff convergence ladder (ecutwfc Ry/eV + implied ecutrho)");
+        CUTOFF_LADDER_PLAN("Cutoff convergence ladder (ecutwfc Ry/eV + implied ecutrho)"),
+        ARRAY_JOB_PLAN("Scheduler array-job plan (1-based mapping, verbatim sweep tokens)");
 
         private final String label;
 
@@ -362,7 +364,7 @@ public final class ResultAnalysisService {
                     || this == SITE_PROFILE_DRAFT || this == NEB_INPUT_DRAFT
                     || this == JOB_CANCEL_PLAN || this == MONITOR_POLL_PLAN
                     || this == SYNC_MANIFEST_DRAFT || this == SMEARING_LADDER_PLAN
-                    || this == CUTOFF_LADDER_PLAN;
+                    || this == CUTOFF_LADDER_PLAN || this == ARRAY_JOB_PLAN;
         }
 
         /** True for project-bound kinds that additionally parse a user data file. */
@@ -507,6 +509,9 @@ public final class ResultAnalysisService {
         private String smearLadder = "";          // descending degauss values in Ry
         private String cutoffLadder = "";         // ascending ecutwfc values in Ry
         private double cutoffRhoRatio = Double.NaN;  // REQUIRED, no invented default
+        private String arrayBase = "";            // ARRAY_JOB_PLAN directory-seeding base
+        private String arrayValues = "";          // verbatim sweep tokens
+        private boolean arraySlurmLine = false;   // opt-IN review line only
 
         public double getFermiEv() { return this.fermiEv; }
         public int getKpointIndex() { return this.kpointIndex; }
@@ -1028,6 +1033,18 @@ public final class ResultAnalysisService {
         public AnalysisParameters withCutoffPlan(String ladder, double rhoRatio) {
             this.cutoffLadder = ladder == null ? "" : ladder;
             this.cutoffRhoRatio = rhoRatio;
+            return this;
+        }
+
+        public String getArrayBase() { return this.arrayBase; }
+        public String getArrayValues() { return this.arrayValues; }
+        public boolean isArraySlurmLine() { return this.arraySlurmLine; }
+
+        public AnalysisParameters withArrayJob(String base, String values,
+                boolean slurmLine) {
+            this.arrayBase = base == null ? "" : base;
+            this.arrayValues = values == null ? "" : values;
+            this.arraySlurmLine = slurmLine;
             return this;
         }
     }
@@ -1666,6 +1683,8 @@ public final class ResultAnalysisService {
                 return analyzeSmearingLadderPlan(params);
             case CUTOFF_LADDER_PLAN:
                 return analyzeCutoffLadderPlan(params);
+            case ARRAY_JOB_PLAN:
+                return analyzeArrayJobPlan(params);
             case SLAB_MILLER_PREVIEW:
                 return analyzeSlabMillerPreview(project, params);
             default:
@@ -8358,6 +8377,49 @@ public final class ResultAnalysisService {
                 + "default - ranges like 4 (NC) or 8-12 (US/PAW) are literature "
                 + "hearsay, echoed as hearsay.\n");
         return new AnalysisReport(label, true, text.toString(), csv, null);
+    }
+
+    /**
+     * Roadmap #100 (plan slice): typed scheduler array-job plan. The mapping
+     * is pinned 1-BASED like --array=1-N (task i -> value_i -> dir
+     * <base>/task_<i>); sweep tokens echo VERBATIM (never re-rounded) while
+     * duplicate detection is NUMERIC ('30' vs '30.0' refuses - two tasks
+     * computing the same point is the silent-redundancy this manifest exists
+     * to prevent). The #SBATCH --array=1-N line is an opt-IN review line;
+     * pbs/pjm/sge syntax is stated depth, never guessed. Nothing is
+     * submitted or templated from this build.
+     */
+    private static AnalysisReport analyzeArrayJobPlan(AnalysisParameters params) {
+        String label = AnalysisKind.ARRAY_JOB_PLAN.getLabel();
+        OperationResult<ArrayJobPlan.Plan> validated = ArrayJobPlan.validate(
+                params.getArrayBase(), params.getArrayValues(),
+                params.isArraySlurmLine());
+        if (!validated.isSuccess() || validated.getValue().isEmpty()) {
+            return failure(label, "The array-job plan was refused:\n[" + validated.getCode()
+                    + "] " + validated.getMessage());
+        }
+        ArrayJobPlan.Plan plan = validated.getValue().get();
+        String block = plan.render();
+        StringBuilder text = new StringBuilder();
+        text.append(String.format(Locale.ROOT,
+                "Array '%s': %d task(s), 1-based mapping (task i -> dir %s/task_<i>), "
+                        + "SLURM review line %s.%n",
+                plan.getBaseName(), plan.getTaskCount(), plan.getBaseName(),
+                plan.hasSlurmArrayLine() ? "incorporated" : "NOT incorporated");
+        text.append("\nPlan block (also in the draft channel):\n\n").append(block);
+        text.append("\nHonesty block: NOTHING is submitted, and no deck is templated "
+                + "from this build. Sweep tokens echo VERBATIM (your '30.00' stays "
+                + "'30.00' - float mangling would silently change what runs) while "
+                + "duplicate detection is numeric (the same point twice refuses). "
+                + "Per-task deck substitution is #100 runtime depth and is never "
+                + "silently composed here; pbs/pjm/sge array syntax is depth too.\n");
+        List<String> csv = new ArrayList<>();
+        csv.add("task,value_verbatim,directory");
+        for (int i = 1; i <= plan.getTaskCount(); i++) {
+            csv.add(String.format(Locale.ROOT, "%d,%s,%s", i, csvCell(plan.taskValue(i)),
+                    csvCell(plan.taskDirectory(i))));
+        }
+        return new AnalysisReport(label, true, text.toString(), csv, block);
     }
 
     /**
