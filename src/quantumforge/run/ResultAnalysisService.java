@@ -54,6 +54,7 @@ import quantumforge.builder.PdbStructureReader;
 import quantumforge.builder.PoscarStructureReader;
 import quantumforge.builder.QEConstraintSpec;
 import quantumforge.builder.QEIonicConstraintManager;
+import quantumforge.hpc.ArrayDeckTemplate;
 import quantumforge.hpc.ArraySweepPlanner;
 import quantumforge.hpc.SiteProfile;
 import quantumforge.hpc.SiteProfileValidator;
@@ -1791,7 +1792,7 @@ public final class ResultAnalysisService {
             case KEYWORD_HELP:
                 return analyzeKeywordHelp(project, params);
             case ARRAY_SWEEP_PLAN:
-                return analyzeArraySweepPlan(params);
+                return analyzeArraySweepPlan(project, params);
             case CELL_EXTXYZ_EXPORT:
                 return analyzeCellExtXyzExport(project);
             case DENSITY_DIFFERENCE:
@@ -4704,7 +4705,8 @@ public final class ResultAnalysisService {
      * manifest (explicit save) plus a REQUIRED-EDIT-guarded sbatch preview in the
      * report text. Nothing is submitted, no directory is created.
      */
-    private static AnalysisReport analyzeArraySweepPlan(AnalysisParameters params) {
+    private static AnalysisReport analyzeArraySweepPlan(Project project,
+            AnalysisParameters params) {
         String label = AnalysisKind.ARRAY_SWEEP_PLAN.getLabel();
         OperationResult<ArraySweepPlanner.SweepPlan> planned = ArraySweepPlanner.plan(
                 params.getSeriesKeyword(), params.getSeriesStart(), params.getSeriesStep(),
@@ -4723,13 +4725,16 @@ public final class ResultAnalysisService {
                 .append(plan.taskDirectory(plan.getValues().size())).append("\n\n");
         text.append("SLURM array preview (REVIEW ONLY - the guard refuses to run as-is):\n");
         text.append(plan.sbatchPreview()).append('\n');
+        DeckTemplateOutcome deck = templatesProjectDeck(project, plan);
+        text.append('\n').append(deck.reportSection);
         List<String> csv = new ArrayList<>();
         csv.add("task_index,value,directory");
         for (int i = 0; i < plan.getValues().size(); i++) {
             csv.add(String.format(Locale.ROOT, "%d,%s,%s", i + 1,
                     Double.toString(plan.getValues().get(i)), plan.taskDirectory(i + 1)));
         }
-        text.append("Honesty boundary: the JSONL task manifest and the sbatch preview are "
+        csv.add(deck.csvRow);
+        text.append("\nHonesty boundary: the JSONL task manifest and the sbatch preview are "
                 + "drafts - nothing was submitted, no directory was created, and the script "
                 + "carries an exit-2 guard plus REQUIRED-EDIT lines so it cannot be queued "
                 + "without review. The sweep rewrites exactly one keyword; convergence "
@@ -4737,6 +4742,76 @@ public final class ResultAnalysisService {
                 + "Per-task run manifests (#28) and scheduler submit integration (#93) "
                 + "remain the remaining #100 work.");
         return new AnalysisReport(label, true, text.toString(), csv, plan.toJsonLines());
+    }
+
+    /** Report-section carrier for the deck-templating extension. */
+    private static final class DeckTemplateOutcome {
+        private final String reportSection;
+        private final String csvRow;
+
+        DeckTemplateOutcome(String reportSection, String csvRow) {
+            this.reportSection = reportSection;
+            this.csvRow = csvRow;
+        }
+    }
+
+    /**
+     * #100 deck-templating slice: rewrites the project deck's swept-keyword
+     * line via {@link ArrayDeckTemplate} (single owner of the one-line
+     * grammar). Missing decks render as a NOT-exercised finding, grammar
+     * refusals as FINDINGS - the sweep plan above stands either way.
+     */
+    private static DeckTemplateOutcome templatesProjectDeck(Project project,
+            ArraySweepPlanner.SweepPlan plan) {
+        StringBuilder section = new StringBuilder("Deck templating (project deck, "
+                + "one-line grammar owned by ArrayDeckTemplate):\n");
+        java.nio.file.Path deckPath = null;
+        String deckText = null;
+        try {
+            deckPath = java.nio.file.Path.of(project.getDirectoryPath(),
+                    project.getInpFileName(null));
+            if (java.nio.file.Files.isRegularFile(deckPath)) {
+                deckText = java.nio.file.Files.readString(deckPath);
+            }
+        } catch (Exception readFail) {
+            deckPath = null;
+        }
+        if (deckText == null) {
+            section.append("  NOT exercised: no readable project deck (expected ")
+                    .append(project.getInpFileName(null))
+                    .append(" in the project directory). Without it the sweep would "
+                            + "have to guess the deck - it refuses; the manifest and the "
+                            + "guarded sbatch preview above stand unchanged.\n");
+            return new DeckTemplateOutcome(section.toString(),
+                    "deck_template,not_exercised,no readable project deck - the sweep plan stands");
+        }
+        OperationResult<ArrayDeckTemplate.DeckTemplate> validated =
+                ArrayDeckTemplate.validate(plan, deckText);
+        if (!validated.isSuccess() || validated.getValue().isEmpty()) {
+            section.append(String.format(Locale.ROOT,
+                    "  Refused as a FINDING [%s] %s (the deck itself is untouched; the "
+                            + "sweep plan above stands).%n",
+                    validated.getCode(), validated.getMessage()));
+            return new DeckTemplateOutcome(section.toString(),
+                    String.format(Locale.ROOT, "deck_template,refused,%s",
+                            csvCell(validated.getCode())));
+        }
+        ArrayDeckTemplate.DeckTemplate template = validated.getValue().get();
+        section.append(String.format(Locale.ROOT,
+                "  [DECK_TEMPLATE_OK] sweep point: '%s' -> '%s'%n",
+                template.getLineBefore(), template.getLineAfter()));
+        section.append(String.format(Locale.ROOT,
+                "  Exact task values: task 1 renders '%s'; task %d renders '%s'.%n",
+                template.renderTaskLine(1), template.getTaskCount(),
+                template.renderTaskLine(template.getTaskCount())));
+        section.append("  Render intent (preview only, same exit-2 guard boundary): "
+                + "each array task substitutes its own value for "
+                + ArrayDeckTemplate.PLACEHOLDER + " at the site - the placeholder is "
+                + "literal-safe by construction; NO full deck is dumped here (the project "
+                + "deck on disk stays exactly as you saved it).\n");
+        return new DeckTemplateOutcome(section.toString(), String.format(Locale.ROOT,
+                "deck_template,DECK_TEMPLATE_OK,one sweep point; %d tasks render exactly",
+                template.getTaskCount()));
     }
 
     /**

@@ -2266,9 +2266,17 @@ class ResultAnalysisServiceTest {
                 report.getText());
         assertTrue(report.getText().contains("#SBATCH --array=1-3"), report.getText());
         assertTrue(report.getText().contains("nothing was submitted"), report.getText());
-        assertEquals(4, report.getCsvLines().size());
+        assertEquals(5, report.getCsvLines().size(),
+                "header + 3 task rows + the batch-137 deck_template row");
         assertEquals("1,30.0,si-cut-001", report.getCsvLines().get(1));
         assertEquals("3,50.0,si-cut-003", report.getCsvLines().get(3));
+        assertEquals("deck_template,not_exercised,no readable project deck - the sweep "
+                + "plan stands", report.getCsvLines().get(4),
+                "no espresso.in in the stub directory = honest NOT-exercised finding");
+        assertTrue(report.getText().contains("Deck templating (project deck, one-line "
+                + "grammar owned by ArrayDeckTemplate):"), report.getText());
+        assertTrue(report.getText().contains("NOT exercised: no readable project deck"),
+                report.getText());
 
         AnalysisReport badKeyword = ResultAnalysisService.analyze(
                 AnalysisKind.ARRAY_SWEEP_PLAN, stubProject(this.tempDir),
@@ -6185,5 +6193,48 @@ class ResultAnalysisServiceTest {
                 report.getText());
         String csv = String.join("\n", report.getCsvLines());
         assertTrue(csv.contains("bridge,SITE_BRIDGE_OK,hpc-profile compiled"), csv);
+    }
+
+    @Test
+    void arraySweepPlanTemplatesTheProjectDeckWhenPresent() throws IOException {
+        String deck = "&SYSTEM\n    ibrav = 2\n    ecutwfc = 30.0,  ! cutoff\n/\n"
+                + "ATOMIC_SPECIES\nSi 28.0855 Si.UPF\n";
+        java.nio.file.Files.writeString(this.tempDir.resolve("espresso.in"), deck);
+        AnalysisReport report = ResultAnalysisService.analyze(AnalysisKind.ARRAY_SWEEP_PLAN,
+                stubProject(this.tempDir),
+                new AnalysisParameters().withSeriesKeyword("ecutwfc").withSeriesStart(30.0)
+                        .withSeriesStep(10.0).withSeriesCount(3).withJobBaseName("si-cut"));
+        assertTrue(report.isSuccess(), report.getText());
+        String text = report.getText();
+        assertTrue(text.contains("[DECK_TEMPLATE_OK] sweep point: "
+                + "'ecutwfc = 30.0,  ! cutoff' -> 'ecutwfc = QF_ARRAY_VALUE,  ! cutoff'"),
+                text);
+        assertTrue(text.contains("task 1 renders 'ecutwfc = 30.0"), text,
+                "task 1 rerenders the deck's own value exactly");
+        assertTrue(text.contains("task 3 renders 'ecutwfc = 50.0,  ! cutoff'"), text);
+        assertTrue(text.contains("literal-safe by construction"), text);
+        String csv = String.join("\n", report.getCsvLines());
+        assertTrue(csv.contains("deck_template,DECK_TEMPLATE_OK,one sweep point; 3 tasks "
+                + "render exactly"), csv);
+        assertEquals(report.getGeneratedInput() != null, true,
+                "the JSONL manifest stays the draft channel");
+    }
+
+    @Test
+    void arraySweepPlanDeckRefusalIsAFindingNotAPlanFailure() throws IOException {
+        String deck = "&SYSTEM\n    celldm(1) = 10.2\n/\n";  // no ecutwfc anywhere
+        java.nio.file.Files.writeString(this.tempDir.resolve("espresso.in"), deck);
+        AnalysisReport report = ResultAnalysisService.analyze(AnalysisKind.ARRAY_SWEEP_PLAN,
+                stubProject(this.tempDir),
+                new AnalysisParameters().withSeriesKeyword("ecutwfc").withSeriesStart(30.0)
+                        .withSeriesStep(10.0).withSeriesCount(2).withJobBaseName("si-cut"));
+        assertTrue(report.isSuccess(),
+                "a deck-grammar refusal is a finding; the sweep plan still stands");
+        assertTrue(report.getText().contains("Refused as a FINDING [DECK_KEYWORD]"),
+                report.getText());
+        assertTrue(report.getText().contains("run the SAME deck 2 times"), report.getText(),
+                "the refusal explains why same-deck repetition is not a sweep");
+        String csv = String.join("\n", report.getCsvLines());
+        assertTrue(csv.contains("deck_template,refused,DECK_KEYWORD"), csv);
     }
 }
