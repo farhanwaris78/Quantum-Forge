@@ -649,6 +649,40 @@ public final class AnalysisAction {
             parameters.withContainerProfile(runtime, image, binds, mpi);
             break;
         }
+        case JOB_STATE_GUARD: {
+            String mode = askText("mode - TYPED: transition | signal", "transition");
+            if (mode == null) {
+                return null;
+            }
+            if (mode.trim().equalsIgnoreCase("transition")) {
+                String from = askText("from state (staged/submitted/pending/running/"
+                        + "completed/failed/cancelled/unknown)", "pending");
+                if (from == null) {
+                    return null;
+                }
+                String to = askText("to state (same typed set)", "running");
+                if (to == null) {
+                    return null;
+                }
+                parameters.withJobState("transition", from, to, "", "");
+            } else if (mode.trim().equalsIgnoreCase("signal")) {
+                String scheduler = askText("scheduler - TYPED: slurm | pbs | pjm | sge",
+                        "slurm");
+                if (scheduler == null) {
+                    return null;
+                }
+                String signal = askText("scheduler signal/code (e.g. PD, R, CD, qw, "
+                        + "F; unrecognized maps to an HONEST UNKNOWN, never a guess)",
+                        "");
+                if (signal == null) {
+                    return null;
+                }
+                parameters.withJobState("signal", "", "", scheduler, signal);
+            } else {
+                parameters.withJobState(mode, "", "", "", "");  // analyzer refuses typed
+            }
+            break;
+        }
         case SLAB_MILLER_PREVIEW: {
             Integer h = askInteger("Miller index h (-16..16)", 1);
             if (h == null) {

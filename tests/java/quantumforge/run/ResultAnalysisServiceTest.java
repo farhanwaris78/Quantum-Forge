@@ -5213,4 +5213,80 @@ class ResultAnalysisServiceTest {
                 "other engines are unsupported rather than renamed");
         assertTrue(runtime.getText().contains("[CONTAINER_RUNTIME]"), runtime.getText());
     }
+
+
+    @Test
+    void jobStateGuardJudgesTransitionsAndSignals() throws IOException {
+        AnalysisReport legal = ResultAnalysisService.analyze(
+                AnalysisKind.JOB_STATE_GUARD, stubProject(this.tempDir),
+                new AnalysisParameters().withJobState("transition", "pending", "running",
+                        "", ""));
+        assertTrue(legal.isSuccess(), legal.getText());
+        assertTrue(legal.getText().contains("transition PENDING -> RUNNING : LEGAL "
+                + "(forward edge)"), legal.getText());
+        assertTrue(legal.getText().contains("staged     -> submitted"), legal.getText(),
+                "the full legal table renders");
+
+        AnalysisReport sideways = ResultAnalysisService.analyze(
+                AnalysisKind.JOB_STATE_GUARD, stubProject(this.tempDir),
+                new AnalysisParameters().withJobState("transition", "running", "unknown",
+                        "", ""));
+        assertTrue(sideways.isSuccess(), sideways.getText());
+        assertTrue(sideways.getText().contains("RECONCILIATION, not progress"),
+                sideways.getText());
+
+        AnalysisReport mapped = ResultAnalysisService.analyze(
+                AnalysisKind.JOB_STATE_GUARD, stubProject(this.tempDir),
+                new AnalysisParameters().withJobState("signal", "", "", "slurm", "CD"));
+        assertTrue(mapped.isSuccess(), mapped.getText());
+        assertTrue(mapped.getText().contains("signal 'CD' on slurm -> COMPLETED"),
+                mapped.getText());
+
+        AnalysisReport unknownSig = ResultAnalysisService.analyze(
+                AnalysisKind.JOB_STATE_GUARD, stubProject(this.tempDir),
+                new AnalysisParameters().withJobState("signal", "", "", "slurm", "XYZZY"));
+        assertTrue(unknownSig.isSuccess(),
+                "unrecognized signal is an HONEST UNKNOWN success, never a guess");
+        assertTrue(unknownSig.getText().contains("-> UNKNOWN"), unknownSig.getText());
+        assertTrue(unknownSig.getText().contains("never guesses"), unknownSig.getText());
+    }
+
+    @Test
+    void jobStateGuardFailClosedPaths() throws IOException {
+        AnalysisReport backward = ResultAnalysisService.analyze(
+                AnalysisKind.JOB_STATE_GUARD, stubProject(this.tempDir),
+                new AnalysisParameters().withJobState("transition", "running", "pending",
+                        "", ""));
+        assertFalse(backward.isSuccess(), "backward edges rewrite history - refused");
+        assertTrue(backward.getText().contains("[JOBSTATE_TRANSITION]"),
+                backward.getText());
+
+        AnalysisReport stagedCancel = ResultAnalysisService.analyze(
+                AnalysisKind.JOB_STATE_GUARD, stubProject(this.tempDir),
+                new AnalysisParameters().withJobState("transition", "staged", "cancelled",
+                        "", ""));
+        assertFalse(stagedCancel.isSuccess(),
+                "a staged-only job was never live - it cannot be 'cancelled'");
+        assertTrue(stagedCancel.getText().contains("never live"),
+                stagedCancel.getText());
+
+        AnalysisReport terminal = ResultAnalysisService.analyze(
+                AnalysisKind.JOB_STATE_GUARD, stubProject(this.tempDir),
+                new AnalysisParameters().withJobState("transition", "failed", "running",
+                        "", ""));
+        assertFalse(terminal.isSuccess());
+        assertTrue(terminal.getText().contains("TERMINAL"), terminal.getText());
+
+        AnalysisReport freeScheduler = ResultAnalysisService.analyze(
+                AnalysisKind.JOB_STATE_GUARD, stubProject(this.tempDir),
+                new AnalysisParameters().withJobState("signal", "", "", "torque", "R"));
+        assertFalse(freeScheduler.isSuccess());
+        assertTrue(freeScheduler.getText().contains("[JOBSTATE_SCHEDULER]"),
+                freeScheduler.getText());
+
+        AnalysisReport badMode = ResultAnalysisService.analyze(
+                AnalysisKind.JOB_STATE_GUARD, stubProject(this.tempDir),
+                new AnalysisParameters().withJobState("guess", "", "", "", ""));
+        assertFalse(badMode.isSuccess(), "modes are typed - neither duck applies");
+    }
 }

@@ -396,6 +396,7 @@ def main() -> int:
                   "CutoffLadderPlan", "CUTOFF_LADDER_PLAN",
                   "ArrayJobPlan", "ARRAY_JOB_PLAN",
                   "ContainerProfileSpec", "CONTAINER_PROFILE_DRAFT",
+                  "JobStateGuard", "JOB_STATE_GUARD",
                   "JournalReplayMath", "replay_combined_det"]:
         if token not in service:
             error(f"ResultAnalysisService is not bound to {token}")
@@ -458,6 +459,7 @@ def main() -> int:
                 "quantumforge/run/CutoffLadderPlan.java",
                 "quantumforge/remote/ArrayJobPlan.java",
                 "quantumforge/remote/ContainerProfileSpec.java",
+                "quantumforge/remote/JobStateGuard.java",
                 "quantumforge/builder/JournalReplayMath.java"]:
         text = (SRC / rel).read_text(encoding="utf-8")
         if "class " not in text:

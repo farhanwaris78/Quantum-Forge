@@ -83,6 +83,7 @@ import quantumforge.input.NebInputPlanner;
 import quantumforge.remote.ArrayJobPlan;
 import quantumforge.remote.ContainerProfileSpec;
 import quantumforge.remote.JobCancelPlan;
+import quantumforge.remote.JobStateGuard;
 import quantumforge.remote.MonitorPollPlan;
 import quantumforge.remote.SftpTransferPlan;
 import quantumforge.remote.SiteProfileSpec;
@@ -307,7 +308,8 @@ public final class ResultAnalysisService {
         SMEARING_LADDER_PLAN("Smearing down-ladder plan (degauss Ry/eV, never declares convergence)"),
         CUTOFF_LADDER_PLAN("Cutoff convergence ladder (ecutwfc Ry/eV + implied ecutrho)"),
         ARRAY_JOB_PLAN("Scheduler array-job plan (1-based mapping, verbatim sweep tokens)"),
-        CONTAINER_PROFILE_DRAFT("Apptainer/Singularity profile draft (digest-pinned, MPI declared)");
+        CONTAINER_PROFILE_DRAFT("Apptainer/Singularity profile draft (digest-pinned, MPI declared)"),
+        JOB_STATE_GUARD("Job state transition/signal guard (typed edges, unknown-honest)");
 
         private final String label;
 
@@ -367,7 +369,7 @@ public final class ResultAnalysisService {
                     || this == JOB_CANCEL_PLAN || this == MONITOR_POLL_PLAN
                     || this == SYNC_MANIFEST_DRAFT || this == SMEARING_LADDER_PLAN
                     || this == CUTOFF_LADDER_PLAN || this == ARRAY_JOB_PLAN
-                    || this == CONTAINER_PROFILE_DRAFT;
+                    || this == CONTAINER_PROFILE_DRAFT || this == JOB_STATE_GUARD;
         }
 
         /** True for project-bound kinds that additionally parse a user data file. */
@@ -519,6 +521,11 @@ public final class ResultAnalysisService {
         private String containerImageRef = "";    // name:tag@sha256:<64hex> REQUIRED digest
         private String containerBinds = "";       // csv absolute POSIX, literal grammar
         private String containerMpiAnswer = "";   // exactly 'yes'/'no' - neutral refuses
+        private String jobStateMode = "";         // JOB_STATE_GUARD: transition|signal
+        private String jobStateFrom = "";
+        private String jobStateTo = "";
+        private String jobStateScheduler = "";
+        private String jobStateSignal = "";
 
         public double getFermiEv() { return this.fermiEv; }
         public int getKpointIndex() { return this.kpointIndex; }
@@ -1066,6 +1073,22 @@ public final class ResultAnalysisService {
             this.containerImageRef = imageRef == null ? "" : imageRef;
             this.containerBinds = binds == null ? "" : binds;
             this.containerMpiAnswer = mpiAnswer == null ? "" : mpiAnswer;
+            return this;
+        }
+
+        public String getJobStateMode() { return this.jobStateMode; }
+        public String getJobStateFrom() { return this.jobStateFrom; }
+        public String getJobStateTo() { return this.jobStateTo; }
+        public String getJobStateScheduler() { return this.jobStateScheduler; }
+        public String getJobStateSignal() { return this.jobStateSignal; }
+
+        public AnalysisParameters withJobState(String mode, String from, String to,
+                String scheduler, String signal) {
+            this.jobStateMode = mode == null ? "" : mode;
+            this.jobStateFrom = from == null ? "" : from;
+            this.jobStateTo = to == null ? "" : to;
+            this.jobStateScheduler = scheduler == null ? "" : scheduler;
+            this.jobStateSignal = signal == null ? "" : signal;
             return this;
         }
     }
@@ -1708,6 +1731,8 @@ public final class ResultAnalysisService {
                 return analyzeArrayJobPlan(params);
             case CONTAINER_PROFILE_DRAFT:
                 return analyzeContainerProfileDraft(params);
+            case JOB_STATE_GUARD:
+                return analyzeJobStateGuard(params);
             case SLAB_MILLER_PREVIEW:
                 return analyzeSlabMillerPreview(project, params);
             default:
@@ -8494,6 +8519,74 @@ public final class ResultAnalysisService {
                 + "not verified",
                 profile.isHostMpiCompatible() ? "host-compatible" : "container-internal"));
         return new AnalysisReport(label, true, text.toString(), csv, block);
+    }
+
+    /**
+     * Roadmap #95 (guard slice): the legal transition table plus scheduler
+     * signal mapping as a pure truth function. Terminals never leave;
+     * backward edges refuse (they rewrite history); the only sideways edge
+     * is -> UNKNOWN, always labelled reconciliation-not-progress; CANCELLED
+     * requires a live job (batch 112's verification shows it gone); and an
+     * unrecognized scheduler signal SUCCEEDS carrying UNKNOWN - unknown is an
+     * honest result, guessing is the error.
+     */
+    private static AnalysisReport analyzeJobStateGuard(AnalysisParameters params) {
+        String label = AnalysisKind.JOB_STATE_GUARD.getLabel();
+        String mode = params.getJobStateMode() == null ? "" : params.getJobStateMode()
+                .trim().toLowerCase(Locale.ROOT);
+        StringBuilder text = new StringBuilder();
+        List<String> csv = new ArrayList<>();
+        csv.add("item,value,note");
+        if (mode.equals("transition")) {
+            OperationResult<JobStateGuard.Verdict> verdict = JobStateGuard.transition(
+                    params.getJobStateFrom(), params.getJobStateTo());
+            if (!verdict.isSuccess() || verdict.getValue().isEmpty()) {
+                return failure(label, "The transition was refused:\n[" + verdict.getCode()
+                        + "] " + verdict.getMessage());
+            }
+            JobStateGuard.Verdict v = verdict.getValue().get();
+            text.append(String.format(Locale.ROOT,
+                    "transition %s -> %s : LEGAL%s%n", v.getFrom(), v.getTo(),
+                    v.isReconciliation() ? " (sideways -> UNKNOWN: RECONCILIATION, "
+                            + "not progress)" : " (forward edge)"));
+            csv.add(String.format(Locale.ROOT, "transition,%s->%s,%s", v.getFrom(),
+                    v.getTo(), v.isReconciliation() ? "reconciliation" : "legal-forward"));
+        } else if (mode.equals("signal")) {
+            OperationResult<JobStateGuard.State> mapped = JobStateGuard.mapSignal(
+                    params.getJobStateScheduler(), params.getJobStateSignal());
+            if (!mapped.isSuccess() || mapped.getValue().isEmpty()) {
+                return failure(label, "The signal mapping was refused:\n["
+                        + mapped.getCode() + "] " + mapped.getMessage());
+            }
+            JobStateGuard.State state = mapped.getValue().get();
+            text.append(String.format(Locale.ROOT,
+                    "signal '%s' on %s -> %s%n", params.getJobStateSignal(),
+                    params.getJobStateScheduler(), state));
+            if (state == JobStateGuard.State.UNKNOWN) {
+                text.append("(An unrecognized signal is an HONEST UNKNOWN result - the "
+                        + "mapping never guesses.)\n");
+            }
+            csv.add(String.format(Locale.ROOT, "signal,%s,%s",
+                    csvCell(params.getJobStateSignal()), state));
+        } else {
+            return failure(label, "mode must be typed 'transition' or 'signal' (got '"
+                    + params.getJobStateMode() + "') - the guard judges exactly one "
+                    + "truth per invocation.");
+        }
+        text.append("\nThe full legal table (the contract for the #95 runtime state "
+                + "machine):\n"
+                + "  staged     -> submitted\n"
+                + "  submitted  -> pending | failed | cancelled\n"
+                + "  pending    -> running | cancelled | failed\n"
+                + "  running    -> completed | failed | cancelled\n"
+                + "  any live   -> unknown   (sideways: RECONCILIATION, not progress)\n"
+                + "  terminals (completed/failed/cancelled/unknown): never leave\n"
+                + "Honesty block: no jobs exist in this build - this guard is the "
+                + "contract. CANCELLED additionally requires the batch-112 scheduler "
+                + "query to have shown the job gone; alternate GUI restart paths must "
+                + "reconstruct accurately FROM the scheduler and manifests, never from "
+                + "wishful last state.\n");
+        return new AnalysisReport(label, true, text.toString(), csv, null);
     }
 
     /**
