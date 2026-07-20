@@ -5353,4 +5353,81 @@ class ResultAnalysisServiceTest {
         assertFalse(bound.isSuccess());
         assertTrue(bound.getText().contains("[PHONON_GRID]"), bound.getText());
     }
+
+
+    @Test
+    void checkpointResubmitAdviceIsTypedAndNeverWrites() throws IOException {
+        Path dir = this.tempDir.resolve("qe-job");
+        Files.createDirectories(dir);
+        Files.writeString(dir.resolve("espresso.log"),
+                "some output\ncancelled due to time limit reached\n");
+        Path save = dir.resolve("espresso.save");
+        Files.createDirectories(save);
+        Files.writeString(save.resolve("data-file-schema.xml"), "<root/>");
+        Files.writeString(save.resolve("charge-density.dat"), "rho");
+        AnalysisReport report = ResultAnalysisService.analyze(
+                AnalysisKind.CHECKPOINT_RESUBMIT_PLAN, stubProject(dir),
+                new AnalysisParameters());
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains("Stop-reason signature: walltime"),
+                report.getText());
+        assertTrue(report.getText().contains("RECOMMENDATION: RESTART_AND_CONTINUE"),
+                report.getText());
+        assertTrue(report.getText().contains("restart_mode = 'restart'"),
+                report.getText());
+        assertTrue(report.getText().contains("No files were written"), report.getText(),
+                "the advice must never create a plan file or script");
+        long resubmitNamed;
+        try (java.util.stream.Stream<Path> entries = Files.list(dir)) {
+            resubmitNamed = entries.filter(p ->
+                    p.getFileName().toString().contains("resubmit")).count();
+        }
+        assertEquals(0, resubmitNamed,
+                "NOTHING resubmit-ish is written - only pre-existing dir contents remain");
+        String csv = String.join("\n", report.getCsvLines());
+        assertTrue(csv.contains("espresso,walltime,true,restart,RESTART_AND_CONTINUE"), csv);
+    }
+
+    @Test
+    void checkpointResubmitAdviceGatesUnknownAndScf() throws IOException {
+        Path dir = this.tempDir.resolve("qe-blind");
+        Files.createDirectories(dir);
+        // No .save and no logs at all: nothing is established.
+        AnalysisReport blind = ResultAnalysisService.analyze(
+                AnalysisKind.CHECKPOINT_RESUBMIT_PLAN, stubProject(dir),
+                new AnalysisParameters());
+        assertTrue(blind.isSuccess(), blind.getText());
+        assertTrue(blind.getText().contains("RECOMMENDATION: INSUFFICIENT_EVIDENCE"),
+                blind.getText());
+
+        // SCF non-convergence is a REVIEW gate even with complete artifacts.
+        Files.createDirectories(dir.resolve("espresso.save"));
+        Files.writeString(dir.resolve("espresso.save/data-file-schema.xml"), "<root/>");
+        Files.writeString(dir.resolve("espresso.save/charge-density.dat"), "rho");
+        Files.writeString(dir.resolve("espresso.log"), "convergence not achieved\n");
+        AnalysisReport scf = ResultAnalysisService.analyze(
+                AnalysisKind.CHECKPOINT_RESUBMIT_PLAN, stubProject(dir),
+                new AnalysisParameters());
+        assertTrue(scf.isSuccess(), scf.getText());
+        assertTrue(scf.getText().contains("RECOMMENDATION: REVIEW_BEFORE_RESUBMIT"),
+                scf.getText());
+        assertTrue(scf.getText().contains("mixing_beta"), scf.getText(),
+                "the review gate names what to change");
+
+        // Prefix override is honored for the signature scan.
+        Path dir2 = this.tempDir.resolve("qe-other");
+        Files.createDirectories(dir2);
+        Files.createDirectories(dir2.resolve("other.save"));
+        Files.writeString(dir2.resolve("other.save/data-file-schema.xml"), "<root/>");
+        Files.writeString(dir2.resolve("other.save/charge-density.dat"), "rho");
+        Files.writeString(dir2.resolve("other.log"), "walltime exceeded\n");
+        AnalysisReport override = ResultAnalysisService.analyze(
+                AnalysisKind.CHECKPOINT_RESUBMIT_PLAN, stubProject(dir2),
+                new AnalysisParameters().withCheckpointPrefix("other"));
+        assertTrue(override.isSuccess(), override.getText());
+        assertTrue(override.getText().contains("Prefix: other (user override)"),
+                override.getText());
+        assertTrue(override.getText().contains("RECOMMENDATION: RESTART_AND_CONTINUE"),
+                override.getText());
+    }
 }

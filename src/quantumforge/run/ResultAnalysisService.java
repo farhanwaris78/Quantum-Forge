@@ -310,7 +310,8 @@ public final class ResultAnalysisService {
         ARRAY_JOB_PLAN("Scheduler array-job plan (1-based mapping, verbatim sweep tokens)"),
         CONTAINER_PROFILE_DRAFT("Apptainer/Singularity profile draft (digest-pinned, MPI declared)"),
         JOB_STATE_GUARD("Job state transition/signal guard (typed edges, unknown-honest)"),
-        PHONON_GRID_PLAN("Phonon q-grid ladder plan (k/q commensurability verdicts, named)");
+        PHONON_GRID_PLAN("Phonon q-grid ladder plan (k/q commensurability verdicts, named)"),
+        CHECKPOINT_RESUBMIT_PLAN("Checkpoint resubmission advice (typed stop reason, no writes)");
 
         private final String label;
 
@@ -371,7 +372,7 @@ public final class ResultAnalysisService {
                     || this == SYNC_MANIFEST_DRAFT || this == SMEARING_LADDER_PLAN
                     || this == CUTOFF_LADDER_PLAN || this == ARRAY_JOB_PLAN
                     || this == CONTAINER_PROFILE_DRAFT || this == JOB_STATE_GUARD
-                    || this == PHONON_GRID_PLAN;
+                    || this == PHONON_GRID_PLAN || this == CHECKPOINT_RESUBMIT_PLAN;
         }
 
         /** True for project-bound kinds that additionally parse a user data file. */
@@ -529,6 +530,7 @@ public final class ResultAnalysisService {
         private String jobStateScheduler = "";
         private String jobStateSignal = "";
         private String phononLadder = "";       // PHONON_GRID_PLAN "2 2 2; 4 4 4" rungs
+        private String checkpointPrefixOverride = "";  // CHECKPOINT_RESUBMIT_PLAN: blank = project prefix
 
         public double getFermiEv() { return this.fermiEv; }
         public int getKpointIndex() { return this.kpointIndex; }
@@ -1099,6 +1101,13 @@ public final class ResultAnalysisService {
 
         public AnalysisParameters withPhononPlan(String ladder) {
             this.phononLadder = ladder == null ? "" : ladder;
+            return this;
+        }
+
+        public String getCheckpointPrefixOverride() { return this.checkpointPrefixOverride; }
+
+        public AnalysisParameters withCheckpointPrefix(String override) {
+            this.checkpointPrefixOverride = override == null ? "" : override.trim();
             return this;
         }
     }
@@ -1745,6 +1754,8 @@ public final class ResultAnalysisService {
                 return analyzeJobStateGuard(params);
             case PHONON_GRID_PLAN:
                 return analyzePhononGridPlan(project, params);
+            case CHECKPOINT_RESUBMIT_PLAN:
+                return analyzeCheckpointResubmit(project, params);
             case SLAB_MILLER_PREVIEW:
                 return analyzeSlabMillerPreview(project, params);
             default:
@@ -8692,6 +8703,66 @@ public final class ResultAnalysisService {
                 + "#51 depth (not judged here): ph.x run itself, q2r/matdyn conversion, "
                 + "the acoustic sum rule diagnostics, non-analytic corrections for "
                 + "polars, and honest imaginary-mode reporting.\n");
+        return new AnalysisReport(label, true, text.toString(), csv, null);
+    }
+
+    /**
+     * Roadmap #99 (surface slice): checkpoint-aware resubmission advice for the
+     * open project - READ-ONLY: no plan file, script, or job mutation (see
+     * CheckpointResubmit.plan / exportScript for the explicit-write sibling).
+     *
+     * <p>Writes NOTHING: the advice composes two tested truths - WHY the run
+     * stopped (bounded log-signature scan, "unknown" admitted) and whether the
+     * restart artifacts are complete (never invented) - into a typed
+     * recommendation. The user still resubmits explicitly, elsewhere.</p>
+     *
+     * <p>The stop reason comes from the tested {@link CheckpointResubmit} log
+     * signature scan; restart artifact completeness from the tested
+     * {@link RestartManager}. Neither is invented.</p>
+     */
+    private static AnalysisReport analyzeCheckpointResubmit(Project project,
+            AnalysisParameters params) {
+        String label = AnalysisKind.CHECKPOINT_RESUBMIT_PLAN.getLabel();
+        File directory = project.getDirectory();
+        if (directory == null) {
+            return failure(label, "The project has no on-disk directory to inspect.");
+        }
+        String prefix = params.getCheckpointPrefixOverride().isBlank()
+                ? project.getPrefixName() : params.getCheckpointPrefixOverride();
+        OperationResult<ResubmitAdvice.Advice> advised =
+                ResubmitAdvice.advise(directory.toPath(), prefix);
+        if (!advised.isSuccess() || advised.getValue().isEmpty()) {
+            return failure(label, "The resubmission advice refused:\n[" + advised.getCode()
+                    + "] " + advised.getMessage());
+        }
+        ResubmitAdvice.Advice advice = advised.getValue().get();
+        StringBuilder text = new StringBuilder();
+        text.append("Prefix: ").append(prefix)
+                .append(params.getCheckpointPrefixOverride().isBlank()
+                        ? " (project prefix)\n" : " (user override)\n");
+        text.append("Save directory: ").append(advice.getSaveDirectory()).append('\n');
+        text.append("Stop-reason signature: ").append(advice.getStopReason())
+                .append("  (bounded scan of small .log/.err/.out files; 'unknown' is an ")
+                .append("honest answer, not a gap to paper over)\n");
+        text.append("Restart artifacts safe: ").append(advice.isRestartSafe()).append('\n');
+        text.append("Recommended restart_mode: ").append(advice.getRestartMode()).append("\n\n");
+        text.append("RECOMMENDATION: ").append(advice.getRecommendation()).append('\n');
+        text.append(advice.getRationale()).append("\n\n");
+        text.append("CONTROL snippet for a resubmission input (REVIEW before use):\n  ")
+                .append(advice.controlSnippet()).append("\n\n");
+        text.append("Diagnostics:\n");
+        for (String diagnostic : advice.getDiagnostics()) {
+            text.append(" - ").append(diagnostic).append('\n');
+        }
+        text.append("\nNo files were written: no plan file, no script, no job record was "
+                + "created or mutated, and NOTHING was submitted - resubmission is always "
+                + "your explicit act. The explicit-write planner (plan file / script) "
+                + "remains a separate deliberate tool.");
+        List<String> csv = new ArrayList<>();
+        csv.add("prefix,stop_reason,restart_safe,restart_mode,recommendation");
+        csv.add(String.format(Locale.ROOT, "%s,%s,%s,%s,%s",
+                csvCell(prefix), advice.getStopReason(), advice.isRestartSafe(),
+                advice.getRestartMode(), advice.getRecommendation()));
         return new AnalysisReport(label, true, text.toString(), csv, null);
     }
 

@@ -694,6 +694,15 @@ public final class AnalysisAction {
             parameters.withPhononPlan(ladder);
             break;
         }
+        case CHECKPOINT_RESUBMIT_PLAN: {
+            String override = askText("prefix override - BLANK uses the project prefix "
+                    + "(advice is READ-ONLY: nothing is written or submitted)", "");
+            if (override == null) {
+                return null;
+            }
+            parameters.withCheckpointPrefix(override);
+            break;
+        }
         case SLAB_MILLER_PREVIEW: {
             Integer h = askInteger("Miller index h (-16..16)", 1);
             if (h == null) {
