@@ -4597,4 +4597,68 @@ class ResultAnalysisServiceTest {
         assertFalse(wReport.isSuccess(), "string-typed numerics refuse - no coercion");
         assertTrue(wReport.getText().contains("[MP_SHAPE]"), wReport.getText());
     }
+
+
+    @Test
+    void slurmScriptDraftRendersTypedDirectivesThroughTheDraftChannel() throws IOException {
+        AnalysisReport report = ResultAnalysisService.analyze(
+                AnalysisKind.SLURM_SCRIPT_DRAFT, stubProject(this.tempDir),
+                new AnalysisParameters().withSlurmScript("qe-scf", "main", 2, 64,
+                        "1:30:00", "qe/7.3", "srun pw.x -in scf.in > scf.out"));
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains(
+                "Job 'qe-scf': 2 node(s) x 64 task(s), walltime 01:30:00, "
+                        + "partition 'main', modules 1, payload 1 reviewed line."),
+                report.getText());
+        assertTrue(report.getText().contains("NOTHING is submitted"), report.getText());
+        String script = report.getGeneratedInput().orElseThrow();
+        assertTrue(script.startsWith("#!/bin/bash\n"), script);
+        assertTrue(script.contains("#SBATCH --job-name=qe-scf\n"), script);
+        assertTrue(script.contains("#SBATCH --nodes=2\n"), script);
+        assertTrue(script.contains("#SBATCH --ntasks=64\n"), script);
+        assertTrue(script.contains("#SBATCH --time=01:30:00\n"), script);
+        assertTrue(script.contains("#SBATCH --partition=main\n"), script);
+        assertTrue(script.contains("module load qe/7.3\n"), script);
+        assertTrue(script.contains("\nsrun pw.x -in scf.in > scf.out\n"), script);
+        String csv = String.join("\n", report.getCsvLines());
+        assertTrue(csv.contains("job_name,qe-scf,owned grammar"), csv);
+        assertTrue(csv.contains("walltime,01:30:00,strict HH:MM:SS + 7d cap"), csv);
+        assertTrue(csv.contains("payload_lines,1,verbatim analyst content"), csv);
+    }
+
+    @Test
+    void slurmScriptDraftFailClosedPaths() throws IOException {
+        AnalysisReport whitespaceModule = ResultAnalysisService.analyze(
+                AnalysisKind.SLURM_SCRIPT_DRAFT, stubProject(this.tempDir),
+                new AnalysisParameters().withSlurmScript("qe-scf", "", 1, 1,
+                        "00:20:00", "qe 7.3", "srun pw.x -in scf.in > scf.out"));
+        assertFalse(whitespaceModule.isSuccess(),
+                "whitespace never reaches a module line");
+        assertTrue(whitespaceModule.getText().contains("[SLURM_MODULE]"),
+                whitespaceModule.getText());
+
+        AnalysisReport smuggled = ResultAnalysisService.analyze(
+                AnalysisKind.SLURM_SCRIPT_DRAFT, stubProject(this.tempDir),
+                new AnalysisParameters().withSlurmScript("qe-scf", "", 1, 1,
+                        "00:20:00", "", "#SBATCH --partition=debug"));
+        assertFalse(smuggled.isSuccess(), "directive smuggling in the payload refuses");
+        assertTrue(smuggled.getText().contains("[SLURM_COMMAND]"), smuggled.getText());
+
+        AnalysisReport badTime = ResultAnalysisService.analyze(
+                AnalysisKind.SLURM_SCRIPT_DRAFT, stubProject(this.tempDir),
+                new AnalysisParameters().withSlurmScript("qe-scf", "", 1, 1,
+                        "10:90:00", "", "srun pw.x -in scf.in > scf.out"));
+        assertFalse(badTime.isSuccess(), "minutes above 59 refuse");
+        assertTrue(badTime.getText().contains("[SLURM_TIME]"), badTime.getText());
+
+        AnalysisReport omitted = ResultAnalysisService.analyze(
+                AnalysisKind.SLURM_SCRIPT_DRAFT, stubProject(this.tempDir),
+                new AnalysisParameters().withSlurmScript("qe-bands", "", 1, 8,
+                        "00:20:00", "", "srun pw.x -in bands.in > bands.out"));
+        assertTrue(omitted.isSuccess(), omitted.getText());
+        assertTrue(omitted.getGeneratedInput().orElseThrow()
+                .contains("# --partition intentionally omitted"), "honest omission comment");
+        assertTrue(omitted.getGeneratedInput().orElseThrow()
+                .contains("# no modules declared"), "no assumption about module environment");
+    }
 }

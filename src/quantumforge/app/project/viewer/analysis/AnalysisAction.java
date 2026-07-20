@@ -371,6 +371,45 @@ public final class AnalysisAction {
                     overwrite.trim().equalsIgnoreCase("yes"));
             break;
         }
+        case SLURM_SCRIPT_DRAFT: {
+            String jobName = askText("--job-name ([A-Za-z][A-Za-z0-9._-]{0,63})",
+                    "qe-scf");
+            if (jobName == null) {
+                return null;
+            }
+            String partition = askText("--partition (blank = omit the directive, "
+                    + "stated honestly in the script)", "");
+            if (partition == null) {
+                return null;
+            }
+            Integer nodes = askInteger("--nodes (1..1024 per drafted job)", 1);
+            if (nodes == null) {
+                return null;
+            }
+            Integer ntasks = askInteger("--ntasks (1..65536)", 1);
+            if (ntasks == null) {
+                return null;
+            }
+            String walltime = askText("--time strict HH:MM:SS (<= 7 days; "
+                    + "e.g. 01:30:00)", "01:00:00");
+            if (walltime == null) {
+                return null;
+            }
+            String modules = askText("modules to load, comma-separated "
+                    + "(blank = 'no modules declared' comment, not assumption)", "");
+            if (modules == null) {
+                return null;
+            }
+            String command = askText("payload: ONE reviewed command line "
+                    + "(e.g. srun pw.x -in scf.in > scf.out; #SBATCH lines refuse)",
+                    "");
+            if (command == null) {
+                return null;
+            }
+            parameters.withSlurmScript(jobName, partition, nodes, ntasks, walltime,
+                    modules, command);
+            break;
+        }
         case SLAB_MILLER_PREVIEW: {
             Integer h = askInteger("Miller index h (-16..16)", 1);
             if (h == null) {

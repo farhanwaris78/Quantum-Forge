@@ -80,6 +80,7 @@ import quantumforge.remote.OptimadeStructuresParser;
 import quantumforge.remote.MpApiQueryBuilder;
 import quantumforge.remote.MpSummaryParser;
 import quantumforge.remote.SftpTransferPlan;
+import quantumforge.remote.SlurmScriptBuilder;
 import quantumforge.remote.SshTargetSpec;
 import quantumforge.com.math.QEUnits;
 import quantumforge.input.QESCFInput;
@@ -288,7 +289,8 @@ public final class ResultAnalysisService {
         MP_SUMMARY_PARSE("Materials Project summary response parse (local JSON, unfetched)"),
         MP_QUERY_DRAFT("Materials Project summary query draft (validated, unfetched, key-safe)"),
         SSH_CONFIG_DRAFT("SSH target ssh_config draft (publickey-only, validated)"),
-        SFTP_TRANSFER_PLAN("SFTP staging plan (upload, hash-pinned, explicit overwrite)");
+        SFTP_TRANSFER_PLAN("SFTP staging plan (upload, hash-pinned, explicit overwrite)"),
+        SLURM_SCRIPT_DRAFT("SLURM submit-script draft (typed directives, reviewed payload)");
 
         private final String label;
 
@@ -342,7 +344,8 @@ public final class ResultAnalysisService {
                     || this == GIPAW_INPUT_DRAFT || this == SLAB_MILLER_PREVIEW
                     || this == TDDFPT_INPUT_DRAFT || this == JOB_DB_SCHEMA_PLAN
                     || this == OPTIMADE_QUERY_DRAFT || this == MP_QUERY_DRAFT
-                    || this == SSH_CONFIG_DRAFT || this == SFTP_TRANSFER_PLAN;
+                    || this == SSH_CONFIG_DRAFT || this == SFTP_TRANSFER_PLAN
+                    || this == SLURM_SCRIPT_DRAFT;
         }
 
         /** True for project-bound kinds that additionally parse a user data file. */
@@ -447,6 +450,13 @@ public final class ResultAnalysisService {
         private String sftpLocalName = "";     // SFTP_TRANSFER_PLAN project-relative file
         private String sftpRemotePath = "";    // absolute POSIX remote FILE path
         private boolean sftpOverwriteAllowed = false;  // default posture: refuse clobber
+        private String slurmJobName = "";      // SLURM_SCRIPT_DRAFT owned directives
+        private String slurmPartition = "";    // blank = directive omitted honestly
+        private int slurmNodes = 1;
+        private int slurmNtasks = 1;
+        private String slurmWalltime = "";
+        private String slurmModules = "";      // csv, blank = no-module comment
+        private String slurmCommand = "";      // one analyst-reviewed payload line
 
         public double getFermiEv() { return this.fermiEv; }
         public int getKpointIndex() { return this.kpointIndex; }
@@ -835,6 +845,26 @@ public final class ResultAnalysisService {
             this.sftpLocalName = localName == null ? "" : localName;
             this.sftpRemotePath = remotePath == null ? "" : remotePath;
             this.sftpOverwriteAllowed = overwriteAllowed;
+            return this;
+        }
+
+        public String getSlurmJobName() { return this.slurmJobName; }
+        public String getSlurmPartition() { return this.slurmPartition; }
+        public int getSlurmNodes() { return this.slurmNodes; }
+        public int getSlurmNtasks() { return this.slurmNtasks; }
+        public String getSlurmWalltime() { return this.slurmWalltime; }
+        public String getSlurmModules() { return this.slurmModules; }
+        public String getSlurmCommand() { return this.slurmCommand; }
+
+        public AnalysisParameters withSlurmScript(String jobName, String partition,
+                int nodes, int ntasks, String walltime, String modules, String command) {
+            this.slurmJobName = jobName == null ? "" : jobName;
+            this.slurmPartition = partition == null ? "" : partition;
+            this.slurmNodes = nodes;
+            this.slurmNtasks = ntasks;
+            this.slurmWalltime = walltime == null ? "" : walltime;
+            this.slurmModules = modules == null ? "" : modules;
+            this.slurmCommand = command == null ? "" : command;
             return this;
         }
     }
@@ -1455,6 +1485,8 @@ public final class ResultAnalysisService {
                 return analyzeSshConfigDraft(params);
             case SFTP_TRANSFER_PLAN:
                 return analyzeSftpTransferPlan(project, params);
+            case SLURM_SCRIPT_DRAFT:
+                return analyzeSlurmScriptDraft(params);
             case SLAB_MILLER_PREVIEW:
                 return analyzeSlabMillerPreview(project, params);
             default:
@@ -7619,6 +7651,63 @@ public final class ResultAnalysisService {
                 step.isOverwriteAllowed() ? "ALLOWED" : "REFUSE-IF-EXISTS"));
         csv.add("verify_after,sha256-mandatory,no silent acceptance");
         return new AnalysisReport(label, true, text.toString(), csv, plan);
+    }
+
+    /**
+     * Roadmap #93 (draft slice): typed SLURM submit-script drafting. Core
+     * directives are OWNED and validated (never free-form concatenation); the
+     * single payload line is verbatim analyst content, commented as such and
+     * guarded against directive smuggling and silent multi-line join. Nothing
+     * is submitted - the script renders through the draft channel and saves
+     * only via the explicit save action.
+     */
+    private static AnalysisReport analyzeSlurmScriptDraft(AnalysisParameters params) {
+        String label = AnalysisKind.SLURM_SCRIPT_DRAFT.getLabel();
+        OperationResult<SlurmScriptBuilder.SlurmDraft> validated =
+                SlurmScriptBuilder.validate(params.getSlurmJobName(),
+                        params.getSlurmPartition(), params.getSlurmNodes(),
+                        params.getSlurmNtasks(), params.getSlurmWalltime(),
+                        params.getSlurmModules(), params.getSlurmCommand());
+        if (!validated.isSuccess() || validated.getValue().isEmpty()) {
+            return failure(label, "The SLURM script draft was refused:\n["
+                    + validated.getCode() + "] " + validated.getMessage());
+        }
+        SlurmScriptBuilder.SlurmDraft draft = validated.getValue().get();
+        String script = draft.render();
+        StringBuilder text = new StringBuilder();
+        text.append(String.format(Locale.ROOT,
+                "Job '%s': %d node(s) x %d task(s), walltime %s, partition %s, "
+                        + "modules %d, payload 1 reviewed line.%n",
+                draft.getJobName(), draft.getNodes(), draft.getNtasks(),
+                draft.getWalltime(),
+                draft.getPartition().isEmpty() ? "(omitted - cluster default applies)"
+                        : "'" + draft.getPartition() + "'",
+                draft.getModules().size()));
+        text.append("\nRendered script (also in the draft channel):\n\n").append(script);
+        text.append("\nHonesty block: NOTHING is submitted by this build. Every directive "
+                + "was validated against an owned grammar/range (job-name, partition, "
+                + "nodes 1..1024, ntasks 1..65536, strict HH:MM:SS with a 7-day cap, "
+                + "module tokens without whitespace/shell characters); the payload is "
+                + "exactly your reviewed line - guarded but NOT interpreted or "
+                + "constructed. Job-ID parse-back, the scheduler state machine (#95), "
+                + "site profiles (#94), PBS/PJM/SGE adapters and multi-line payloads "
+                + "remain the #93 runtime depth.\n");
+        List<String> csv = new ArrayList<>();
+        csv.add("item,value,note");
+        csv.add(String.format(Locale.ROOT, "job_name,%s,owned grammar",
+                csvCell(draft.getJobName())));
+        csv.add(String.format(Locale.ROOT, "partition,%s,%s",
+                csvCell(draft.getPartition().isEmpty() ? "(omitted)" : draft.getPartition()),
+                draft.getPartition().isEmpty() ? "honest omission" : "owned grammar"));
+        csv.add(String.format(Locale.ROOT, "nodes,%d,1..1024", draft.getNodes()));
+        csv.add(String.format(Locale.ROOT, "ntasks,%d,1..65536", draft.getNtasks()));
+        csv.add(String.format(Locale.ROOT, "walltime,%s,strict HH:MM:SS + 7d cap",
+                draft.getWalltime()));
+        csv.add(String.format(Locale.ROOT, "modules,%d,%s", draft.getModules().size(),
+                draft.getModules().isEmpty() ? "none declared - not assumed"
+                        : "each token grammar-checked"));
+        csv.add(String.format(Locale.ROOT, "payload_lines,1,verbatim analyst content"));
+        return new AnalysisReport(label, true, text.toString(), csv, script);
     }
 
     /**

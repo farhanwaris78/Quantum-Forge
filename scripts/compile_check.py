@@ -385,6 +385,7 @@ def main() -> int:
                   "SftpTransferPlan", "SFTP_TRANSFER_PLAN",
                   "OptimadeStructuresParser", "OPTIMADE_RESPONSE_PARSE",
                   "MpSummaryParser", "MP_SUMMARY_PARSE",
+                  "SlurmScriptBuilder", "SLURM_SCRIPT_DRAFT",
                   "JournalReplayMath", "replay_combined_det"]:
         if token not in service:
             error(f"ResultAnalysisService is not bound to {token}")
@@ -436,6 +437,7 @@ def main() -> int:
                 "quantumforge/remote/SftpTransferPlan.java",
                 "quantumforge/remote/OptimadeStructuresParser.java",
                 "quantumforge/remote/MpSummaryParser.java",
+                "quantumforge/remote/SlurmScriptBuilder.java",
                 "quantumforge/builder/JournalReplayMath.java"]:
         text = (SRC / rel).read_text(encoding="utf-8")
         if "class " not in text:
