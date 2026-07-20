@@ -245,6 +245,15 @@ public final class AnalysisAction {
             parameters.withAlignment(mode, ref1, ref2, target);
             break;
         }
+        case BANDS_FERMI_REVIEW: {
+            Double fermi = askDouble("Explicit Fermi reference in eV for E - E_F "
+                    + "(analyst-supplied; the review never infers it)", "");
+            if (fermi == null) {
+                return null; // cancel or blank: no reference means no review
+            }
+            parameters.withFermiEv(fermi);
+            break;
+        }
         case SLAB_MILLER_PREVIEW: {
             Integer h = askInteger("Miller index h (-16..16)", 1);
             if (h == null) {

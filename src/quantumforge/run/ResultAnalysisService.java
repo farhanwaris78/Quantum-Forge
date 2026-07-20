@@ -124,6 +124,7 @@ import quantumforge.run.parser.EnergySeriesComparer;
 import quantumforge.neural.ExtXyzDatasetValidator;
 import quantumforge.neural.CompositionalBaselineMath;
 import quantumforge.run.parser.SeriesAlignmentMath;
+import quantumforge.run.parser.BandsFermiReviewMath;
 import quantumforge.run.parser.ScfConvergenceAnalyzer;
 import quantumforge.run.parser.ScfIterationRecord;
 import quantumforge.symmetry.MagneticSpaceGroupDetector;
@@ -265,7 +266,8 @@ public final class ResultAnalysisService {
         CIF_REVIEW("CIF structure review (fail-closed subset, no element guessing)"),
         MOL_SDF_REVIEW("MOL/SDF molecule review (V2000 single-record subset)"),
         ML_DATASET_BASELINE("ML dataset compositional baseline (physics-informed screen)"),
-        SERIES_REF_ALIGN("Two-series explicit reference alignment (Fermi/VBM/vacuum/user)");
+        SERIES_REF_ALIGN("Two-series explicit reference alignment (Fermi/VBM/vacuum/user)"),
+        BANDS_FERMI_REVIEW("Band structure E-E_F review (explicit Fermi, crossing stats)");
 
         private final String label;
 
@@ -986,6 +988,9 @@ public final class ResultAnalysisService {
             return name.endsWith(".xyz") || name.contains("extxyz");
         case SERIES_REF_ALIGN:
             return name.contains("align");
+        case BANDS_FERMI_REVIEW:
+            return name.endsWith(".dat.gnu") || (name.startsWith("bands")
+                    && name.endsWith(".dat"));
         default:
             return false;
         }
@@ -1141,6 +1146,8 @@ public final class ResultAnalysisService {
                 return analyzeMlDatasetBaseline(source);
             case SERIES_REF_ALIGN:
                 return analyzeSeriesRefAlign(source, params);
+            case BANDS_FERMI_REVIEW:
+                return analyzeBandsFermiReview(source, params);
             default:
                 return failure(kind.getLabel(), "This analysis kind is not implemented.");
             }
@@ -6922,6 +6929,87 @@ public final class ResultAnalysisService {
         }
         if (result.getRows().size() > cap) {
             csv.add("# truncated at 20000 rows (cap)");
+        }
+        return new AnalysisReport(label, true, text.toString(), csv, null);
+    }
+
+    /**
+     * Roadmap #46 (Fermi-reference slice): E - E_F review of a .dat.gnu band
+     * file with a REQUIRED explicit Fermi value. Crossing stats use an
+     * exactly-zero tolerance and are labelled point-sampled - not the full
+     * #47 classification.
+     */
+    private static AnalysisReport analyzeBandsFermiReview(File source,
+            AnalysisParameters params) {
+        String label = AnalysisKind.BANDS_FERMI_REVIEW.getLabel();
+        OperationResult<BandsFermiReviewMath.BandsReview> reviewed =
+                BandsFermiReviewMath.review(source.toPath(), params.getFermiEv());
+        if (!reviewed.isSuccess() || reviewed.getValue().isEmpty()) {
+            return failure(label, "The band review refused the file " + source.getName()
+                    + ":\n[" + reviewed.getCode() + "] " + reviewed.getMessage());
+        }
+        BandsFermiReviewMath.BandsReview review = reviewed.getValue().get();
+        StringBuilder text = new StringBuilder();
+        text.append("File: ").append(source.getName()).append('\n');
+        text.append(String.format(Locale.ROOT,
+                "Explicit Fermi reference (analyst-supplied, never inferred): E_F = "
+                        + "%.6f eV; all energies below are E - E_F.%n",
+                review.getFermiEv()));
+        text.append(String.format(Locale.ROOT,
+                "Bands: %d curve(s), %d point(s) total;  k-span %.6f .. %.6f.%n",
+                review.getBandCount(), review.getTotalPoints(), review.getKMin(),
+                review.getKMax()));
+        text.append(String.format(Locale.ROOT,
+                "Bands straddling E_F (min < 0 < max, EXACTLY-zero tolerance on the "
+                        + "sampled points): %d - a point-sampled metallicity "
+                        + "INDICATOR, not the #47 occupation/gap classification.%n",
+                review.getCrossingCount()));
+        if (!Double.isNaN(review.getVbmSideEv()) && !Double.isNaN(review.getCbmSideEv())) {
+            text.append(String.format(Locale.ROOT,
+                    "Point-sampled occupied-side max = %+.6f eV; empty-side min = "
+                            + "%+.6f eV; naive span = %.6f eV (sampling only - the "
+                            + "valence-count detector with a metallicity tolerance "
+                            + "is the #47 slice).%n",
+                    review.getVbmSideEv(), review.getCbmSideEv(),
+                    review.getNaiveGapEv()));
+        } else {
+            text.append("No finite occupied/empty pair exists - every sampled point "
+                    + "lies on one side of E_F; no span is quoted.\n");
+        }
+        int cap = 48;
+        text.append(String.format(Locale.ROOT,
+                "Per-band shifted ranges (first %d band(s), the rest counted above):%n",
+                Math.min(cap, review.getBandCount())));
+        for (BandsFermiReviewMath.BandStats stats : review.getPerBand()) {
+            if (stats.getIndex() > cap) {
+                break;
+            }
+            text.append(String.format(Locale.ROOT,
+                    "  band %3d: %d point(s);  min %+.6f eV, max %+.6f eV%s%n",
+                    stats.getIndex(), stats.getPoints(), stats.getMinShiftedEv(),
+                    stats.getMaxShiftedEv(),
+                    stats.crossesZero() ? "  (straddles E_F)" : ""));
+        }
+        if (review.getDiagnosticsTotal() > 0) {
+            text.append(String.format(Locale.ROOT,
+                    "Parser diagnostics: %d total (first %d shown; sampling hides "
+                            + "nothing):%n",
+                    review.getDiagnosticsTotal(), review.getDiagnostics().size()));
+            for (String diagnostic : review.getDiagnostics()) {
+                text.append("  - ").append(diagnostic).append('\n');
+            }
+        }
+        text.append("\nHonesty notes: spin channels travel as SEPARATE files in "
+                + "QE - this review covers only " + source.getName() + "; energies "
+                + "are in the SAME unit as the supplied reference (QE plotband "
+                + "convention: eV; nothing was re-scaled); nothing was written "
+                + "back to the project.\n");
+        List<String> csv = new ArrayList<>();
+        csv.add("band,points,min_e_minus_ef_ev,max_e_minus_ef_ev,straddles_ef");
+        for (BandsFermiReviewMath.BandStats stats : review.getPerBand()) {
+            csv.add(String.format(Locale.ROOT, "%d,%d,%+.9f,%+.9f,%s",
+                    stats.getIndex(), stats.getPoints(), stats.getMinShiftedEv(),
+                    stats.getMaxShiftedEv(), stats.crossesZero()));
         }
         return new AnalysisReport(label, true, text.toString(), csv, null);
     }

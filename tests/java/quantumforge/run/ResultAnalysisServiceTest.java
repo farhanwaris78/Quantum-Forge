@@ -4023,4 +4023,46 @@ class ResultAnalysisServiceTest {
         assertFalse(noRef.isSuccess(), "references are never inferred");
         assertTrue(noRef.getText().contains("[ALIGN_VALUE]"), noRef.getText());
     }
+
+    @Test
+    void testBandsFermiReviewKindShiftStatsAndRefusals() throws IOException {
+        File bands = write("si.bands.dat.gnu",
+                "0.0 -10.0\n0.5 -9.0\n1.0 -8.0\n"
+                + "\n"
+                + "0.0 -7.0\n0.5 -5.0\n1.0 -4.0\n"
+                + "\n"
+                + "0.0 0.0\n0.5 1.0\n1.0 2.0\n");
+        AnalysisReport report = ResultAnalysisService.analyze(
+                AnalysisKind.BANDS_FERMI_REVIEW, new ProjectProperty(),
+                this.tempDir.toFile(), "si", "run.log", bands,
+                new AnalysisParameters().withFermiEv(-6.0));
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains("E_F = -6.000000 eV"), report.getText());
+        assertTrue(report.getText().contains(
+                "Bands: 3 curve(s), 9 point(s) total"), report.getText());
+        assertTrue(report.getText().contains(
+                ": 1 - a point-sampled metallicity"), report.getText());
+        assertTrue(report.getText().contains("occupied-side max = -1.000000 eV"),
+                report.getText());
+        assertTrue(report.getText().contains("empty-side min = +1.000000 eV"),
+                report.getText());
+        assertTrue(report.getText().contains("naive span = 2.000000 eV"),
+                report.getText());
+        assertTrue(report.getText().contains("band   2: 3 point(s);  min -1.000000 "
+                + "eV, max +2.000000 eV  (straddles E_F)"), report.getText());
+        assertTrue(report.getCsvLines().contains(
+                "2,3,-1.000000000,+2.000000000,true"),
+                String.join("\n", report.getCsvLines()));
+        assertTrue(report.getCsvLines().contains(
+                "1,3,-4.000000000,-2.000000000,false"),
+                String.join("\n", report.getCsvLines()));
+
+        AnalysisReport noFermi = ResultAnalysisService.analyze(
+                AnalysisKind.BANDS_FERMI_REVIEW, new ProjectProperty(),
+                this.tempDir.toFile(), "si", "run.log", bands,
+                new AnalysisParameters());
+        assertFalse(noFermi.isSuccess(), "NaN Fermi must fail closed");
+        assertTrue(noFermi.getText().contains("[BANDS_REVIEW_FERMI]"),
+                noFermi.getText());
+    }
 }
