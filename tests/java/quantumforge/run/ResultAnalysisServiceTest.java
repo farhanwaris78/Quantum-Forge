@@ -3604,4 +3604,46 @@ class ResultAnalysisServiceTest {
         assertFalse(missing.isSuccess(), "no current input must fail closed");
         assertTrue(missing.getText().contains("[XSPEC_INPUT]"), missing.getText());
     }
+
+
+    @Test
+    void testGipawDraftKindContextAndGuards() {
+        Cell cell = new Cell(quantumforge.com.math.Matrix3D.unit(10.0));
+        cell.addAtom("C", 0.0, 0.0, 0.0);
+        QESCFInput input = new QESCFInput();
+        input.getNamelist(QEInput.NAMELIST_CONTROL).setValue(
+                QEValueBase.getInstance("prefix", "'nmr_glucose'"));
+        input.getNamelist(QEInput.NAMELIST_CONTROL).setValue(
+                QEValueBase.getInstance("outdir", "'./nmr_work'"));
+
+        AnalysisReport report = ResultAnalysisService.analyze(
+                AnalysisKind.GIPAW_INPUT_DRAFT, stubProjectWithInput(this.tempDir,
+                        input, cell), new AnalysisParameters());
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains("prefix = 'nmr_glucose'"), report.getText());
+        assertTrue(report.getText().contains("tmp_dir (outdir) = './nmr_work'"),
+                report.getText());
+        assertTrue(report.getText().contains("MINIMAL"), report.getText());
+        assertTrue(report.getText().contains("CHEMICAL"), report.getText());
+        assertTrue(report.getText().contains("GIPAW-capable pseudopotentials"),
+                report.getText());
+        assertTrue(report.getGeneratedInput() != null
+                        && report.getGeneratedInput().contains("&inputgipaw"),
+                "the draft travels the generated-input channel");
+        assertTrue(report.getGeneratedInput().contains("job          = 'gipaw'"),
+                report.getGeneratedInput());
+        assertTrue(report.getGeneratedInput().contains("q_gipaw      = ..."),
+                report.getGeneratedInput());
+        assertTrue(report.getCsvLines().contains(
+                "required_edit_placeholders,4,draft-guard"),
+                String.join("\n", report.getCsvLines()));
+        assertTrue(report.getCsvLines().contains("prefix,nmr_glucose,verbatim"),
+                String.join("\n", report.getCsvLines()));
+
+        AnalysisReport missing = ResultAnalysisService.analyze(
+                AnalysisKind.GIPAW_INPUT_DRAFT, stubProject(this.tempDir),
+                new AnalysisParameters());
+        assertFalse(missing.isSuccess(), "no current input must fail closed");
+        assertTrue(missing.getText().contains("[GIPAW_INPUT]"), missing.getText());
+    }
 }

@@ -55,6 +55,7 @@ import quantumforge.hpc.SiteProfileValidator;
 import quantumforge.input.QEExxPlanner;
 import quantumforge.neural.MlModelManifest;
 import quantumforge.input.CpInputPlanner;
+import quantumforge.input.GipawInputPlanner;
 import quantumforge.input.Wannier90WinPlanner;
 import quantumforge.input.XspectraInputPlanner;
 import quantumforge.input.QEEsmAuditor;
@@ -251,7 +252,8 @@ public final class ResultAnalysisService {
         MPI_POOLS_ADVISOR("MPI pool-divisor audit (exact uniform mesh, -nk/-npool)"),
         UNIT_CONVERT("Scientific unit conversion (curated registry, pinned constants)"),
         LOG_ERROR_DIAGNOSIS("QE log error diagnosis (curated signature KB, 7.x window)"),
-        XSPECTRA_INPUT_DRAFT("xspectra.x XANES input draft (required-edit guarded)");
+        XSPECTRA_INPUT_DRAFT("xspectra.x XANES input draft (required-edit guarded)"),
+        GIPAW_INPUT_DRAFT("gipaw.x NMR/EFG input draft (required-edit guarded)");
 
         private final String label;
 
@@ -301,7 +303,8 @@ public final class ResultAnalysisService {
                     || this == MOIRE_TWIST_PREVIEW || this == CP_INPUT_DRAFT
                     || this == W90_WIN_DRAFT || this == QE_VERSION_CHECK
                     || this == MPI_POOLS_ADVISOR || this == GB_CSL_PREVIEW
-                    || this == UNIT_CONVERT || this == XSPECTRA_INPUT_DRAFT;
+                    || this == UNIT_CONVERT || this == XSPECTRA_INPUT_DRAFT
+                    || this == GIPAW_INPUT_DRAFT;
         }
 
         /** True for project-bound kinds that additionally parse a user data file. */
@@ -1238,6 +1241,8 @@ public final class ResultAnalysisService {
                 return analyzeUnitConvert(params);
             case XSPECTRA_INPUT_DRAFT:
                 return analyzeXspectraInputDraft(project);
+            case GIPAW_INPUT_DRAFT:
+                return analyzeGipawInputDraft(project);
             default:
                 return failure(kind.getLabel(), "This analysis kind is not implemented.");
         }
@@ -6329,6 +6334,61 @@ public final class ResultAnalysisService {
                 requiredEdits));
         csv.add(String.format(Locale.ROOT, "calculation_options,%s,curated",
                 csvCell(XspectraInputPlanner.CALCULATION_OPTIONS)));
+        return new AnalysisReport(label, true, text.toString(), csv, draft);
+    }
+
+    /**
+     * Roadmap #66: gipaw.x NMR/EFG draft from the live save context. Only the
+     * documented defaults are pre-filled; q_gipaw convergence and the
+     * sigma-vs-shift reference are stated guards, never fabricated.
+     */
+    private static AnalysisReport analyzeGipawInputDraft(Project project) {
+        String label = AnalysisKind.GIPAW_INPUT_DRAFT.getLabel();
+        QEInput input;
+        try {
+            project.resolveQEInputs();
+            input = project.getQEInputCurrent();
+        } catch (RuntimeException ex) {
+            return failure(label, "Resolving the current QE input failed: "
+                    + ex.getMessage());
+        }
+        OperationResult<GipawInputPlanner.GipawContext> extracted =
+                GipawInputPlanner.extractContext(input);
+        if (!extracted.isSuccess() || extracted.getValue().isEmpty()) {
+            return failure(label, "gipaw.x draft refused: [" + extracted.getCode()
+                    + "] " + extracted.getMessage());
+        }
+        GipawInputPlanner.GipawContext context = extracted.getValue().get();
+        String draft = GipawInputPlanner.draft(context);
+        int requiredEdits = GipawInputPlanner.countRequiredEdits(draft);
+        StringBuilder text = new StringBuilder();
+        text.append("Save context echoed from the live input:\n");
+        text.append(String.format(Locale.ROOT,
+                "  prefix = '%s'; tmp_dir (outdir) = '%s'%n", context.getPrefix(),
+                context.getOutdir()));
+        text.append(String.format(Locale.ROOT,
+                "%nThe draft is MINIMAL: job='gipaw' and verbosity defaults pre-filled, "
+                        + "%d REQUIRED-EDIT marker(s) guarding the physics (q_gipaw "
+                        + "Green-function smearing convergence, and the sigma_ref "
+                        + "reference needed to turn a SHIELDING into a CHEMICAL "
+                        + "SHIFT).%n",
+                requiredEdits));
+        text.append("\nPrerequisites named by #66: GIPAW-capable pseudopotentials for "
+                + "EVERY species (reconstructed projectors in the UPF) - stated, not "
+                + "checkable offline; gipaw.x itself rejects incapable pseudos at "
+                + "runtime; the matching SCF must exist in the echoed save context; "
+                + "consult the version-matched INPUT_GIPAW documentation. The draft is "
+                + "written ONLY via the explicit save action. The shielding/EFG tensor "
+                + "parser and the reference-shift workflow remain the #66 depth.");
+        List<String> csv = new ArrayList<>();
+        csv.add("item,value,note");
+        csv.add(String.format(Locale.ROOT, "prefix,%s,verbatim",
+                csvCell(context.getPrefix())));
+        csv.add(String.format(Locale.ROOT, "outdir,%s,verbatim",
+                csvCell(context.getOutdir())));
+        csv.add(String.format(Locale.ROOT, "required_edit_placeholders,%d,draft-guard",
+                requiredEdits));
+        csv.add("job_default,'gipaw',pre-filled");
         return new AnalysisReport(label, true, text.toString(), csv, draft);
     }
 
