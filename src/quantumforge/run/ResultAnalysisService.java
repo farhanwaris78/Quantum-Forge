@@ -122,6 +122,7 @@ import quantumforge.run.parser.TrajectoryIndexReader;
 import quantumforge.run.parser.TrajectoryWindowReader;
 import quantumforge.run.parser.EnergySeriesComparer;
 import quantumforge.neural.ExtXyzDatasetValidator;
+import quantumforge.neural.CompositionalBaselineMath;
 import quantumforge.run.parser.ScfConvergenceAnalyzer;
 import quantumforge.run.parser.ScfIterationRecord;
 import quantumforge.symmetry.MagneticSpaceGroupDetector;
@@ -261,7 +262,8 @@ public final class ResultAnalysisService {
         TDDFPT_INPUT_DRAFT("turbo_lanczos.x LR-TDDFT input draft (required-edit guarded)"),
         SLAB_MILLER_PREVIEW("Surface Miller plane geometry (d-spacing, normal, ESM gate)"),
         CIF_REVIEW("CIF structure review (fail-closed subset, no element guessing)"),
-        MOL_SDF_REVIEW("MOL/SDF molecule review (V2000 single-record subset)");
+        MOL_SDF_REVIEW("MOL/SDF molecule review (V2000 single-record subset)"),
+        ML_DATASET_BASELINE("ML dataset compositional baseline (physics-informed screen)");
 
         private final String label;
 
@@ -960,6 +962,8 @@ public final class ResultAnalysisService {
             return name.endsWith(".cif");
         case MOL_SDF_REVIEW:
             return name.endsWith(".mol") || name.endsWith(".sdf");
+        case ML_DATASET_BASELINE:
+            return name.endsWith(".xyz") || name.contains("extxyz");
         default:
             return false;
         }
@@ -1111,6 +1115,8 @@ public final class ResultAnalysisService {
                 return analyzeCifReview(source);
             case MOL_SDF_REVIEW:
                 return analyzeMolSdfReview(source);
+            case ML_DATASET_BASELINE:
+                return analyzeMlDatasetBaseline(source);
             default:
                 return failure(kind.getLabel(), "This analysis kind is not implemented.");
             }
@@ -6731,6 +6737,86 @@ public final class ResultAnalysisService {
         }
         if (structure.getAtoms().size() > cap) {
             csv.add("# truncated at 20000 atom rows (cap)");
+        }
+        return new AnalysisReport(label, true, text.toString(), csv, null);
+    }
+
+    /**
+     * Roadmap #147 (first slice): compositional baseline screen of an extXYZ
+     * training dataset. The linear E = intercept + sum c_s n_s least-squares
+     * fit is the isolated-atom/composition reference family; large residuals
+     * are review flags, never accusations; unlabeled frames are excluded,
+     * never guessed.
+     */
+    private static AnalysisReport analyzeMlDatasetBaseline(File source) {
+        String label = AnalysisKind.ML_DATASET_BASELINE.getLabel();
+        OperationResult<CompositionalBaselineMath.BaselineReport> fitted =
+                CompositionalBaselineMath.evaluate(source.toPath());
+        if (!fitted.isSuccess() || fitted.getValue().isEmpty()) {
+            return failure(label, "The compositional baseline refused the file "
+                    + source.getName() + ":\n[" + fitted.getCode() + "] "
+                    + fitted.getMessage());
+        }
+        CompositionalBaselineMath.BaselineReport report = fitted.getValue().get();
+        StringBuilder text = new StringBuilder();
+        text.append("File: ").append(source.getName()).append('\n');
+        text.append(String.format(Locale.ROOT,
+                "Linear compositional baseline E = intercept + sum_species c_s "
+                        + "n_s (least squares over energy-labeled frames):%n"));
+        text.append(String.format(Locale.ROOT,
+                "Frames: %d used (energy-labeled); %d EXCLUDED for a missing or "
+                        + "unparseable energy/free_energy label (counted, NEVER "
+                        + "guessed)%n",
+                report.getFramesUsed(), report.getFramesSkippedNoEnergy()));
+        text.append(String.format(Locale.ROOT, "intercept = %.9f eV%n",
+                report.getInterceptEv()));
+        StringBuilder coefficients = new StringBuilder();
+        for (int idx = 0; idx < report.getSpecies().size(); idx += 1) {
+            if (coefficients.length() > 0) {
+                coefficients.append(";  ");
+            }
+            coefficients.append(String.format(Locale.ROOT, "c[%s] = %.9f eV/atom",
+                    report.getSpecies().get(idx),
+                    report.getCoefficientsEv().get(idx)));
+        }
+        text.append(coefficients).append('\n');
+        text.append(String.format(Locale.ROOT,
+                "residual RMS = %.9f eV;  mean |res| = %.9f eV;  max |res| = "
+                        + "%.9f eV%n",
+                report.getRmsEv(), report.getMeanAbsEv(), report.getMaxAbsEv()));
+        text.append("Largest residuals (review flags, NOT accusations):\n");
+        for (CompositionalBaselineMath.ResidualOutlier outlier : report.getOutliers()) {
+            text.append(String.format(Locale.ROOT,
+                    "  frame %d: residual %+.6f eV (label %.6f eV vs fit %.6f eV)%n",
+                    outlier.getFrame(), outlier.getResidualEv(),
+                    outlier.getActualEv(), outlier.getFittedEv()));
+        }
+        text.append("\nSCREEN only: the coefficients are regression outputs of "
+                + "THIS dataset (not atomization/formation energies); a small "
+                + "residual does NOT prove a label right, a large residual asks "
+                + "for human review. Comparing trained-MODEL predictions against "
+                + "this baseline (not just the labels) remains the #147 depth.\n");
+        List<String> csv = new ArrayList<>();
+        csv.add("item,value,note");
+        csv.add(String.format(Locale.ROOT, "intercept_ev,%.9f,least-squares constant",
+                report.getInterceptEv()));
+        for (int idx = 0; idx < report.getSpecies().size(); idx += 1) {
+            csv.add(String.format(Locale.ROOT, "%s,%.9f,eV per atom (this-dataset fit)",
+                    csvCell(report.getSpecies().get(idx)),
+                    report.getCoefficientsEv().get(idx)));
+        }
+        csv.add(String.format(Locale.ROOT, "frames_used,%d,energy-labeled",
+                report.getFramesUsed()));
+        csv.add(String.format(Locale.ROOT, "frames_excluded_no_label,%d,never guessed",
+                report.getFramesSkippedNoEnergy()));
+        csv.add(String.format(Locale.ROOT, "rms_ev,%.9f,screening not validation",
+                report.getRmsEv()));
+        csv.add(String.format(Locale.ROOT, "max_abs_residual_ev,%.9f,",
+                report.getMaxAbsEv()));
+        if (!report.getOutliers().isEmpty()) {
+            CompositionalBaselineMath.ResidualOutlier top = report.getOutliers().get(0);
+            csv.add(String.format(Locale.ROOT, "top_outlier_frame,%d,%+.6f eV residual",
+                    top.getFrame(), top.getResidualEv()));
         }
         return new AnalysisReport(label, true, text.toString(), csv, null);
     }

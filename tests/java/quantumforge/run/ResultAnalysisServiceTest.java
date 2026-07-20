@@ -3895,4 +3895,82 @@ class ResultAnalysisServiceTest {
         assertFalse(missing.isSuccess(), "no current input must fail closed");
         assertTrue(missing.getText().contains("[TDDFPT_INPUT]"), missing.getText());
     }
+
+    @Test
+    void testMlDatasetBaselineKindFitAndRefusals() throws IOException {
+        File exact = write("dataset.extxyz",
+                "2\n"
+                + "Properties=species:S:1:pos:R:3 energy=-3.0\n"
+                + "H 0.0 0.0 0.0\nH 0.0 0.0 0.74\n"
+                + "3\n"
+                + "energy=-8.5\n"
+                + "H 0.0 0.0 0.0\nO 0.757 0.0 0.0\nH 0.0 0.586 0.0\n"
+                + "2\n"
+                + "energy=-9.0D0\n"
+                + "O 0.0 0.0 0.0\nO 0.0 0.0 1.21\n"
+                + "4\n"
+                + "free_energy=-13.0\n"
+                + "H 0.0 0.0 0.0\nH 0.0 0.0 0.74\n"
+                + "O 1.0 0.0 0.0\nO 1.0 0.0 1.21\n"
+                + "5\n"
+                + "energy=-12.0\n"
+                + "H 0.0 0.0 0.0\nH 0.0 0.0 0.74\n"
+                + "H 1.0 0.0 0.0\nH 1.0 0.0 0.74\nO 0.5 0.5 0.5\n");
+        AnalysisReport report = ResultAnalysisService.analyze(
+                AnalysisKind.ML_DATASET_BASELINE, new ProjectProperty(),
+                this.tempDir.toFile(), "ds", "run.log", exact,
+                new AnalysisParameters());
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains(
+                "Frames: 5 used (energy-labeled); 0 EXCLUDED"), report.getText());
+        assertTrue(report.getText().contains("intercept = 0.826086957 eV"),
+                report.getText());
+        assertTrue(report.getText().contains("c[H] = -1.989130435 eV/atom"),
+                report.getText());
+        assertTrue(report.getText().contains("c[O] = -4.956521739 eV/atom"),
+                report.getText());
+        assertTrue(report.getText().contains("residual RMS = 0.197814142 eV"),
+                report.getText());
+        assertTrue(report.getText().contains(
+                "frame 2: residual -0.391304 eV (label -8.500000 eV vs fit "
+                        + "-8.108696 eV)"), report.getText());
+        assertTrue(report.getText().contains("SCREEN only"), report.getText());
+        assertTrue(report.getCsvLines().contains(
+                "intercept_ev,0.826086957,least-squares constant"),
+                String.join("\n", report.getCsvLines()));
+        assertTrue(report.getCsvLines().contains(
+                "H,-1.989130435,eV per atom (this-dataset fit)"),
+                String.join("\n", report.getCsvLines()));
+        assertTrue(report.getCsvLines().contains(
+                "O,-4.956521739,eV per atom (this-dataset fit)"),
+                String.join("\n", report.getCsvLines()));
+        assertTrue(report.getCsvLines().contains("top_outlier_frame,2,-0.391304 eV "
+                + "residual"), String.join("\n", report.getCsvLines()));
+        assertTrue(report.getCsvLines().contains(
+                "frames_excluded_no_label,0,never guessed"),
+                String.join("\n", report.getCsvLines()));
+
+        File flat = write("flat.extxyz",
+                "2\nenergy=-3.0\nH 0.0 0.0 0.0\nH 0.0 0.0 0.74\n"
+                + "2\nenergy=-3.1\nH 0.0 0.0 0.0\nH 0.0 0.0 0.75\n"
+                + "2\nenergy=-2.9\nH 0.0 0.0 0.0\nH 0.0 0.0 0.73\n");
+        AnalysisReport degenerate = ResultAnalysisService.analyze(
+                AnalysisKind.ML_DATASET_BASELINE, new ProjectProperty(),
+                this.tempDir.toFile(), "ds", "run.log", flat,
+                new AnalysisParameters());
+        assertFalse(degenerate.isSuccess(),
+                "a single repeated composition must fail closed");
+        assertTrue(degenerate.getText().contains("[BASELINE_DEGENERATE]"),
+                degenerate.getText());
+
+        File unlabeled = write("nolabel.extxyz",
+                "1\nProperties=species:S:1:pos:R:3\nH 0.0 0.0 0.0\n");
+        AnalysisReport noenergy = ResultAnalysisService.analyze(
+                AnalysisKind.ML_DATASET_BASELINE, new ProjectProperty(),
+                this.tempDir.toFile(), "ds", "run.log", unlabeled,
+                new AnalysisParameters());
+        assertFalse(noenergy.isSuccess(), "no labels => nothing fitted");
+        assertTrue(noenergy.getText().contains("[BASELINE_ENERGY]"),
+                noenergy.getText());
+    }
 }
