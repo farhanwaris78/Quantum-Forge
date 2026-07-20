@@ -4160,4 +4160,32 @@ class ResultAnalysisServiceTest {
         assertFalse(refused.isSuccess(), "tampered chains must fail closed");
         assertTrue(refused.getText().contains("[JOURNAL_HASH]"), refused.getText());
     }
+
+    @Test
+    void testJobDbSchemaPlanKindRendersWalTarget() {
+        AnalysisReport report = ResultAnalysisService.analyze(
+                AnalysisKind.JOB_DB_SCHEMA_PLAN, stubProject(this.tempDir),
+                new AnalysisParameters());
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains(
+                "SQLite WAL target schema at version 3 (3 one-step migration(s))"),
+                report.getText());
+        assertTrue(report.getText().contains("PRAGMA journal_mode=WAL;"),
+                report.getText());
+        assertTrue(report.getText().contains("v0 -> v3, 10 statement(s)"),
+                report.getText());
+        assertTrue(report.getText().contains("v1 - core jobs + meta"),
+                report.getText());
+        assertTrue(report.getText().contains("qf_job_events"), report.getText());
+        assertTrue(report.getText().contains("lease_owner"), report.getText());
+        assertTrue(report.getText().contains("NO sqlite-jdbc driver"),
+                report.getText());
+        assertTrue(report.getText().contains("JSONL JobQueueStore remains"),
+                report.getText());
+        assertTrue(report.getCsvLines().contains("1,1,3,core jobs + meta"),
+                String.join("\n", report.getCsvLines()));
+        assertTrue(report.getCsvLines().contains(
+                "3,3,4,per-job lease columns for the job lock"),
+                String.join("\n", report.getCsvLines()));
+    }
 }

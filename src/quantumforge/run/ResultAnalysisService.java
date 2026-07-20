@@ -73,6 +73,7 @@ import quantumforge.input.QEKpointMeshAdvisor;
 import quantumforge.input.QEPpChargePotentialBuilder;
 import quantumforge.input.QEPpWavefunctionBuilder;
 import quantumforge.hpc.PoolDivisorMath;
+import quantumforge.hpc.JobDbSchema;
 import quantumforge.com.math.QEUnits;
 import quantumforge.input.QESCFInput;
 import quantumforge.input.QEVersionRuleCatalog;
@@ -271,7 +272,8 @@ public final class ResultAnalysisService {
         SERIES_REF_ALIGN("Two-series explicit reference alignment (Fermi/VBM/vacuum/user)"),
         BANDS_FERMI_REVIEW("Band structure E-E_F review (explicit Fermi, crossing stats)"),
         BAND_GAP_BANDS("Band-gap classification (valence count, metallicity tolerance)"),
-        PROVENANCE_JOURNAL_REVIEW("Structure provenance journal verify (hash-chained)");
+        PROVENANCE_JOURNAL_REVIEW("Structure provenance journal verify (hash-chained)"),
+        JOB_DB_SCHEMA_PLAN("Job database schema + migration plan (SQLite WAL target)");
 
         private final String label;
 
@@ -323,7 +325,7 @@ public final class ResultAnalysisService {
                     || this == MPI_POOLS_ADVISOR || this == GB_CSL_PREVIEW
                     || this == UNIT_CONVERT || this == XSPECTRA_INPUT_DRAFT
                     || this == GIPAW_INPUT_DRAFT || this == SLAB_MILLER_PREVIEW
-                    || this == TDDFPT_INPUT_DRAFT;
+                    || this == TDDFPT_INPUT_DRAFT || this == JOB_DB_SCHEMA_PLAN;
         }
 
         /** True for project-bound kinds that additionally parse a user data file. */
@@ -1341,6 +1343,8 @@ public final class ResultAnalysisService {
                 return analyzeGipawInputDraft(project);
             case TDDFPT_INPUT_DRAFT:
                 return analyzeTddfptInputDraft(project);
+            case JOB_DB_SCHEMA_PLAN:
+                return analyzeJobDbSchemaPlan();
             case SLAB_MILLER_PREVIEW:
                 return analyzeSlabMillerPreview(project, params);
             default:
@@ -7177,6 +7181,57 @@ public final class ResultAnalysisService {
                     csvCell(entry.getOperation()), entry.getMatrix() != null,
                     csvCell(String.join(";", entry.getParameters())),
                     entry.getEntryHash()));
+        }
+        return new AnalysisReport(label, true, text.toString(), csv, null);
+    }
+
+    /**
+     * Roadmap #105 (schema slice): renders the curated SQLite WAL target
+     * schema, the open pragmas and the exact 0 -> current migration chain.
+     * The durable JSONL store stays ACTIVE until the sqlite-jdbc driver and
+     * integration CI land; nothing here executes SQL.
+     */
+    private static AnalysisReport analyzeJobDbSchemaPlan() {
+        String label = AnalysisKind.JOB_DB_SCHEMA_PLAN.getLabel();
+        StringBuilder text = new StringBuilder();
+        text.append(String.format(Locale.ROOT,
+                "SQLite WAL target schema at version %d (%d one-step "
+                        + "migration(s)):%n",
+                JobDbSchema.currentVersion(), JobDbSchema.migrations().size()));
+        text.append("Open pragmas applied before anything else:\n");
+        for (String pragma : JobDbSchema.OPEN_PRAGMAS) {
+            text.append("  ").append(pragma).append('\n');
+        }
+        OperationResult<List<JobDbSchema.Migration>> plan = JobDbSchema
+                .migrationPlan(0, JobDbSchema.currentVersion());
+        List<JobDbSchema.Migration> steps = plan.getValue().orElse(List.of());
+        text.append(String.format(Locale.ROOT,
+                "%nFull fresh-install plan (v0 -> v%d, %d statement(s)):%n",
+                JobDbSchema.currentVersion(), JobDbSchema.statementCount(steps)));
+        for (JobDbSchema.Migration step : steps) {
+            text.append(String.format(Locale.ROOT, "%nv%d - %s%n",
+                    step.getToVersion(), step.getName()));
+            for (String statement : step.getStatements()) {
+                text.append("  ").append(statement).append('\n');
+            }
+        }
+        text.append("\nHonesty block: this build intentionally ships NO "
+                + "sqlite-jdbc driver - nothing above is executed here; the "
+                + "durable JSONL JobQueueStore remains the ACTIVE queue store "
+                + "until the driver and integration CI land (the roadmap's "
+                + "'thousands of jobs survive restart' gate). Migrations run "
+                + "once inside a transaction under the qf_meta.schema_version "
+                + "guard; CREATE statements carry IF NOT EXISTS; the v3 ALTER "
+                + "COLUMN steps rely on the version guard (SQLite has no ADD "
+                + "COLUMN IF NOT EXISTS); downgrades are REFUSED (no tested "
+                + "rollback path); lease expiry/claim logic and per-job-lock "
+                + "transactions are runtime depth for #95-#97.\n");
+        List<String> csv = new ArrayList<>();
+        csv.add("step,to_version,statements,name");
+        for (JobDbSchema.Migration step : steps) {
+            csv.add(String.format(Locale.ROOT, "%d,%d,%d,%s", steps.indexOf(step) + 1,
+                    step.getToVersion(), step.getStatements().size(),
+                    csvCell(step.getName())));
         }
         return new AnalysisReport(label, true, text.toString(), csv, null);
     }
