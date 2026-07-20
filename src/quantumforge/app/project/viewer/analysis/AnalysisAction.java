@@ -375,6 +375,14 @@ public final class AnalysisAction {
             if (overwrite == null) {
                 return null;
             }
+            String stagingRoot = askText("staging root to exercise the runtime bridge"
+                    + " (BLANK = feasibility trail only; the drafted remote path must"
+                    + " sit strictly under it - confinement or refuse, never"
+                    + " re-rooted)", "");
+            if (stagingRoot == null) {
+                return null;
+            }
+            parameters.withSftpStagingRoot(stagingRoot);
             parameters.withSftpPlan(local, remote,
                     overwrite.trim().equalsIgnoreCase("yes"));
             break;

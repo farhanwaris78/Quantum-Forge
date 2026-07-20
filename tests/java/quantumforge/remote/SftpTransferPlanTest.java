@@ -119,4 +119,42 @@ class SftpTransferPlanTest {
         assertEquals("SFTP_REMOTE_PATH", expansion.getCode(),
                 "expansion characters refuse - the plan is literal, not shell-interpreted");
     }
+
+    @Test
+    void draftPathCompilesToStagingRelativeByConfinement() throws IOException {
+        Path payload = this.tempDir.resolve("espresso.log");
+        Files.writeString(payload, "log\n");
+        SftpTransferPlan.TransferStep step = SftpTransferPlan.prepare(this.tempDir,
+                "espresso.log", "/scratch/jobs/a1/espresso.log", false)
+                .getValue().orElseThrow();
+        OperationResult<String> bridge = step.relativizeUnder("/scratch/");
+        assertTrue(bridge.isSuccess(), bridge.toString());
+        assertEquals("SFTP_BRIDGE_OK", bridge.getCode());
+        assertEquals("jobs/a1/espresso.log", bridge.getValue().orElseThrow(),
+                "the drafted absolute path compiles to the staging-relative form the"
+                        + " runtime consumes");
+    }
+
+    @Test
+    void confinementRefusesInsteadOfReRooting() throws IOException {
+        Path payload = this.tempDir.resolve("pw.in");
+        Files.writeString(payload, "&CONTROL\n/\n");
+        SftpTransferPlan.TransferStep step = SftpTransferPlan.prepare(this.tempDir,
+                "pw.in", "/home/farhan/qe/pw.in", false).getValue().orElseThrow();
+        OperationResult<String> escaped = step.relativizeUnder("/scratch");
+        assertFalse(escaped.isSuccess(),
+                "the drafted path sits outside the staging root - silently prefixing"
+                        + " it would write somewhere unreviewed");
+        assertEquals("SFTP_ROOT_CONFINEMENT", escaped.getCode());
+        assertTrue(escaped.getMessage().contains("never silently re-rooted")
+                || escaped.getMessage().contains("never"
+                        + " silently re-rooted"), escaped.getMessage());
+        OperationResult<String> blankRoot = step.relativizeUnder("   ");
+        assertFalse(blankRoot.isSuccess());
+        assertEquals("SFTP_BRIDGE_ROOT", blankRoot.getCode());
+        OperationResult<String> relativeRoot = step.relativizeUnder("scratch");
+        assertFalse(relativeRoot.isSuccess());
+        assertEquals("SFTP_BRIDGE_ROOT", relativeRoot.getCode(),
+                "a non-absolute root is invalid on its own terms");
+    }
 }

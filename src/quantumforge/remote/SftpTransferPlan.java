@@ -68,6 +68,61 @@ public final class SftpTransferPlan {
         public String getRemotePath() { return this.remotePath; }
         public boolean isOverwriteAllowed() { return this.overwriteAllowed; }
 
+        /**
+         * Compiles this step's absolute site-shaped remote path to the
+         * staging-root-relative path the runtime transfer API consumes
+         * (batch 133, Roadmap #92 bridge slice). The mapping rule is
+         * CONFINEMENT, never re-rooting: if the drafted path does not sit
+         * strictly under the (normalized) staging root, the compile refuses
+         * - SFTP_ROOT_CONFINEMENT - because silently prefixing a draft path
+         * with a staging root writes it somewhere you never reviewed. A
+         * blank/invalid root fails as SFTP_BRIDGE_ROOT, and the compiled
+         * relative path is round-trip checked through
+         * {@code RemotePathGuard.resolveUnderRoot} (SFTP_BRIDGE_MISMATCH is
+         * the internal-consistency tripwire, never to be seen in practice).
+         */
+        public OperationResult<String> relativizeUnder(String stagingRoot) {
+            String root;
+            try {
+                root = quantumforge.ssh.RemotePathGuard.normalizeStagingRoot(stagingRoot);
+            } catch (RuntimeException invalid) {
+                return OperationResult.failed("SFTP_BRIDGE_ROOT",
+                        "staging root '" + stagingRoot + "' is not a valid root: "
+                                + invalid.getMessage(), null);
+            }
+            String prefix = root.endsWith("/") ? root : root + "/";
+            if (!this.remotePath.startsWith(prefix)) {
+                return OperationResult.failed("SFTP_ROOT_CONFINEMENT",
+                        "draft path '" + this.remotePath + "' escapes the staging root '"
+                                + root + "' - confine the plan to your staging root or"
+                                + " use the runtime API directly; the path is never"
+                                + " silently re-rooted.", null);
+            }
+            String relative = this.remotePath.substring(prefix.length());
+            try {
+                String roundTrip = quantumforge.ssh.RemotePathGuard.resolveUnderRoot(
+                        root, relative);
+                if (!roundTrip.equals(this.remotePath)) {
+                    return OperationResult.failed("SFTP_BRIDGE_MISMATCH",
+                            "internal tripwire: confinement round-trip disagreed ('"
+                                    + roundTrip + "' vs '" + this.remotePath
+                                    + "') - report this; the draft is not compiled.",
+                            null);
+                }
+            } catch (RuntimeException guard) {
+                return OperationResult.failed("SFTP_BRIDGE_MISMATCH",
+                        "internal tripwire: the compiled relative path failed the"
+                                + " guard it was derived from: " + guard.getMessage(),
+                        null);
+            }
+            return OperationResult.success("SFTP_BRIDGE_OK",
+                    "Draft path compiles to staging-relative '" + relative
+                            + "' under root '" + root + "'.",
+                    relative);
+        }
+
+        /** Human-readable plan block, all decisions spelled out. */
+
         /** Human-readable plan block, all decisions spelled out. */
         public String render() {
             StringBuilder text = new StringBuilder();

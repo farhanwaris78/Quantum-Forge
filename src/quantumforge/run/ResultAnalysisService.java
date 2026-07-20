@@ -498,6 +498,7 @@ public final class ResultAnalysisService {
         private String sftpLocalName = "";     // SFTP_TRANSFER_PLAN project-relative file
         private String sftpRemotePath = "";    // absolute POSIX remote FILE path
         private boolean sftpOverwriteAllowed = false;  // default posture: refuse clobber
+        private String sftpStagingRoot = "";           // SFTP bridge; blank = feasibility trail only
         private String slurmJobName = "";      // SLURM_SCRIPT_DRAFT owned directives
         private String slurmPartition = "";    // blank = directive omitted honestly
         private int slurmNodes = 1;
@@ -951,6 +952,13 @@ public final class ResultAnalysisService {
 
         public String getSftpLocalName() { return this.sftpLocalName; }
         public String getSftpRemotePath() { return this.sftpRemotePath; }
+        public String getSftpStagingRoot() { return this.sftpStagingRoot; }
+
+        /** Blank staging root = feasibility trail only (the bridge is not exercised). */
+        public AnalysisParameters withSftpStagingRoot(String stagingRoot) {
+            this.sftpStagingRoot = stagingRoot == null ? "" : stagingRoot;
+            return this;
+        }
         public boolean isSftpOverwriteAllowed() { return this.sftpOverwriteAllowed; }
 
         public AnalysisParameters withSftpPlan(String localName, String remotePath,
@@ -8035,6 +8043,39 @@ public final class ResultAnalysisService {
                 : "REFUSE-IF-EXISTS (default - a remote hit aborts the step)")
                 .append('\n');
         text.append("\nPlan draft (also in the draft channel):\n\n").append(plan);
+        // Batch-133 bridge: the drafted absolute path compiles to the
+        // staging-root-relative path the runtime transfer API consumes - by
+        // CONFINEMENT, never re-rooting - and the verified-upload semantics
+        // (temp-upload -> sha256 verify -> atomic rename) now exist.
+        String root = params.getSftpStagingRoot().trim();
+        text.append('\n');
+        if (root.isEmpty()) {
+            text.append("Runtime bridge: NOT exercised (blank staging-root input). "
+                    + "Rule: the drafted absolute remote path must sit strictly under "
+                    + "your staging root; the bridge compiles it to the "
+                    + "staging-relative form CONFINEMENT-or-refuse - it never silently "
+                    + "re-roots a reviewed path.\n");
+        } else {
+            OperationResult<String> bridge = step.relativizeUnder(root);
+            if (bridge.isSuccess() && bridge.getValue().isPresent()) {
+                text.append(String.format(Locale.ROOT,
+                        "Runtime bridge: [SFTP_BRIDGE_OK] %s%n"
+                                + "Verified-upload semantics that consume it"
+                                + " (SSHFileTransfer.uploadVerifiedResult): temp-upload to"
+                                + " <path>.qftmp, mandatory sha256 verify (mismatch removes"
+                                + " ONLY our temp - nothing renames into place), atomic"
+                                + " rename; overwrite posture is pre-checked"
+                                + " (REFUSE-IF-EXISTS aborts before any byte moves).",
+                        bridge.getMessage()));
+            } else {
+                text.append(String.format(Locale.ROOT,
+                        "Runtime bridge: refused [%s] %s (a FINDING on the staging-root"
+                                + " mapping; the step itself validated fine).%n",
+                        bridge.getCode(), bridge.getMessage()));
+            }
+        }
+        text.append("Boundary: bulk download and remote deletion stay disabled by design "
+                + "(SSH_BULK_DOWNLOAD_UNAVAILABLE / SSH_DELETE_UNAVAILABLE).\n");
         text.append("\nHonesty block: NOTHING transfers from this build. The "
                 + "plan pins the integrity target (sha256 + size) NOW, and the "
                 + "declared verify-after-transfer step is MANDATORY for any "

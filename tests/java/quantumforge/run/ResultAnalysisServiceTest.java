@@ -6093,4 +6093,47 @@ class ResultAnalysisServiceTest {
         String csv2 = String.join("\n", refused.getCsvLines());
         assertTrue(csv2.contains("exec_preview,refused,CONTAINER_EXEC"), csv2);
     }
+
+    @Test
+    void sftpPlanSurfacesTheRuntimeBridgeTrail() throws IOException {
+        Files.writeString(this.tempDir.resolve("espresso.log"), "log\n");
+        AnalysisReport compiled = ResultAnalysisService.analyze(
+                AnalysisKind.SFTP_TRANSFER_PLAN, stubProject(this.tempDir),
+                new AnalysisParameters()
+                        .withSftpPlan("espresso.log",
+                                "/scratch/jobs/a1/espresso.log", false)
+                        .withSftpStagingRoot("/scratch"));
+        assertTrue(compiled.isSuccess(), compiled.getText());
+        String text = compiled.getText();
+        assertTrue(text.contains("Runtime bridge: [SFTP_BRIDGE_OK]"), text);
+        assertTrue(text.contains("jobs/a1/espresso.log"), text);
+        assertTrue(text.contains("SSHFileTransfer.uploadVerifiedResult"), text);
+        assertTrue(text.contains("temp-upload to <path>.qftmp"), text);
+        assertTrue(text.contains("REFUSE-IF-EXISTS aborts before any byte moves"),
+                text);
+        assertTrue(text.contains("SSH_BULK_DOWNLOAD_UNAVAILABLE"), text,
+                "the frozen boundary is stated on every report");
+
+        AnalysisReport feasibility = ResultAnalysisService.analyze(
+                AnalysisKind.SFTP_TRANSFER_PLAN, stubProject(this.tempDir),
+                new AnalysisParameters().withSftpPlan("espresso.log",
+                        "/scratch/jobs/a1/espresso.log", false));
+        assertTrue(feasibility.isSuccess(), feasibility.getText());
+        assertTrue(feasibility.getText().contains(
+                "Runtime bridge: NOT exercised (blank staging-root input)"),
+                feasibility.getText());
+        assertTrue(feasibility.getText().contains("CONFINEMENT-or-refuse"),
+                feasibility.getText());
+
+        AnalysisReport escaped = ResultAnalysisService.analyze(
+                AnalysisKind.SFTP_TRANSFER_PLAN, stubProject(this.tempDir),
+                new AnalysisParameters()
+                        .withSftpPlan("espresso.log",
+                                "/home/farhan/qe/espresso.log", false)
+                        .withSftpStagingRoot("/scratch"));
+        assertTrue(escaped.isSuccess(),
+                "a confinement refusal is a FINDING - the validated step stands");
+        assertTrue(escaped.getText().contains(
+                "Runtime bridge: refused [SFTP_ROOT_CONFINEMENT]"), escaped.getText());
+    }
 }
