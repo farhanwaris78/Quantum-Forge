@@ -40,6 +40,15 @@ import quantumforge.operation.OperationResult;
  * key=value block, explicitly labeled NOT-YAML - site-admin YAML with schema
  * validation and policy limits lands with the #94 loader/runtime. Nothing
  * about the profile is consulted by any submit path from this build.</p>
+ *
+ * <p>Runtime bridge (batch-135 slice): {@link SiteProfile#toHpcProfile()}
+ * compiles one validated draft into the loader-domain {@code
+ * quantumforge.hpc.SiteProfile}. The mapping is field-orthogonal and stated
+ * in full on the method; the two things deliberately NOT mapped are named in
+ * the success message (no staging root is invented, and the node ceiling is
+ * never re-interpreted as an allocation). The bridge depends on batch-134's
+ * single-owner scheduler identity: before it, a pjm draft would have built a
+ * profile whose adapter resolution threw.</p>
  */
 public final class SiteProfileSpec {
 
@@ -121,6 +130,72 @@ public final class SiteProfileSpec {
             text.append("# usage: NONE from this build - the submit path consumes profiles\n");
             text.append("# only when the #94 loader lands; until then this is a reviewed draft.\n");
             return text.toString();
+        }
+
+        /**
+         * Bridge this validated draft into the loader-domain
+         * {@code quantumforge.hpc.SiteProfile}. The mapping is one-to-one and
+         * REPRODUCIBLE - no value is invented along the way:
+         * <ul>
+         *   <li>id <- cluster; scheduler <- scheduler (the draft's typed enum
+         *       already stores only canonical registry names; {@code
+         *       quantumforge.hpc.SiteProfile#canonicalScheduler(String)} - the
+         *       alias table's single owner - is probed as an internal tripwire,
+         *       never as a second mapping); launcher -&gt; mpiLauncher
+         *       (pairing with the scheduler stays un-judged, as in the draft);</li>
+         *   <li>defaultPartition/defaultAccount bridge even when blank (the
+         *       loader domain treats '' as honestly omitted, exactly like the
+         *       draft's omission comments); scratchRoot <- scratchDir (the
+         *       validator's trailing-slash normalization precedes the bridge);</li>
+         *   <li>staging_root is deliberately NOT bridged: the draft has none,
+         *       so the compiled profile keeps the blank - staged uploads still
+         *       refuse (RemotePathGuard.normalizeStagingRoot) until the site's
+         *       full profile supplies one. Scratch and staging are different
+         *       roots and are never conflated;</li>
+         *   <li>max_nodes is deliberately NOT bridged: a recorded ceiling is
+         *       not a per-job nodes allocation, and writing it into
+         *       defaultResources would silently re-interpret it as one - the
+         *       draft's own contract says enforcement lives with the submit
+         *       path.</li>
+         * </ul>
+         * The compiled profile's {@code schedulerAdapter()} MUST resolve
+         * through the registry for every value the draft can hold - including
+         * pjm, first-class since the batch-134 identity fix. That probe runs
+         * here as the bridge's own proof; an unreachable tripwire
+         * ({@code SITE_BRIDGE_SCHEDULER}) guards against a draft object ever
+         * holding a non-canonical scheduler.
+         */
+        public OperationResult<quantumforge.hpc.SiteProfile> toHpcProfile() {
+            String canonical = quantumforge.hpc.SiteProfile.canonicalScheduler(this.scheduler);
+            if (canonical == null || !canonical.equals(this.scheduler)) {
+                return OperationResult.failed("SITE_BRIDGE_SCHEDULER",
+                        "internal tripwire: the validated draft scheduler '" + this.scheduler
+                                + "' is not a canonical registry name - the draft's typed "
+                                + "enum should make this unreachable; refusing rather than "
+                                + "re-mapping.",
+                        null);
+            }
+            quantumforge.hpc.SiteProfile built = quantumforge.hpc.SiteProfile.builder()
+                    .id(this.cluster)
+                    .scheduler(this.scheduler)
+                    .mpiLauncher(this.launcher)
+                    .defaultPartition(this.defaultPartition)
+                    .defaultAccount(this.account)
+                    .scratchRoot(this.scratchDir)
+                    .modules(this.modules)
+                    .build();
+            // The bridge's own proof: adapter resolution MUST succeed for every
+            // scheduler the draft can hold (pjm included since batch 134).
+            String adapterName = built.schedulerAdapter().name();
+            return OperationResult.success("SITE_BRIDGE_OK",
+                    "Draft compiled to the loader-domain profile; the '" + adapterName
+                            + "' adapter resolves through the registry. staging_root stays "
+                            + "BLANK in the bridge (the draft has none - staged uploads "
+                            + "still refuse until the site's full profile supplies one; "
+                            + "scratch is not staging), and max_nodes=" + this.maxNodes
+                            + " stays an advisory ceiling, NOT written into default "
+                            + "resources (a ceiling is not an allocation).",
+                    built);
         }
     }
 

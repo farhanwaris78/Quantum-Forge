@@ -8274,8 +8274,32 @@ public final class ResultAnalysisService {
                 + "is required and literal (no expansion characters); unset optionals "
                 + "render as omission comments, not defaults. The #94 runtime depth: "
                 + "site-admin YAML with schema validation, one portable project "
-                + "targeting multiple clusters, policy limits, and scheduler-adapter "
-                + "consumption of every value drafted here.\n");
+                + "targeting multiple clusters, and policy limits. The object bridge "
+                + "to the loader-domain profile lands below as the runtime bridge trail.\n");
+        OperationResult<quantumforge.hpc.SiteProfile> bridged = profile.toHpcProfile();
+        text.append("\nRuntime bridge (draft -> hpc.SiteProfile object, headless compile):\n");
+        if (bridged.isSuccess() && bridged.getValue().isPresent()) {
+            quantumforge.hpc.SiteProfile hpc = bridged.getValue().get();
+            text.append(String.format(Locale.ROOT,
+                    "  [%s] id='%s', scheduler=%s (canonical via the single alias owner), "
+                            + "mpi_launcher=%s, scratch_root=%s, modules=%d.%n",
+                    bridged.getCode(), hpc.getId(), hpc.getScheduler(), hpc.getMpiLauncher(),
+                    hpc.getScratchRoot(), hpc.getModules().size()));
+            text.append("  Adapter resolution proof: the bridged profile resolves to the '"
+                    + hpc.schedulerAdapter().name()
+                    + "' typed adapter through the SchedulerAdapters registry - including pjm, "
+                    + "first-class since the scheduler-identity fix.\n");
+            text.append("  Not bridged, deliberately: staging_root stays BLANK (the draft "
+                    + "has none - staged uploads still refuse until the site's profile "
+                    + "supplies one; scratch is not staging), and max_nodes="
+                    + profile.getMaxNodes()
+                    + " stays an advisory ceiling, NOT a default-nodes allocation "
+                    + "(a ceiling is not an allocation).\n");
+        } else {
+            text.append("  Bridging was refused as a FINDING (the validated draft above "
+                    + "still stands):\n  [" + bridged.getCode() + "] "
+                    + bridged.getMessage() + "\n");
+        }
         List<String> csv = new ArrayList<>();
         csv.add("item,value,note");
         csv.add(String.format(Locale.ROOT, "cluster,%s,owned grammar",
@@ -8300,6 +8324,10 @@ public final class ResultAnalysisService {
         csv.add(String.format(Locale.ROOT, "modules,%d,%s", profile.getModules().size(),
                 profile.getModules().isEmpty() ? "none declared - not assumed"
                         : "tokens grammar-checked"));
+        csv.add(String.format(Locale.ROOT, "bridge,%s,%s", csvCell(bridged.getCode()),
+                bridged.isSuccess()
+                        ? "hpc-profile compiled - staging blank; ceiling not allocated"
+                        : "refusal recorded as finding - draft stands"));
         return new AnalysisReport(label, true, text.toString(), csv, block);
     }
 

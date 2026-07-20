@@ -6136,4 +6136,50 @@ class ResultAnalysisServiceTest {
         assertTrue(escaped.getText().contains(
                 "Runtime bridge: refused [SFTP_ROOT_CONFINEMENT]"), escaped.getText());
     }
+
+    @Test
+    void siteProfileDraftRendersRuntimeBridgeTrail() throws IOException {
+        AnalysisReport report = ResultAnalysisService.analyze(
+                AnalysisKind.SITE_PROFILE_DRAFT, stubProject(this.tempDir),
+                new AnalysisParameters().withSiteProfile("fugaku-site", "pjm", "mpiexec",
+                        "large", "alloc1", "/scratch/u/qf", 64, "qe/7.5,openmpi"));
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains(
+                "Runtime bridge (draft -> hpc.SiteProfile object, headless compile):"),
+                report.getText());
+        assertTrue(report.getText().contains(
+                "[SITE_BRIDGE_OK] id='fugaku-site', scheduler=pjm (canonical via the "
+                        + "single alias owner), mpi_launcher=mpiexec, "
+                        + "scratch_root=/scratch/u/qf, modules=2."),
+                report.getText());
+        assertTrue(report.getText().contains(
+                "Adapter resolution proof: the bridged profile resolves to the 'pjm' typed "
+                        + "adapter through the SchedulerAdapters registry"),
+                report.getText());
+        assertTrue(report.getText().contains("staging_root stays BLANK"), report.getText());
+        assertTrue(report.getText().contains(
+                "max_nodes=64 stays an advisory ceiling, NOT a default-nodes allocation "
+                        + "(a ceiling is not an allocation)."),
+                report.getText());
+        String csv = String.join("\n", report.getCsvLines());
+        assertTrue(csv.contains(
+                "bridge,SITE_BRIDGE_OK,hpc-profile compiled - staging blank; ceiling not "
+                        + "allocated"),
+                csv);
+    }
+
+    @Test
+    void siteProfileDraftBridgeKeepsOmissionsAndReportsThem() throws IOException {
+        AnalysisReport report = ResultAnalysisService.analyze(
+                AnalysisKind.SITE_PROFILE_DRAFT, stubProject(this.tempDir),
+                new AnalysisParameters().withSiteProfile("atlas", "slurm", "srun",
+                        "", "", "/scratch/x", 8, ""));
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains(
+                "[SITE_BRIDGE_OK] id='atlas', scheduler=slurm"), report.getText());
+        assertTrue(report.getText().contains("resolves to the 'slurm' typed adapter"),
+                report.getText());
+        String csv = String.join("\n", report.getCsvLines());
+        assertTrue(csv.contains("bridge,SITE_BRIDGE_OK,hpc-profile compiled"), csv);
+    }
 }
