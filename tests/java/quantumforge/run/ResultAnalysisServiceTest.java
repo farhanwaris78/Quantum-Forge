@@ -4782,4 +4782,77 @@ class ResultAnalysisServiceTest {
         assertTrue(whitespaceModule.getText().contains("[SITE_MODULE]"),
                 whitespaceModule.getText());
     }
+
+
+    @Test
+    void nebInputDraftRendersNamelistAndImageChecklist() throws IOException {
+        AnalysisReport report = ResultAnalysisService.analyze(
+                AnalysisKind.NEB_INPUT_DRAFT, stubProject(this.tempDir),
+                new AnalysisParameters().withNebDraft(7, 300, "broyden", "highest",
+                        0.1, 0.5, 1.0, 0.05));
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains(
+                "Path: 7 image(s) (end points included), 300 path steps, "
+                        + "opt_scheme='broyden', CI_scheme='highest'."),
+                report.getText());
+        assertTrue(report.getText().contains(
+                "Springs [k_min=0.100000 .. k_max=0.500000] a.u., ds=1.000000 a.u., "
+                        + "path_thr=0.050000 a.u."),
+                report.getText());
+        assertTrue(report.getText().contains(
+                "Intermediate images are NOT interpolated here"), report.getText());
+        String draft = report.getGeneratedInput().orElseThrow();
+        assertTrue(draft.contains("&PATH\n"), draft);
+        assertTrue(draft.contains("nstep_path    = 300\n"), draft);
+        assertTrue(draft.contains("opt_scheme    = 'broyden'\n"), draft);
+        assertTrue(draft.contains("CI_scheme     = 'highest'\n"), draft);
+        assertTrue(draft.contains("k_min         = 0.100000\n"), draft);
+        assertTrue(draft.contains("path_thr      = 0.050000\n"), draft);
+        assertTrue(draft.contains("# image 1 = FIRST end point (fixed)"), draft,
+                "numbered images are explicit - nothing reorders silently");
+        assertTrue(draft.contains("# image 7 = LAST end point (fixed)"), draft);
+        String csv = String.join("\n", report.getCsvLines());
+        assertTrue(csv.contains("CI_scheme,highest,interior image required (images>=3)"),
+                csv);
+        assertTrue(csv.contains("k_min,0.100000,a.u. - k_min<=k_max enforced"), csv);
+        assertTrue(csv.contains("intermediate_images,not-generated,editor-slice depth"),
+                csv);
+    }
+
+    @Test
+    void nebInputDraftFailClosedPaths() throws IOException {
+        AnalysisReport twoCi = ResultAnalysisService.analyze(
+                AnalysisKind.NEB_INPUT_DRAFT, stubProject(this.tempDir),
+                new AnalysisParameters().withNebDraft(2, 100, "sd", "highest",
+                        0.1, 0.5, 1.0, 0.05));
+        assertFalse(twoCi.isSuccess(),
+                "climbing needs an interior image - 2 images are both end points");
+        assertTrue(twoCi.getText().contains("[NEB_CI]"), twoCi.getText());
+
+        AnalysisReport manual = ResultAnalysisService.analyze(
+                AnalysisKind.NEB_INPUT_DRAFT, stubProject(this.tempDir),
+                new AnalysisParameters().withNebDraft(5, 100, "sd", "manual",
+                        0.1, 0.5, 1.0, 0.05));
+        assertFalse(manual.isSuccess(),
+                "'manual' refuses ACTIONABLY - blind indexing would be ceremonial");
+        assertTrue(manual.getText().contains("[NEB_CI]"), manual.getText());
+        assertTrue(manual.getText().contains("highest"),
+                "the refusal names the usable alternatives");
+
+        AnalysisReport blankK = ResultAnalysisService.analyze(
+                AnalysisKind.NEB_INPUT_DRAFT, stubProject(this.tempDir),
+                new AnalysisParameters().withNebDraft(3, 100, "sd", "no-ci",
+                        Double.NaN, 0.5, 1.0, 0.05));
+        assertFalse(blankK.isSuccess(), "blank REQUIRED numerics refuse - no defaults");
+        assertTrue(blankK.getText().contains("[NEB_K]"), blankK.getText());
+
+        AnalysisReport inverted = ResultAnalysisService.analyze(
+                AnalysisKind.NEB_INPUT_DRAFT, stubProject(this.tempDir),
+                new AnalysisParameters().withNebDraft(3, 100, "sd", "no-ci",
+                        0.5, 0.1, 1.0, 0.05));
+        assertFalse(inverted.isSuccess());
+        assertTrue(inverted.getText().contains("[NEB_K]"), inverted.getText());
+        assertTrue(inverted.getText().contains("inverts the spring ladder"),
+                inverted.getText());
+    }
 }

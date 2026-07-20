@@ -471,6 +471,41 @@ public final class AnalysisAction {
                     account, scratch, maxNodes.intValue(), modules);
             break;
         }
+        case NEB_INPUT_DRAFT: {
+            Integer images = askInteger("num_of_images 2..64 (end points INCLUDED; "
+                    + "must match -nimage)", 5);
+            if (images == null) {
+                return null;
+            }
+            Integer nstep = askInteger("nstep_path 1..10000", 100);
+            if (nstep == null) {
+                return null;
+            }
+            String opt = askText("opt_scheme - TYPED: sd | broyden | broyden2 | "
+                    + "quick-min | lbfgs", "broyden");
+            if (opt == null) {
+                return null;
+            }
+            String ci = askText("CI_scheme - TYPED: no-CI | highest | spin "
+                    + "('manual' refuses: needs the editor's image energies; any CI "
+                    + "needs images >= 3)", "no-CI");
+            if (ci == null) {
+                return null;
+            }
+            Double kMin = askDouble("k_min [a.u.] (REQUIRED - no honest default; "
+                    + "must be <= k_max)", "");
+            Double kMax = askDouble("k_max [a.u.] (REQUIRED - no honest default)", "");
+            Double ds = askDouble("ds, optimization step [a.u.] (REQUIRED)", "");
+            Double pathThr = askDouble("path_thr, path convergence threshold [a.u.] "
+                    + "(REQUIRED)", "");
+            if (kMin == null || kMax == null || ds == null || pathThr == null) {
+                return null;  // blank REQUIRED numerics refuse - nothing is invented
+            }
+            parameters.withNebDraft(images.intValue(), nstep.intValue(), opt, ci,
+                    kMin.doubleValue(), kMax.doubleValue(), ds.doubleValue(),
+                    pathThr.doubleValue());
+            break;
+        }
         case SLAB_MILLER_PREVIEW: {
             Integer h = askInteger("Miller index h (-16..16)", 1);
             if (h == null) {

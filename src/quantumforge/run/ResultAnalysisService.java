@@ -79,6 +79,7 @@ import quantumforge.remote.OptimadeQueryBuilder;
 import quantumforge.remote.OptimadeStructuresParser;
 import quantumforge.remote.MpApiQueryBuilder;
 import quantumforge.remote.MpSummaryParser;
+import quantumforge.input.NebInputPlanner;
 import quantumforge.remote.SftpTransferPlan;
 import quantumforge.remote.SiteProfileSpec;
 import quantumforge.remote.SlurmScriptBuilder;
@@ -293,7 +294,8 @@ public final class ResultAnalysisService {
         SFTP_TRANSFER_PLAN("SFTP staging plan (upload, hash-pinned, explicit overwrite)"),
         SLURM_SCRIPT_DRAFT("SLURM submit-script draft (typed directives, reviewed payload)"),
         KMESH_CONVERGENCE_PLAN("k-mesh convergence ladder plan (spacing arithmetic, energies unaudited)"),
-        SITE_PROFILE_DRAFT("HPC site-profile draft (typed scheduler/launcher, owned grammar)");
+        SITE_PROFILE_DRAFT("HPC site-profile draft (typed scheduler/launcher, owned grammar)"),
+        NEB_INPUT_DRAFT("neb.x &PATH namelist draft (typed, image-checklisted)");
 
         private final String label;
 
@@ -349,7 +351,7 @@ public final class ResultAnalysisService {
                     || this == OPTIMADE_QUERY_DRAFT || this == MP_QUERY_DRAFT
                     || this == SSH_CONFIG_DRAFT || this == SFTP_TRANSFER_PLAN
                     || this == SLURM_SCRIPT_DRAFT || this == KMESH_CONVERGENCE_PLAN
-                    || this == SITE_PROFILE_DRAFT;
+                    || this == SITE_PROFILE_DRAFT || this == NEB_INPUT_DRAFT;
         }
 
         /** True for project-bound kinds that additionally parse a user data file. */
@@ -471,6 +473,14 @@ public final class ResultAnalysisService {
         private String siteScratchDir = "";    // absolute POSIX scratch root, required
         private int siteMaxNodes = 1;
         private String siteModules = "";       // csv, blank = none-declared comment
+        private int nebNumImages = 5;          // NEB_INPUT_DRAFT: end points INCLUDED
+        private int nebNstepPath = 100;
+        private String nebOptScheme = "broyden";
+        private String nebCiScheme = "no-ci";
+        private double nebKMin = Double.NaN;   // NaN = unset; there is no honest default
+        private double nebKMax = Double.NaN;
+        private double nebDs = Double.NaN;
+        private double nebPathThr = Double.NaN;
 
         public double getFermiEv() { return this.fermiEv; }
         public int getKpointIndex() { return this.kpointIndex; }
@@ -911,6 +921,29 @@ public final class ResultAnalysisService {
             this.siteScratchDir = scratchDir == null ? "" : scratchDir;
             this.siteMaxNodes = maxNodes;
             this.siteModules = modules == null ? "" : modules;
+            return this;
+        }
+
+        public int getNebNumImages() { return this.nebNumImages; }
+        public int getNebNstepPath() { return this.nebNstepPath; }
+        public String getNebOptScheme() { return this.nebOptScheme; }
+        public String getNebCiScheme() { return this.nebCiScheme; }
+        public double getNebKMin() { return this.nebKMin; }
+        public double getNebKMax() { return this.nebKMax; }
+        public double getNebDs() { return this.nebDs; }
+        public double getNebPathThr() { return this.nebPathThr; }
+
+        public AnalysisParameters withNebDraft(int numOfImages, int nstepPath,
+                String optScheme, String ciScheme, double kMin, double kMax,
+                double ds, double pathThr) {
+            this.nebNumImages = numOfImages;
+            this.nebNstepPath = nstepPath;
+            this.nebOptScheme = optScheme == null ? "" : optScheme;
+            this.nebCiScheme = ciScheme == null ? "" : ciScheme;
+            this.nebKMin = kMin;
+            this.nebKMax = kMax;
+            this.nebDs = ds;
+            this.nebPathThr = pathThr;
             return this;
         }
     }
@@ -1537,6 +1570,8 @@ public final class ResultAnalysisService {
                 return analyzeKmeshConvergencePlan(project, params);
             case SITE_PROFILE_DRAFT:
                 return analyzeSiteProfileDraft(params);
+            case NEB_INPUT_DRAFT:
+                return analyzeNebInputDraft(params);
             case SLAB_MILLER_PREVIEW:
                 return analyzeSlabMillerPreview(project, params);
             default:
@@ -7904,6 +7939,71 @@ public final class ResultAnalysisService {
                 profile.getModules().isEmpty() ? "none declared - not assumed"
                         : "tokens grammar-checked"));
         return new AnalysisReport(label, true, text.toString(), csv, block);
+    }
+
+    /**
+     * Roadmap #50 (draft slice): typed neb.x &PATH namelist draft. Only the
+     * namelist arithmetic is owned here - intermediate image interpolation,
+     * engine image partitioning, the stage parser and the movie remain the
+     * #50 editor/runtime depth. no-CI/highest/spin are the usable CI schemes;
+     * 'manual' refuses ACTIONABLY (blind indexing would be ceremonial), and
+     * any CI needs >= 3 images (climbing needs an interior image). The
+     * render carries an explicit numbered-image checklist so images can never
+     * reorder silently.
+     */
+    private static AnalysisReport analyzeNebInputDraft(AnalysisParameters params) {
+        String label = AnalysisKind.NEB_INPUT_DRAFT.getLabel();
+        OperationResult<NebInputPlanner.NebDraft> validated =
+                NebInputPlanner.validate(params.getNebNumImages(), params.getNebNstepPath(),
+                        params.getNebOptScheme(), params.getNebCiScheme(),
+                        params.getNebKMin(), params.getNebKMax(), params.getNebDs(),
+                        params.getNebPathThr());
+        if (!validated.isSuccess() || validated.getValue().isEmpty()) {
+            return failure(label, "The neb.x &PATH draft was refused:\n["
+                    + validated.getCode() + "] " + validated.getMessage());
+        }
+        NebInputPlanner.NebDraft draft = validated.getValue().get();
+        String namelist = draft.draft();
+        String checklist = draft.checklist();
+        StringBuilder text = new StringBuilder();
+        text.append(String.format(Locale.ROOT,
+                "Path: %d image(s) (end points included), %d path steps, "
+                        + "opt_scheme='%s', CI_scheme='%s'.%n",
+                draft.getNumOfImages(), draft.getNstepPath(), draft.getOptScheme(),
+                draft.getCiScheme()));
+        text.append(String.format(Locale.ROOT,
+                "Springs [k_min=%.6f .. k_max=%.6f] a.u., ds=%.6f a.u., "
+                        + "path_thr=%.6f a.u.%n",
+                draft.getKMin(), draft.getKMax(), draft.getDs(), draft.getPathThr()));
+        text.append("\n&PATH draft (also in the draft channel):\n\n").append(namelist);
+        text.append('\n').append(checklist);
+        text.append("\nHonesty block: this slice owns the &PATH namelist ONLY. "
+                + "Intermediate images are NOT interpolated here (the #50 editor "
+                + "generates first/intermediate/last ATOMIC_POSITIONS blocks); the "
+                + "-nimage engine partitioning MUST equal num_of_images; the stage "
+                + "parser, path-movie and image-energy view are the remaining "
+                + "depth. No keyword carried an invented default: blank numeric "
+                + "fields refused at the prompt. The draft saves only via the "
+                + "explicit save action.\n");
+        List<String> csv = new ArrayList<>();
+        csv.add("item,value,note");
+        csv.add(String.format(Locale.ROOT, "num_of_images,%d,end-points included - must "
+                + "match -nimage", draft.getNumOfImages()));
+        csv.add(String.format(Locale.ROOT, "nstep_path,%d,path-optimization steps",
+                draft.getNstepPath()));
+        csv.add(String.format(Locale.ROOT, "opt_scheme,%s,typed enum",
+                draft.getOptScheme()));
+        csv.add(String.format(Locale.ROOT, "CI_scheme,%s,%s", draft.getCiScheme(),
+                draft.getCiScheme().equals("no-ci") ? "no climbing image"
+                        : "interior image required (images>=3)"));
+        csv.add(String.format(Locale.ROOT, "k_min,%.6f,a.u. - k_min<=k_max enforced",
+                draft.getKMin()));
+        csv.add(String.format(Locale.ROOT, "k_max,%.6f,a.u.", draft.getKMax()));
+        csv.add(String.format(Locale.ROOT, "ds,%.6f,a.u.", draft.getDs()));
+        csv.add(String.format(Locale.ROOT, "path_thr,%.6f,a.u.", draft.getPathThr()));
+        csv.add("intermediate_images,not-generated,editor-slice depth");
+        return new AnalysisReport(label, true, text.toString(), csv,
+                namelist + "\n# " + checklist.replace("\n", "\n# "));
     }
 
     /**
