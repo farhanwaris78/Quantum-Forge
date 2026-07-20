@@ -86,6 +86,7 @@ import quantumforge.remote.SftpTransferPlan;
 import quantumforge.remote.SiteProfileSpec;
 import quantumforge.remote.SlurmScriptBuilder;
 import quantumforge.remote.SshTargetSpec;
+import quantumforge.remote.SyncManifestBuilder;
 import quantumforge.com.math.QEUnits;
 import quantumforge.input.QESCFInput;
 import quantumforge.input.QEVersionRuleCatalog;
@@ -299,7 +300,8 @@ public final class ResultAnalysisService {
         SITE_PROFILE_DRAFT("HPC site-profile draft (typed scheduler/launcher, owned grammar)"),
         NEB_INPUT_DRAFT("neb.x &PATH namelist draft (typed, image-checklisted)"),
         JOB_CANCEL_PLAN("Scheduler job-cancellation review plan (typed id, retype-confirm)"),
-        MONITOR_POLL_PLAN("Remote-monitoring poll plan (bounded backoff, offline semantics)");
+        MONITOR_POLL_PLAN("Remote-monitoring poll plan (bounded backoff, offline semantics)"),
+        SYNC_MANIFEST_DRAFT("Selective result-sync manifest draft (role-per-name, intent not facts)");
 
         private final String label;
 
@@ -356,7 +358,8 @@ public final class ResultAnalysisService {
                     || this == SSH_CONFIG_DRAFT || this == SFTP_TRANSFER_PLAN
                     || this == SLURM_SCRIPT_DRAFT || this == KMESH_CONVERGENCE_PLAN
                     || this == SITE_PROFILE_DRAFT || this == NEB_INPUT_DRAFT
-                    || this == JOB_CANCEL_PLAN || this == MONITOR_POLL_PLAN;
+                    || this == JOB_CANCEL_PLAN || this == MONITOR_POLL_PLAN
+                    || this == SYNC_MANIFEST_DRAFT;
         }
 
         /** True for project-bound kinds that additionally parse a user data file. */
@@ -493,6 +496,10 @@ public final class ResultAnalysisService {
         private double monitorMaxSec = 300.0;
         private double monitorFactor = 2.0;    // 1.0 = honest constant polling
         private int monitorMaxPolls = 60;
+        private String syncRequired = "";      // SYNC_MANIFEST_DRAFT csv lists
+        private String syncOptional = "";
+        private String syncLarge = "";
+        private String syncExcluded = "";
 
         public double getFermiEv() { return this.fermiEv; }
         public int getKpointIndex() { return this.kpointIndex; }
@@ -982,6 +989,20 @@ public final class ResultAnalysisService {
             this.monitorMaxSec = maxSec;
             this.monitorFactor = factor;
             this.monitorMaxPolls = maxPolls;
+            return this;
+        }
+
+        public String getSyncRequired() { return this.syncRequired; }
+        public String getSyncOptional() { return this.syncOptional; }
+        public String getSyncLarge() { return this.syncLarge; }
+        public String getSyncExcluded() { return this.syncExcluded; }
+
+        public AnalysisParameters withSyncManifest(String required, String optional,
+                String large, String excluded) {
+            this.syncRequired = required == null ? "" : required;
+            this.syncOptional = optional == null ? "" : optional;
+            this.syncLarge = large == null ? "" : large;
+            this.syncExcluded = excluded == null ? "" : excluded;
             return this;
         }
     }
@@ -1614,6 +1635,8 @@ public final class ResultAnalysisService {
                 return analyzeJobCancelPlan(params);
             case MONITOR_POLL_PLAN:
                 return analyzeMonitorPollPlan(params);
+            case SYNC_MANIFEST_DRAFT:
+                return analyzeSyncManifestDraft(params);
             case SLAB_MILLER_PREVIEW:
                 return analyzeSlabMillerPreview(project, params);
             default:
@@ -8148,6 +8171,58 @@ public final class ResultAnalysisService {
         csv.add(String.format(Locale.ROOT, "policy,horizon_s=%.3f,max_polls=%d,capped=%d,"
                 + "factor=%.3f", plan.getHorizonSec(), plan.getMaxPolls(),
                 plan.getCappedPolls(), plan.getFactor()));
+        return new AnalysisReport(label, true, text.toString(), csv, block);
+    }
+
+    /**
+     * Roadmap #98 (draft slice): selective result-sync manifest. Each entry
+     * carries EXACTLY ONE role (required/optional/large-on-demand/excluded) -
+     * cross-role duplicates refuse because 'required' vs 'excluded' for the
+     * same name would resolve silently. '*' is meaningful ONLY in the owned
+     * '*.ext' leading shape; a trailing star reads as a literal that never
+     * exists and refuses. Sizes/checksums are declared UNKNOWN until fetch:
+     * the manifest records INTENT, not facts.
+     */
+    private static AnalysisReport analyzeSyncManifestDraft(AnalysisParameters params) {
+        String label = AnalysisKind.SYNC_MANIFEST_DRAFT.getLabel();
+        OperationResult<SyncManifestBuilder.SyncManifest> validated =
+                SyncManifestBuilder.validate(params.getSyncRequired(),
+                        params.getSyncOptional(), params.getSyncLarge(),
+                        params.getSyncExcluded());
+        if (!validated.isSuccess() || validated.getValue().isEmpty()) {
+            return failure(label, "The sync manifest draft was refused:\n["
+                    + validated.getCode() + "] " + validated.getMessage());
+        }
+        SyncManifestBuilder.SyncManifest manifest = validated.getValue().get();
+        String block = manifest.render();
+        StringBuilder text = new StringBuilder();
+        text.append(String.format(Locale.ROOT,
+                "Manifest: %d required, %d optional, %d large-on-demand, %d excluded "
+                        + "entr(y/ies), one role per name.%n",
+                manifest.getRequired().size(), manifest.getOptional().size(),
+                manifest.getLargeOnDemand().size(), manifest.getExcluded().size()));
+        text.append("\nManifest block (also in the draft channel):\n\n").append(block);
+        text.append("\nHonesty block: NOTHING downloads from this build. The manifest "
+                + "records INTENT for the #98 runtime: bandwidth is saved by role, "
+                + "sizes and checksums are UNKNOWN until the first fetch (never "
+                + "fabricated), the checksum cache fills at sync time, and parser "
+                + "prerequisites verify BEFORE a result pane claims data. A name "
+                + "listed twice - inside one role or across roles - refused at "
+                + "validation, so the sync can never resolve ambiguity silently.\n");
+        List<String> csv = new ArrayList<>();
+        csv.add("role,entries,count");
+        csv.add(String.format(Locale.ROOT, "required,%s,%d",
+                csvCell(String.join(" ", manifest.getRequired())),
+                manifest.getRequired().size()));
+        csv.add(String.format(Locale.ROOT, "optional,%s,%d",
+                csvCell(String.join(" ", manifest.getOptional())),
+                manifest.getOptional().size()));
+        csv.add(String.format(Locale.ROOT, "large_on_demand,%s,%d",
+                csvCell(String.join(" ", manifest.getLargeOnDemand())),
+                manifest.getLargeOnDemand().size()));
+        csv.add(String.format(Locale.ROOT, "excluded,%s,%d",
+                csvCell(String.join(" ", manifest.getExcluded())),
+                manifest.getExcluded().size()));
         return new AnalysisReport(label, true, text.toString(), csv, block);
     }
 

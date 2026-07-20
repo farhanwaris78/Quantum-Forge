@@ -549,6 +549,31 @@ public final class AnalysisAction {
                     factor.doubleValue(), polls.intValue());
             break;
         }
+        case SYNC_MANIFEST_DRAFT: {
+            String required = askText("REQUIRED remote artifacts, comma-separated "
+                    + "(e.g. 'pw.out, xml/data-file-schema.xml'; at least one - "
+                    + "parsers' prerequisites belong here)", "pw.out");
+            if (required == null) {
+                return null;
+            }
+            String optional = askText("OPTIONAL artifacts, csv or '*.ext' top-level "
+                    + "patterns (blank = none declared)", "");
+            if (optional == null) {
+                return null;
+            }
+            String large = askText("LARGE-on-demand artifacts (fetched only on "
+                    + "request, csv, blank = none)", "");
+            if (large == null) {
+                return null;
+            }
+            String excluded = askText("EXCLUDED artifacts (never fetched, csv, "
+                    + "blank = none; one role per name - duplicates refuse)", "");
+            if (excluded == null) {
+                return null;
+            }
+            parameters.withSyncManifest(required, optional, large, excluded);
+            break;
+        }
         case SLAB_MILLER_PREVIEW: {
             Integer h = askInteger("Miller index h (-16..16)", 1);
             if (h == null) {

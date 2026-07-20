@@ -4966,4 +4966,57 @@ class ResultAnalysisServiceTest {
                 .contains("CONSTANT polling - declared plainly"),
                 "factor 1.0 is an honest declaration, not dressed up as backoff");
     }
+
+
+    @Test
+    void syncManifestDraftRendersRolesThroughTheDraftChannel() throws IOException {
+        AnalysisReport report = ResultAnalysisService.analyze(
+                AnalysisKind.SYNC_MANIFEST_DRAFT, stubProject(this.tempDir),
+                new AnalysisParameters().withSyncManifest(
+                        "pw.out, xml/data-file-schema.xml", "*.dat", "wfc1.dat", "*.core"));
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains(
+                "Manifest: 2 required, 1 optional, 1 large-on-demand, 1 excluded"),
+                report.getText());
+        assertTrue(report.getText().contains("records INTENT for the #98 runtime"),
+                report.getText());
+        String block = report.getGeneratedInput().orElseThrow();
+        assertTrue(block.contains("# qf-sync-manifest v1"), block);
+        assertTrue(block.contains("required = pw.out, xml/data-file-schema.xml\n"), block);
+        assertTrue(block.contains("optional = *.dat\n"), block);
+        assertTrue(block.contains("large_on_demand = wfc1.dat\n"), block);
+        assertTrue(block.contains("excluded = *.core\n"), block);
+        assertTrue(block.contains("UNKNOWN until first fetch"), block);
+        String csv = String.join("\n", report.getCsvLines());
+        assertTrue(csv.contains("required,"pw.out xml/data-file-schema.xml",2")
+                || csv.contains("required,pw.out xml/data-file-schema.xml,2"), csv);
+        assertTrue(csv.contains("excluded,*.core,1"), csv);
+    }
+
+    @Test
+    void syncManifestDraftFailClosedPaths() throws IOException {
+        AnalysisReport crossRole = ResultAnalysisService.analyze(
+                AnalysisKind.SYNC_MANIFEST_DRAFT, stubProject(this.tempDir),
+                new AnalysisParameters().withSyncManifest("pw.out", "pw.out", "", ""));
+        assertFalse(crossRole.isSuccess(),
+                "required AND optional for the same name would resolve silently");
+        assertTrue(crossRole.getText().contains("[SYNC_DUPLICATE]"),
+                crossRole.getText());
+
+        AnalysisReport trailingStar = ResultAnalysisService.analyze(
+                AnalysisKind.SYNC_MANIFEST_DRAFT, stubProject(this.tempDir),
+                new AnalysisParameters().withSyncManifest("pw.out", "core.*", "", ""));
+        assertFalse(trailingStar.isSuccess(),
+                "a trailing star reads as a literal that never exists - refused");
+        assertTrue(trailingStar.getText().contains("[SYNC_ENTRY]"),
+                trailingStar.getText());
+
+        AnalysisReport ceremonial = ResultAnalysisService.analyze(
+                AnalysisKind.SYNC_MANIFEST_DRAFT, stubProject(this.tempDir),
+                new AnalysisParameters().withSyncManifest("", "out.dat", "", ""));
+        assertFalse(ceremonial.isSuccess(),
+                "a manifest that fetches nothing essential is ceremonial");
+        assertTrue(ceremonial.getText().contains("[SYNC_REQUIRED]"),
+                ceremonial.getText());
+    }
 }
