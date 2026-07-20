@@ -33,6 +33,7 @@ import quantumforge.atoms.model.Cell;
 import quantumforge.builder.CifStructureReader;
 import quantumforge.builder.SdfStructureReader;
 import quantumforge.builder.TransformJournal;
+import quantumforge.builder.JournalReplayMath;
 import quantumforge.builder.CslSigmaMath;
 import quantumforge.builder.SlabMillerMath;
 import quantumforge.builder.MoireTwistMath;
@@ -7205,6 +7206,39 @@ public final class ResultAnalysisService {
                 + "the REPLAY wiring into each builder path is the remaining "
                 + "#90 depth; this review verifies integrity only and applies "
                 + "nothing to the project.\n");
+        OperationResult<JournalReplayMath.ReplaySummary> replay = JournalReplayMath
+                .combine(summary);
+        if (replay.isSuccess() && replay.getValue().isPresent()) {
+            JournalReplayMath.ReplaySummary folded = replay.getValue().get();
+            double[][] combined = folded.getCombined();
+            text.append(String.format(Locale.ROOT,
+                    "%nReplay arithmetic: folded %d matrix entr(ies) in journal "
+                            + "order (first entry applied FIRST); parameter-only "
+                            + "entr(ies) skipped and listed by seq: %s%n",
+                    folded.getMatrixEntries(),
+                    folded.getSkippedSequences().isEmpty() ? "none"
+                            : folded.getSkippedSequences().toString()));
+            for (int row = 0; row < 3; row += 1) {
+                text.append(String.format(Locale.ROOT,
+                        "  [% .6f % .6f % .6f ]%n", combined[row][0],
+                        combined[row][1], combined[row][2]));
+            }
+            text.append(String.format(Locale.ROOT,
+                    "  det = %.6f (%s; handedness %s)%s%n", folded.getCombinedDet(),
+                    folded.isSingular()
+                            ? "SINGULAR - no inverse replay exists, stated not "
+                                    + "perturbed"
+                            : "invertible",
+                    folded.preservedHandedness() ? "preserved" : "INVERTED",
+                    folded.getSkippedSequences().isEmpty() ? ""
+                            : "; matrix-only replay reproduces the CELL metric "
+                                    + "chain - the skipped steps need their "
+                                    + "parameters, which is the #90 depth"));
+        } else {
+            text.append(String.format(Locale.ROOT,
+                    "%nReplay arithmetic: no matrix chain to fold ([%s] %s)%n",
+                    replay.getCode(), replay.getMessage()));
+        }
         List<String> csv = new ArrayList<>();
         csv.add("seq,source,operation,has_matrix,parameters,entry_hash");
         for (TransformJournal.JournalEntry entry : summary.getEntries()) {
@@ -7213,6 +7247,16 @@ public final class ResultAnalysisService {
                     csvCell(entry.getOperation()), entry.getMatrix() != null,
                     csvCell(String.join(";", entry.getParameters())),
                     entry.getEntryHash()));
+        }
+        if (replay.isSuccess() && replay.getValue().isPresent()) {
+            JournalReplayMath.ReplaySummary folded = replay.getValue().get();
+            csv.add(String.format(Locale.ROOT,
+                    "replay_combined_det,%.6f,%s", folded.getCombinedDet(),
+                    folded.isSingular() ? "singular" : "invertible"));
+            csv.add(String.format(Locale.ROOT, "replay_matrix_entries,%d,skipped_seqs=%s",
+                    folded.getMatrixEntries(),
+                    csvCell(folded.getSkippedSequences().isEmpty() ? "none"
+                            : folded.getSkippedSequences().toString())));
         }
         return new AnalysisReport(label, true, text.toString(), csv, null);
     }

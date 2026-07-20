@@ -4147,6 +4147,19 @@ class ResultAnalysisServiceTest {
                 "1,cod:9011998,supercell,true,atoms=8,"
                         + "eaf3ad94a184fc3927360fd5fdb11361588fec4f17d9e7d4062875eff3f91e92"),
                 String.join("\n", report.getCsvLines()));
+        assertTrue(report.getText().contains("Replay arithmetic: folded 2 matrix "
+                + "entr(ies)"), report.getText());
+        assertTrue(report.getText().contains("[ 2.000000  0.000000  0.000000 ]"),
+                report.getText());
+        assertTrue(report.getText().contains(
+                "det = 12.000000 (invertible; handedness preserved)"),
+                report.getText());
+        assertTrue(report.getCsvLines().contains(
+                "replay_combined_det,12.000000,invertible"),
+                String.join("\n", report.getCsvLines()));
+        assertTrue(report.getCsvLines().contains(
+                "replay_matrix_entries,2,skipped_seqs=none"),
+                String.join("\n", report.getCsvLines()));
 
         File tampered = write("tampered.qfj",
                 "# qf-journal v1\n"

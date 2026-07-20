@@ -379,7 +379,8 @@ def main() -> int:
                   "TransformJournal", "PROVENANCE_JOURNAL_REVIEW",
                   "JobDbSchema", "JOB_DB_SCHEMA_PLAN",
                   "OptimadeQueryBuilder", "OPTIMADE_QUERY_DRAFT",
-                  "OccupationLevelsParser", "OCCUPATION_LEVELS_REVIEW"]:
+                  "OccupationLevelsParser", "OCCUPATION_LEVELS_REVIEW",
+                  "JournalReplayMath", "replay_combined_det"]:
         if token not in service:
             error(f"ResultAnalysisService is not bound to {token}")
     for rel in ["quantumforge/com/math/SymmetricEigen3.java",
@@ -424,7 +425,8 @@ def main() -> int:
                 "quantumforge/builder/TransformJournal.java",
                 "quantumforge/hpc/JobDbSchema.java",
                 "quantumforge/remote/OptimadeQueryBuilder.java",
-                "quantumforge/run/parser/OccupationLevelsParser.java"]:
+                "quantumforge/run/parser/OccupationLevelsParser.java",
+                "quantumforge/builder/JournalReplayMath.java"]:
         text = (SRC / rel).read_text(encoding="utf-8")
         if "class " not in text:
             error(f"{rel} does not declare a type")
