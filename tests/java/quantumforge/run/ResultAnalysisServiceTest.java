@@ -5060,4 +5060,54 @@ class ResultAnalysisServiceTest {
         assertFalse(scheme.isSuccess(), "free-form schemes refuse");
         assertTrue(scheme.getText().contains("[SMEAR_SCHEME]"), scheme.getText());
     }
+
+
+    @Test
+    void cutoffLadderPlanPinsUnitsImpliedRhoAndHeuristicLabel() throws IOException {
+        AnalysisReport report = ResultAnalysisService.analyze(
+                AnalysisKind.CUTOFF_LADDER_PLAN, stubProject(this.tempDir),
+                new AnalysisParameters().withCutoffPlan("30; 40; 60", 8.0));
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains("ecutwfc = 8.000000")
+                || report.getText().contains("ratio ecutrho/ecutwfc = 8.000000"),
+                report.getText());
+        assertTrue(report.getText().contains("RULE-OF-THUMB"), report.getText(),
+                "the 1.5 exponent is labeled, never sold as a measurement");
+        assertTrue(report.getText().contains("NEVER declares convergence"),
+                report.getText());
+        String csv = String.join("\n", report.getCsvLines());
+        assertTrue(csv.contains("1,30.000000,408.170794,240.000000,"), csv,
+                "eV via shared QEUnits constant; ecutrho implied from the deck ratio");
+        assertTrue(csv.contains("2,40.000000,544.227725,320.000000,1.539601"), csv);
+        assertTrue(csv.contains("3,60.000000,816.341587,480.000000,1.837117"), csv);
+    }
+
+    @Test
+    void cutoffLadderPlanFailClosedPaths() throws IOException {
+        AnalysisReport ratio = ResultAnalysisService.analyze(
+                AnalysisKind.CUTOFF_LADDER_PLAN, stubProject(this.tempDir),
+                new AnalysisParameters().withCutoffPlan("30; 40", 0.5));
+        assertFalse(ratio.isSuccess(),
+                "ecutrho coarser than the wavefunction grid is a specification error");
+        assertTrue(ratio.getText().contains("[CUTOFF_RATIO]"), ratio.getText());
+
+        AnalysisReport blankRatio = ResultAnalysisService.analyze(
+                AnalysisKind.CUTOFF_LADDER_PLAN, stubProject(this.tempDir),
+                new AnalysisParameters().withCutoffPlan("30; 40", Double.NaN));
+        assertFalse(blankRatio.isSuccess(), "no invented default exists for the ratio");
+        assertTrue(blankRatio.getText().contains("[CUTOFF_RATIO]"), blankRatio.getText());
+
+        AnalysisReport descending = ResultAnalysisService.analyze(
+                AnalysisKind.CUTOFF_LADDER_PLAN, stubProject(this.tempDir),
+                new AnalysisParameters().withCutoffPlan("40; 30", 8.0));
+        assertFalse(descending.isSuccess(), "coarsening refuses - never re-sorted");
+        assertTrue(descending.getText().contains("[CUTOFF_LADDER]"),
+                descending.getText());
+
+        AnalysisReport belowBand = ResultAnalysisService.analyze(
+                AnalysisKind.CUTOFF_LADDER_PLAN, stubProject(this.tempDir),
+                new AnalysisParameters().withCutoffPlan("4; 30", 8.0));
+        assertFalse(belowBand.isSuccess());
+        assertTrue(belowBand.getText().contains("[CUTOFF_VALUE]"), belowBand.getText());
+    }
 }

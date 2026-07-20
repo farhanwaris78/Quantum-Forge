@@ -589,6 +589,20 @@ public final class AnalysisAction {
             parameters.withSmearingPlan(scheme, ladder);
             break;
         }
+        case CUTOFF_LADDER_PLAN: {
+            String ladder = askText("ecutwfc ladder in Ry, ASCENDING, ';'-separated "
+                    + "(e.g. '30; 40; 60'; 2..8 rungs in the owned 5..500 band)", "");
+            if (ladder == null) {
+                return null;
+            }
+            Double ratio = askDouble("YOUR deck's ecutrho/ecutwfc ratio (REQUIRED, "
+                    + ">= 1.0; no default invented)", "");
+            if (ratio == null) {
+                return null;  // blank REQUIRED ratio refuses - nothing is invented
+            }
+            parameters.withCutoffPlan(ladder, ratio.doubleValue());
+            break;
+        }
         case SLAB_MILLER_PREVIEW: {
             Integer h = askInteger("Miller index h (-16..16)", 1);
             if (h == null) {

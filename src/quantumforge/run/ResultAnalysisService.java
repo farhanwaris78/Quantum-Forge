@@ -302,7 +302,8 @@ public final class ResultAnalysisService {
         JOB_CANCEL_PLAN("Scheduler job-cancellation review plan (typed id, retype-confirm)"),
         MONITOR_POLL_PLAN("Remote-monitoring poll plan (bounded backoff, offline semantics)"),
         SYNC_MANIFEST_DRAFT("Selective result-sync manifest draft (role-per-name, intent not facts)"),
-        SMEARING_LADDER_PLAN("Smearing down-ladder plan (degauss Ry/eV, never declares convergence)");
+        SMEARING_LADDER_PLAN("Smearing down-ladder plan (degauss Ry/eV, never declares convergence)"),
+        CUTOFF_LADDER_PLAN("Cutoff convergence ladder (ecutwfc Ry/eV + implied ecutrho)");
 
         private final String label;
 
@@ -360,7 +361,8 @@ public final class ResultAnalysisService {
                     || this == SLURM_SCRIPT_DRAFT || this == KMESH_CONVERGENCE_PLAN
                     || this == SITE_PROFILE_DRAFT || this == NEB_INPUT_DRAFT
                     || this == JOB_CANCEL_PLAN || this == MONITOR_POLL_PLAN
-                    || this == SYNC_MANIFEST_DRAFT || this == SMEARING_LADDER_PLAN;
+                    || this == SYNC_MANIFEST_DRAFT || this == SMEARING_LADDER_PLAN
+                    || this == CUTOFF_LADDER_PLAN;
         }
 
         /** True for project-bound kinds that additionally parse a user data file. */
@@ -503,6 +505,8 @@ public final class ResultAnalysisService {
         private String syncExcluded = "";
         private String smearScheme = "gaussian";  // SMEARING_LADDER_PLAN typed scheme
         private String smearLadder = "";          // descending degauss values in Ry
+        private String cutoffLadder = "";         // ascending ecutwfc values in Ry
+        private double cutoffRhoRatio = Double.NaN;  // REQUIRED, no invented default
 
         public double getFermiEv() { return this.fermiEv; }
         public int getKpointIndex() { return this.kpointIndex; }
@@ -1015,6 +1019,15 @@ public final class ResultAnalysisService {
         public AnalysisParameters withSmearingPlan(String scheme, String ladder) {
             this.smearScheme = scheme == null ? "" : scheme;
             this.smearLadder = ladder == null ? "" : ladder;
+            return this;
+        }
+
+        public String getCutoffLadder() { return this.cutoffLadder; }
+        public double getCutoffRhoRatio() { return this.cutoffRhoRatio; }
+
+        public AnalysisParameters withCutoffPlan(String ladder, double rhoRatio) {
+            this.cutoffLadder = ladder == null ? "" : ladder;
+            this.cutoffRhoRatio = rhoRatio;
             return this;
         }
     }
@@ -1651,6 +1664,8 @@ public final class ResultAnalysisService {
                 return analyzeSyncManifestDraft(params);
             case SMEARING_LADDER_PLAN:
                 return analyzeSmearingLadderPlan(params);
+            case CUTOFF_LADDER_PLAN:
+                return analyzeCutoffLadderPlan(params);
             case SLAB_MILLER_PREVIEW:
                 return analyzeSlabMillerPreview(project, params);
             default:
@@ -8288,6 +8303,60 @@ public final class ResultAnalysisService {
                 + "within ONE scheme. degauss = 0 is refused as a rung: extrapolation "
                 + "to zero broadening is an analysis you do from the results, not a "
                 + "claim the plan makes by omission.\n");
+        return new AnalysisReport(label, true, text.toString(), csv, null);
+    }
+
+    /**
+     * Roadmap #36 (plan slice): the ecutwfc convergence ladder. Ascending
+     * only (coarsening refuses, never re-sorted); ecutrho is IMPLIED from the
+     * prompted deck ratio so plan and deck cannot disagree silently; eV via
+     * the shared QEUnits constant; the (ratio)^1.5 cost column is exact
+     * arithmetic of a LABELED rule-of-thumb. Convergence is never declared -
+     * it is a delta-E/force comparison after the runs.
+     */
+    private static AnalysisReport analyzeCutoffLadderPlan(AnalysisParameters params) {
+        String label = AnalysisKind.CUTOFF_LADDER_PLAN.getLabel();
+        OperationResult<CutoffLadderPlan.Ladder> validated =
+                CutoffLadderPlan.validate(params.getCutoffLadder(),
+                        params.getCutoffRhoRatio());
+        if (!validated.isSuccess() || validated.getValue().isEmpty()) {
+            return failure(label, "The cutoff ladder was refused:\n[" + validated.getCode()
+                    + "] " + validated.getMessage());
+        }
+        CutoffLadderPlan.Ladder ladder = validated.getValue().get();
+        StringBuilder text = new StringBuilder();
+        text.append(String.format(Locale.ROOT,
+                "Deck rho ratio ecutrho/ecutwfc = %.6f (YOUR setting - ecutrho below is "
+                        + "IMPLIED every rung so the plan cannot drift from the deck).%n%n",
+                ladder.getRhoRatio()));
+        text.append(String.format(Locale.ROOT, "%-4s %-13s %-14s %-16s %-20s%n", "#",
+                "ecutwfc (Ry)", "ecutwfc (eV)", "ecutrho (Ry)",
+                "cost vs prev (x^1.5*)"));
+        List<String> csv = new ArrayList<>();
+        csv.add("rung,ecutwfc_ry,ecutwfc_ev,ecutrho_ry_implied,cost_factor_vs_prev_heuristic");
+        for (CutoffLadderPlan.Rung rung : ladder.getRungs()) {
+            text.append(String.format(Locale.ROOT, "%-4d %-13.6f %-14.6f %-16.6f %-20s%n",
+                    rung.getIndex(), rung.getWfcRy(), rung.getWfcEv(),
+                    rung.getImpliedRhoRy(),
+                    rung.getCostFactorVsPrev() == null ? "-"
+                            : String.format(Locale.ROOT, "x%.6f",
+                                    rung.getCostFactorVsPrev())));
+            csv.add(String.format(Locale.ROOT, "%d,%.6f,%.6f,%.6f,%s", rung.getIndex(),
+                    rung.getWfcRy(), rung.getWfcEv(), rung.getImpliedRhoRy(),
+                    rung.getCostFactorVsPrev() == null ? ""
+                            : String.format(Locale.ROOT, "%.6f",
+                                    rung.getCostFactorVsPrev())));
+        }
+        text.append("\n* The 1.5 exponent in the cost column is a RULE-OF-THUMB for "
+                + "PW basis cost - exact arithmetic over the ladder ratios, but never a "
+                + "measurement of your machine's timings.\n");
+        text.append("\nHonesty block: this plan schedules the cutoff ladder ONLY - it "
+                + "NEVER declares convergence. After the runs, compare total energy (and "
+                + "forces/stress where they matter) between consecutive rungs against "
+                + "YOUR target tolerance. The 5..500 Ry band is OURS (QE imposes no "
+                + "limit) and is stated as such; the rho ratio carries no invented "
+                + "default - ranges like 4 (NC) or 8-12 (US/PAW) are literature "
+                + "hearsay, echoed as hearsay.\n");
         return new AnalysisReport(label, true, text.toString(), csv, null);
     }
 
