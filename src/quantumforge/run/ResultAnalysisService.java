@@ -74,6 +74,7 @@ import quantumforge.input.QEPpChargePotentialBuilder;
 import quantumforge.input.QEPpWavefunctionBuilder;
 import quantumforge.hpc.PoolDivisorMath;
 import quantumforge.hpc.JobDbSchema;
+import quantumforge.remote.OptimadeQueryBuilder;
 import quantumforge.com.math.QEUnits;
 import quantumforge.input.QESCFInput;
 import quantumforge.input.QEVersionRuleCatalog;
@@ -273,7 +274,8 @@ public final class ResultAnalysisService {
         BANDS_FERMI_REVIEW("Band structure E-E_F review (explicit Fermi, crossing stats)"),
         BAND_GAP_BANDS("Band-gap classification (valence count, metallicity tolerance)"),
         PROVENANCE_JOURNAL_REVIEW("Structure provenance journal verify (hash-chained)"),
-        JOB_DB_SCHEMA_PLAN("Job database schema + migration plan (SQLite WAL target)");
+        JOB_DB_SCHEMA_PLAN("Job database schema + migration plan (SQLite WAL target)"),
+        OPTIMADE_QUERY_DRAFT("OPTIMADE /structures query draft (validated, unfetched)");
 
         private final String label;
 
@@ -325,7 +327,8 @@ public final class ResultAnalysisService {
                     || this == MPI_POOLS_ADVISOR || this == GB_CSL_PREVIEW
                     || this == UNIT_CONVERT || this == XSPECTRA_INPUT_DRAFT
                     || this == GIPAW_INPUT_DRAFT || this == SLAB_MILLER_PREVIEW
-                    || this == TDDFPT_INPUT_DRAFT || this == JOB_DB_SCHEMA_PLAN;
+                    || this == TDDFPT_INPUT_DRAFT || this == JOB_DB_SCHEMA_PLAN
+                    || this == OPTIMADE_QUERY_DRAFT;
         }
 
         /** True for project-bound kinds that additionally parse a user data file. */
@@ -414,6 +417,11 @@ public final class ResultAnalysisService {
         private int gapValenceBands = 0;      // BAND_GAP_BANDS: 0 = must be supplied
         private double gapToleranceEv = Double.NaN; // metallicity tolerance (NaN = unset)
         private double gapKTolerance = 1.0e-6;    // directness k tolerance
+        private String optimadeBase = "https://optimade.materialsproject.org/v1";
+        private String optimadeElements = "";   // csv, REQUIRED for the draft
+        private int optimadeNeMax = 0;          // 0 omits nelements<=N
+        private int optimadeNsMax = 0;          // 0 omits nsites<=M
+        private int optimadePageLimit = 0;      // 0 maps to builder default
 
         public double getFermiEv() { return this.fermiEv; }
         public int getKpointIndex() { return this.kpointIndex; }
@@ -747,6 +755,22 @@ public final class ResultAnalysisService {
             this.gapValenceBands = valenceBands;
             this.gapToleranceEv = toleranceEv;
             this.gapKTolerance = kTolerance;
+            return this;
+        }
+
+        public String getOptimadeBase() { return this.optimadeBase; }
+        public String getOptimadeElements() { return this.optimadeElements; }
+        public int getOptimadeNeMax() { return this.optimadeNeMax; }
+        public int getOptimadeNsMax() { return this.optimadeNsMax; }
+        public int getOptimadePageLimit() { return this.optimadePageLimit; }
+
+        public AnalysisParameters withOptimadeQuery(String base, String elements,
+                int neMax, int nsMax, int pageLimit) {
+            this.optimadeBase = base == null ? "" : base.trim();
+            this.optimadeElements = elements == null ? "" : elements.trim();
+            this.optimadeNeMax = neMax;
+            this.optimadeNsMax = nsMax;
+            this.optimadePageLimit = pageLimit;
             return this;
         }
     }
@@ -1345,6 +1369,8 @@ public final class ResultAnalysisService {
                 return analyzeTddfptInputDraft(project);
             case JOB_DB_SCHEMA_PLAN:
                 return analyzeJobDbSchemaPlan();
+            case OPTIMADE_QUERY_DRAFT:
+                return analyzeOptimadeQueryDraft(params);
             case SLAB_MILLER_PREVIEW:
                 return analyzeSlabMillerPreview(project, params);
             default:
@@ -7234,6 +7260,61 @@ public final class ResultAnalysisService {
                     csvCell(step.getName())));
         }
         return new AnalysisReport(label, true, text.toString(), csv, null);
+    }
+
+    /**
+     * Roadmap #117 (query-builder slice): validates an OPTIMADE v1 base URL,
+     * composes the bounded element-driven filter, and returns the exact
+     * percent-encoded GET URL for review. NOTHING is fetched; the draft
+     * writes a file only via the explicit save action.
+     */
+    private static AnalysisReport analyzeOptimadeQueryDraft(AnalysisParameters params) {
+        String label = AnalysisKind.OPTIMADE_QUERY_DRAFT.getLabel();
+        OperationResult<OptimadeQueryBuilder.OptimadeQuery> built =
+                OptimadeQueryBuilder.build(params.getOptimadeBase(),
+                        params.getOptimadeElements(), params.getOptimadeNeMax(),
+                        params.getOptimadeNsMax(), params.getOptimadePageLimit());
+        if (!built.isSuccess() || built.getValue().isEmpty()) {
+            return failure(label, "The OPTIMADE query draft was refused:\n["
+                    + built.getCode() + "] " + built.getMessage());
+        }
+        OptimadeQueryBuilder.OptimadeQuery query = built.getValue().get();
+        StringBuilder text = new StringBuilder();
+        text.append(String.format(Locale.ROOT,
+                "Provider base (validated, normalized): %s%n", query.getNormalizedBase()));
+        text.append(String.format(Locale.ROOT,
+                "Filter (%d clause(s), owned element-driven subset):%n  %s%n",
+                query.getClauses().size(), query.getFilter()));
+        for (String clause : query.getClauses()) {
+            text.append("  - ").append(clause).append('\n');
+        }
+        text.append(String.format(Locale.ROOT,
+                "%nPage limit: %d (page_offset 0)%n", query.getPageLimit()));
+        text.append("\nGET URL (percent-encoded; NOT fetched - review before use):\n")
+                .append(query.getUrl()).append('\n');
+        text.append("\nHonesty block: this slice builds and validates ONLY - no "
+                + "network fetch, no TLS, no JSON:API parsing, and no "
+                + "provider-capability negotiation (e.g. whether band_gap is "
+                + "queryable varies per provider). Credentials in URLs are "
+                + "refused; free-form filter grammar is intentionally not "
+                + "parsed (building the owned subset beats parsing for "
+                + "injection safety). The draft saves/exports only via the "
+                + "explicit action; the fetch + response import remain the "
+                + "#117 depth.\n");
+        List<String> csv = new ArrayList<>();
+        csv.add("item,value,note");
+        csv.add(String.format(Locale.ROOT, "base,%s,validated /v1 root",
+                csvCell(query.getNormalizedBase())));
+        csv.add(String.format(Locale.ROOT, "filter_clauses,%d,owned subset",
+                query.getClauses().size()));
+        csv.add(String.format(Locale.ROOT, "page_limit,%d,offset 0", query.getPageLimit()));
+        StringBuilder draft = new StringBuilder();
+        draft.append("# OPTIMADE query draft (QuantumForge, unfetched - review "
+                + "before use)\n");
+        draft.append("# base:   ").append(query.getNormalizedBase()).append('\n');
+        draft.append("# filter: ").append(query.getFilter()).append('\n');
+        draft.append(query.getUrl()).append('\n');
+        return new AnalysisReport(label, true, text.toString(), csv, draft.toString());
     }
 
     /**

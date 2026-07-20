@@ -4188,4 +4188,52 @@ class ResultAnalysisServiceTest {
                 "3,3,4,per-job lease columns for the job lock"),
                 String.join("\n", report.getCsvLines()));
     }
+
+    @Test
+    void testOptimadeQueryDraftKindBuildsAndRefuses() {
+        AnalysisReport report = ResultAnalysisService.analyze(
+                AnalysisKind.OPTIMADE_QUERY_DRAFT, stubProject(this.tempDir),
+                new AnalysisParameters().withOptimadeQuery(
+                        "https://optimade.materialsproject.org/v1", "Si,O", 3, 20,
+                        20));
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains(
+                "Provider base (validated, normalized): "
+                        + "https://optimade.materialsproject.org/v1"),
+                report.getText());
+        assertTrue(report.getText().contains(
+                "elements HAS ALL \"Si\",\"O\" AND nelements<=3 AND nsites<=20"),
+                report.getText());
+        assertTrue(report.getText().contains("Page limit: 20 (page_offset 0)"),
+                report.getText());
+        assertTrue(report.getText().contains(
+                "elements%20HAS%20ALL%20%22Si%22%2C%22O%22%20AND%20nelements%3C%3D3"
+                        + "%20AND%20nsites%3C%3D20&page_limit=20&page_offset=0"),
+                report.getText());
+        assertTrue(report.getText().contains("NOT fetched"), report.getText());
+        assertTrue(report.getText().contains("no JSON:API parsing"),
+                report.getText());
+        assertTrue(report.getGeneratedInput() != null
+                        && report.getGeneratedInput().contains(
+                                "# OPTIMADE query draft (QuantumForge, unfetched"),
+                "the draft travels the generated-input channel");
+        assertTrue(report.getCsvLines().contains(
+                "base,https://optimade.materialsproject.org/v1,validated /v1 root"),
+                String.join("\n", report.getCsvLines()));
+
+        AnalysisReport badBase = ResultAnalysisService.analyze(
+                AnalysisKind.OPTIMADE_QUERY_DRAFT, stubProject(this.tempDir),
+                new AnalysisParameters().withOptimadeQuery(
+                        "https://user:pw@example.org/v1", "Si", 0, 0, 0));
+        assertFalse(badBase.isSuccess(), "credential URLs must fail closed");
+        assertTrue(badBase.getText().contains("[OPTIMADE_BASE]"), badBase.getText());
+
+        AnalysisReport noElements = ResultAnalysisService.analyze(
+                AnalysisKind.OPTIMADE_QUERY_DRAFT, stubProject(this.tempDir),
+                new AnalysisParameters().withOptimadeQuery(
+                        "https://example.org/v1", "  ", 0, 0, 0));
+        assertFalse(noElements.isSuccess(), "elements are required");
+        assertTrue(noElements.getText().contains("[OPTIMADE_ELEMENT]"),
+                noElements.getText());
+    }
 }

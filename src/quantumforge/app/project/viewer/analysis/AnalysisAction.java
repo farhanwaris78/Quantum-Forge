@@ -273,6 +273,33 @@ public final class AnalysisAction {
             parameters.withGapClassification(valence, tolerance, kTolerance);
             break;
         }
+        case OPTIMADE_QUERY_DRAFT: {
+            String base = askText("OPTIMADE provider base URL (http(s), path "
+                    + "ending /v1; no credentials, no query string)",
+                    "https://optimade.materialsproject.org/v1");
+            if (base == null) {
+                return null;
+            }
+            String elements = askText("Required elements (comma-separated, 1-8, "
+                    + "e.g. Si,O)", "");
+            if (elements == null) {
+                return null;
+            }
+            Integer neMax = askInteger("nelements cap (0 omits the clause)", 0);
+            if (neMax == null) {
+                return null;
+            }
+            Integer nsMax = askInteger("nsites cap (0 omits the clause)", 0);
+            if (nsMax == null) {
+                return null;
+            }
+            Integer pageLimit = askInteger("page_limit 1..1000 (0 = default 20)", 0);
+            if (pageLimit == null) {
+                return null;
+            }
+            parameters.withOptimadeQuery(base, elements, neMax, nsMax, pageLimit);
+            break;
+        }
         case SLAB_MILLER_PREVIEW: {
             Integer h = askInteger("Miller index h (-16..16)", 1);
             if (h == null) {
