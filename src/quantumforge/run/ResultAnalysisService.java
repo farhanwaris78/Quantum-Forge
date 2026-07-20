@@ -78,6 +78,7 @@ import quantumforge.hpc.JobDbSchema;
 import quantumforge.remote.OptimadeQueryBuilder;
 import quantumforge.remote.OptimadeStructuresParser;
 import quantumforge.remote.MpApiQueryBuilder;
+import quantumforge.remote.MpSummaryParser;
 import quantumforge.remote.SftpTransferPlan;
 import quantumforge.remote.SshTargetSpec;
 import quantumforge.com.math.QEUnits;
@@ -284,6 +285,7 @@ public final class ResultAnalysisService {
         OPTIMADE_QUERY_DRAFT("OPTIMADE /structures query draft (validated, unfetched)"),
         OCCUPATION_LEVELS_REVIEW("HOMO/LUMO occupation-level review (line-provenanced)"),
         OPTIMADE_RESPONSE_PARSE("OPTIMADE structures response parse (local JSON, unfetched)"),
+        MP_SUMMARY_PARSE("Materials Project summary response parse (local JSON, unfetched)"),
         MP_QUERY_DRAFT("Materials Project summary query draft (validated, unfetched, key-safe)"),
         SSH_CONFIG_DRAFT("SSH target ssh_config draft (publickey-only, validated)"),
         SFTP_TRANSFER_PLAN("SFTP staging plan (upload, hash-pinned, explicit overwrite)");
@@ -1096,6 +1098,9 @@ public final class ResultAnalysisService {
         case OPTIMADE_RESPONSE_PARSE:
             return name.endsWith(".json") && (name.contains("optimade")
                     || name.contains("structures"));
+        case MP_SUMMARY_PARSE:
+            return name.endsWith(".json") && (name.contains("mp")
+                    || name.contains("materialsproject") || name.contains("summary"));
         case ML_DATASET_BASELINE:
             return name.endsWith(".xyz") || name.contains("extxyz");
         case SERIES_REF_ALIGN:
@@ -1263,6 +1268,8 @@ public final class ResultAnalysisService {
                 return analyzeOccupationLevelsReview(source);
             case OPTIMADE_RESPONSE_PARSE:
                 return analyzeOptimadeResponseParse(source);
+            case MP_SUMMARY_PARSE:
+                return analyzeMpSummaryParse(source);
             case ML_DATASET_BASELINE:
                 return analyzeMlDatasetBaseline(source);
             case SERIES_REF_ALIGN:
@@ -7682,6 +7689,80 @@ public final class ResultAnalysisService {
                             : String.join(" ", structure.getElements())),
                     structure.hasLattice() ? "present" : "absent",
                     structure.hasLattice() ? "nm" : ""));
+        }
+        return new AnalysisReport(label, true, text.toString(), csv, null);
+    }
+
+    /**
+     * Roadmap #116 (parse slice): reads a LOCAL, already-saved mp-api v2
+     * /materials/summary response body. Nothing is fetched or keyed here -
+     * retrieval (via the MP_QUERY_DRAFT builder) remains #116 runtime depth.
+     * Band gaps print in eV and hull energies in eV/atom every time; absent
+     * optional fields print the explicit "(not supplied)" sentinel - a
+     * missing band gap is NOT a zero gap and is never rendered as 0.0.
+     */
+    private static AnalysisReport analyzeMpSummaryParse(File source) {
+        String label = AnalysisKind.MP_SUMMARY_PARSE.getLabel();
+        OperationResult<List<MpSummaryParser.SummaryDoc>> parsed =
+                MpSummaryParser.parseFile(source.toPath());
+        if (!parsed.isSuccess() || parsed.getValue().isEmpty()) {
+            return failure(label, "The Materials Project summary parse refused "
+                    + source.getName() + ":\n[" + parsed.getCode() + "] "
+                    + parsed.getMessage());
+        }
+        List<MpSummaryParser.SummaryDoc> docs = parsed.getValue().get();
+        StringBuilder text = new StringBuilder();
+        text.append("Artifact: ").append(source.getName())
+                .append("  (LOCAL unfetched file - it is the only provenance "
+                        + "available; nothing was downloaded and no API key was "
+                        + "used.)\n");
+        text.append(String.format(Locale.ROOT,
+                "Summary documents parsed exactly as given: %d%n%n", docs.size()));
+        int cap = 40;
+        int shown = 0;
+        for (MpSummaryParser.SummaryDoc doc : docs) {
+            shown += 1;
+            if (shown > cap) {
+                text.append(String.format(Locale.ROOT,
+                        "... %d further document(s) follow (ALL parsed; display capped "
+                                + "at %d, nothing dropped from the CSV).%n",
+                        docs.size() - cap, cap));
+                break;
+            }
+            text.append(String.format(Locale.ROOT,
+                    "  id=%s  formula=%s  nsites=%s  band_gap=%s  E_above_hull=%s  "
+                            + "stable=%s%n",
+                    doc.getMaterialId(), doc.getFormulaPretty(),
+                    doc.getNsites() == null ? MpSummaryParser.NOT_SUPPLIED
+                            : doc.getNsites().toString(),
+                    doc.getBandGapEv() == null ? MpSummaryParser.NOT_SUPPLIED
+                            : String.format(Locale.ROOT, "%.6f eV", doc.getBandGapEv()),
+                    doc.getEnergyAboveHullEvPerAtom() == null ? MpSummaryParser.NOT_SUPPLIED
+                            : String.format(Locale.ROOT, "%.6f eV/atom",
+                                    doc.getEnergyAboveHullEvPerAtom()),
+                    doc.getIsStable() == null ? MpSummaryParser.NOT_SUPPLIED
+                            : doc.getIsStable().toString()));
+        }
+        text.append("\nHonesty block: ids are required and never invented; optional "
+                + "fields absent from the file print '(not supplied)' - a missing band "
+                + "gap is NOT a zero gap. Units follow the mp-api summary schema "
+                + "(band_gap in eV; energy_above_hull in eV/atom) and are stated every "
+                + "time. Retrieval (key-safe), pagination and caching remain the #116 "
+                + "runtime work; pair with the MP_QUERY_DRAFT for the intended review "
+                + "workflow.\n");
+        List<String> csv = new ArrayList<>();
+        csv.add("material_id,formula_pretty,nsites,band_gap_ev,energy_above_hull_ev_per_atom,"
+                + "is_stable");
+        for (MpSummaryParser.SummaryDoc doc : docs) {
+            csv.add(String.format(Locale.ROOT, "%s,%s,%s,%s,%s,%s",
+                    csvCell(doc.getMaterialId()), csvCell(doc.getFormulaPretty()),
+                    doc.getNsites() == null ? "" : doc.getNsites().toString(),
+                    doc.getBandGapEv() == null ? ""
+                            : String.format(Locale.ROOT, "%.6f", doc.getBandGapEv()),
+                    doc.getEnergyAboveHullEvPerAtom() == null ? ""
+                            : String.format(Locale.ROOT, "%.6f",
+                                    doc.getEnergyAboveHullEvPerAtom()),
+                    doc.getIsStable() == null ? "" : doc.getIsStable().toString()));
         }
         return new AnalysisReport(label, true, text.toString(), csv, null);
     }

@@ -4530,4 +4530,71 @@ class ResultAnalysisServiceTest {
         assertFalse(wReport.isSuccess(), "wrong-typed fields refuse - no coercion");
         assertTrue(wReport.getText().contains("[OPTIMADE_SHAPE]"), wReport.getText());
     }
+
+
+    @Test
+    void mpSummaryParseRendersUnitsAndSentinels() throws IOException {
+        File artifact = write("mp_summary.json",
+                "{\"data\": ["
+                + " {\"material_id\": \"mp-149\", \"formula_pretty\": \"Si\","
+                + "  \"nsites\": 2, \"band_gap\": 0.61, \"energy_above_hull\": 0.0,"
+                + "  \"is_stable\": true},"
+                + " {\"material_id\": \"mp-13\", \"formula_pretty\": \"Fe\","
+                + "  \"energy_above_hull\": 0.0}"
+                + "]}");
+        AnalysisReport report = ResultAnalysisService.analyze(
+                AnalysisKind.MP_SUMMARY_PARSE, new ProjectProperty(),
+                this.tempDir.toFile(), "pw", "scf.out", artifact,
+                new AnalysisParameters());
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains("LOCAL unfetched file"), report.getText());
+        assertTrue(report.getText().contains(
+                "id=mp-149  formula=Si  nsites=2  band_gap=0.610000 eV  "
+                        + "E_above_hull=0.000000 eV/atom  stable=true"),
+                report.getText());
+        assertTrue(report.getText().contains(
+                "id=mp-13  formula=Fe  nsites=(not supplied)  band_gap=(not supplied)  "
+                        + "E_above_hull=0.000000 eV/atom  stable=(not supplied)"),
+                report.getText());
+        assertTrue(report.getText().contains("a missing band "
+                + "gap is NOT a zero gap"), report.getText());
+        String csv = String.join("\n", report.getCsvLines());
+        assertTrue(csv.contains(
+                "material_id,formula_pretty,nsites,band_gap_ev,"
+                        + "energy_above_hull_ev_per_atom,is_stable"),
+                csv);
+        assertTrue(csv.contains("mp-149,Si,2,0.610000,0.000000,true"), csv);
+        assertTrue(csv.contains("mp-13,Fe,,,0.000000,"), csv,
+                "absent numerics stay blank in the CSV - a missing gap is not 0.0");
+    }
+
+    @Test
+    void mpSummaryParseFailsClosedOnBadArtifacts() throws IOException {
+        File truncated = write("mp_summary.json",
+                "{\"data\": [ {\"material_id\": \"mp-1\"}, ");
+        AnalysisReport tReport = ResultAnalysisService.analyze(
+                AnalysisKind.MP_SUMMARY_PARSE, new ProjectProperty(),
+                this.tempDir.toFile(), "pw", "scf.out", truncated,
+                new AnalysisParameters());
+        assertFalse(tReport.isSuccess());
+        assertTrue(tReport.getText().contains("[MP_JSON]"), tReport.getText());
+
+        File noId = write("mp_summary_noid.json",
+                "{\"data\": [{\"formula_pretty\": \"Si\"}]}");
+        AnalysisReport sReport = ResultAnalysisService.analyze(
+                AnalysisKind.MP_SUMMARY_PARSE, new ProjectProperty(),
+                this.tempDir.toFile(), "pw", "scf.out", noId,
+                new AnalysisParameters());
+        assertFalse(sReport.isSuccess(), "material_id is required and never invented");
+        assertTrue(sReport.getText().contains("[MP_SHAPE]"), sReport.getText());
+
+        File wrongType = write("mp_summary_badtype.json",
+                "{\"data\": [{\"material_id\": \"mp-1\", \"band_gap\": \"0.61\"}]}");
+        AnalysisReport wReport = ResultAnalysisService.analyze(
+                AnalysisKind.MP_SUMMARY_PARSE, new ProjectProperty(),
+                this.tempDir.toFile(), "pw", "scf.out", wrongType,
+                new AnalysisParameters());
+        assertFalse(wReport.isSuccess(), "string-typed numerics refuse - no coercion");
+        assertTrue(wReport.getText().contains("[MP_SHAPE]"), wReport.getText());
+    }
 }
