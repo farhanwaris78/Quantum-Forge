@@ -3646,4 +3646,53 @@ class ResultAnalysisServiceTest {
         assertFalse(missing.isSuccess(), "no current input must fail closed");
         assertTrue(missing.getText().contains("[GIPAW_INPUT]"), missing.getText());
     }
+
+
+    @Test
+    void testSlabMillerPreviewKindGeometryAndGate() {
+        Cell cubic = new Cell(quantumforge.com.math.Matrix3D.unit(5.43));
+        cubic.addAtom("Si", 0.0, 0.0, 0.0);
+
+        AnalysisReport report = ResultAnalysisService.analyze(
+                AnalysisKind.SLAB_MILLER_PREVIEW, stubProject(this.tempDir, cubic),
+                new AnalysisParameters().withMillerIndices(1, 1, 0));
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains("Requested plane: (1 1 0)"),
+                report.getText());
+        assertTrue(report.getText().contains(
+                "d-spacing = 3.839590 Ang"), report.getText());
+        assertTrue(report.getText().contains("|G(1 1 0)| = 1.636421 1/Ang"),
+                report.getText());
+        assertTrue(report.getText().contains("Surface normal (Cartesian): (0.707107, "
+                + "0.707107, 0.000000)"), report.getText());
+        assertTrue(report.getText().contains("ESM z-gate: NOT along +z"),
+                report.getText());
+        assertTrue(report.getCsvLines().contains("plane,(1 1 0),normalized"),
+                String.join("\n", report.getCsvLines()));
+        assertTrue(report.getCsvLines().stream().anyMatch(line ->
+                        line.startsWith("d_spacing_ang,3.839590")),
+                String.join("\n", report.getCsvLines()));
+
+        AnalysisReport aligned = ResultAnalysisService.analyze(
+                AnalysisKind.SLAB_MILLER_PREVIEW, stubProject(this.tempDir, cubic),
+                new AnalysisParameters().withMillerIndices(0, 0, 2));
+        assertTrue(aligned.isSuccess(), aligned.getText());
+        assertTrue(aligned.getText().contains("(normalized: common factor 2 removed; "
+                + "the SAME family is (0 0 1))"), aligned.getText());
+        assertTrue(aligned.getText().contains("ESM z-gate: ALIGNED"), aligned.getText());
+        assertTrue(aligned.getCsvLines().contains("plane,(0 0 1),normalized"),
+                String.join("\n", aligned.getCsvLines()));
+
+        AnalysisReport zero = ResultAnalysisService.analyze(
+                AnalysisKind.SLAB_MILLER_PREVIEW, stubProject(this.tempDir, cubic),
+                new AnalysisParameters().withMillerIndices(0, 0, 0));
+        assertFalse(zero.isSuccess(), "(0 0 0) must fail closed");
+        assertTrue(zero.getText().contains("[SLAB_VECTOR]"), zero.getText());
+
+        AnalysisReport bounds = ResultAnalysisService.analyze(
+                AnalysisKind.SLAB_MILLER_PREVIEW, stubProject(this.tempDir, cubic),
+                new AnalysisParameters().withMillerIndices(0, 0, 17));
+        assertFalse(bounds.isSuccess(), "out-of-range indices must fail closed");
+        assertTrue(bounds.getText().contains("[SLAB_BOUNDS]"), bounds.getText());
+    }
 }

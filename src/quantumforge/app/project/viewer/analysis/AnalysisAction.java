@@ -221,6 +221,22 @@ public final class AnalysisAction {
             parameters.withUnitConversion(value, from, to);
             break;
         }
+        case SLAB_MILLER_PREVIEW: {
+            Integer h = askInteger("Miller index h (-16..16)", 1);
+            if (h == null) {
+                return null;
+            }
+            Integer k = askInteger("Miller index k (-16..16)", 0);
+            if (k == null) {
+                return null;
+            }
+            Integer l = askInteger("Miller index l (-16..16)", 0);
+            if (l == null) {
+                return null;
+            }
+            parameters.withMillerIndices(h, k, l);
+            break;
+        }
         case GEOMETRY_MEASURE: {
             int[] indices = askAtomIndices();
             if (indices == null) {

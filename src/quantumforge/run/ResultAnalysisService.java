@@ -31,6 +31,7 @@ import quantumforge.com.math.SymmetricEigen3;
 import quantumforge.atoms.model.Atom;
 import quantumforge.atoms.model.Cell;
 import quantumforge.builder.CslSigmaMath;
+import quantumforge.builder.SlabMillerMath;
 import quantumforge.builder.MoireTwistMath;
 import quantumforge.builder.QEBatteryVoltage;
 import quantumforge.builder.QECitationManager;
@@ -253,7 +254,8 @@ public final class ResultAnalysisService {
         UNIT_CONVERT("Scientific unit conversion (curated registry, pinned constants)"),
         LOG_ERROR_DIAGNOSIS("QE log error diagnosis (curated signature KB, 7.x window)"),
         XSPECTRA_INPUT_DRAFT("xspectra.x XANES input draft (required-edit guarded)"),
-        GIPAW_INPUT_DRAFT("gipaw.x NMR/EFG input draft (required-edit guarded)");
+        GIPAW_INPUT_DRAFT("gipaw.x NMR/EFG input draft (required-edit guarded)"),
+        SLAB_MILLER_PREVIEW("Surface Miller plane geometry (d-spacing, normal, ESM gate)");
 
         private final String label;
 
@@ -304,7 +306,7 @@ public final class ResultAnalysisService {
                     || this == W90_WIN_DRAFT || this == QE_VERSION_CHECK
                     || this == MPI_POOLS_ADVISOR || this == GB_CSL_PREVIEW
                     || this == UNIT_CONVERT || this == XSPECTRA_INPUT_DRAFT
-                    || this == GIPAW_INPUT_DRAFT;
+                    || this == GIPAW_INPUT_DRAFT || this == SLAB_MILLER_PREVIEW;
         }
 
         /** True for project-bound kinds that additionally parse a user data file. */
@@ -383,6 +385,9 @@ public final class ResultAnalysisService {
         private double quantityValue = Double.NaN; // UNIT_CONVERT: value (NaN = unset)
         private String unitFrom = "ry";      // UNIT_CONVERT: source unit token
         private String unitTo = "ev";        // UNIT_CONVERT: target unit token
+        private int millerH = 1;             // SLAB_MILLER_PREVIEW: plane (h k l)
+        private int millerK = 0;
+        private int millerL = 0;
 
         public double getFermiEv() { return this.fermiEv; }
         public int getKpointIndex() { return this.kpointIndex; }
@@ -681,6 +686,17 @@ public final class ResultAnalysisService {
         public double getQuantityValue() { return this.quantityValue; }
         public String getUnitFrom() { return this.unitFrom; }
         public String getUnitTo() { return this.unitTo; }
+
+        public AnalysisParameters withMillerIndices(int h, int k, int l) {
+            this.millerH = h;
+            this.millerK = k;
+            this.millerL = l;
+            return this;
+        }
+
+        public int[] getMillerIndices() {
+            return new int[] {this.millerH, this.millerK, this.millerL};
+        }
     }
 
     /** A completed, self-describing analysis result. */
@@ -1243,6 +1259,8 @@ public final class ResultAnalysisService {
                 return analyzeXspectraInputDraft(project);
             case GIPAW_INPUT_DRAFT:
                 return analyzeGipawInputDraft(project);
+            case SLAB_MILLER_PREVIEW:
+                return analyzeSlabMillerPreview(project, params);
             default:
                 return failure(kind.getLabel(), "This analysis kind is not implemented.");
         }
@@ -6390,6 +6408,85 @@ public final class ResultAnalysisService {
                 requiredEdits));
         csv.add("job_default,'gipaw',pre-filled");
         return new AnalysisReport(label, true, text.toString(), csv, draft);
+    }
+
+    /**
+     * Roadmap #82: surface Miller-plane geometry from the live cell. Exact
+     * reciprocal metric on the lattice rows; the ESM z-gate mirrors the ESM
+     * auditor. Plane geometry ONLY - no atoms are built.
+     */
+    private static AnalysisReport analyzeSlabMillerPreview(Project project,
+            AnalysisParameters params) {
+        String label = AnalysisKind.SLAB_MILLER_PREVIEW.getLabel();
+        Cell cell;
+        try {
+            cell = project.getCell();
+        } catch (RuntimeException ex) {
+            return failure(label, "Reading the project cell failed: " + ex.getMessage());
+        }
+        if (cell == null) {
+            return failure(label, "[SLAB_CELL] The project has no cell to metric against.");
+        }
+        int[] indices = params.getMillerIndices();
+        double[][] lattice = cell.copyLattice();
+        OperationResult<SlabMillerMath.MillerPlane> computed = SlabMillerMath.compute(
+                lattice, indices[0], indices[1], indices[2]);
+        if (!computed.isSuccess() || computed.getValue().isEmpty()) {
+            return failure(label, "Slab preview refused: [" + computed.getCode() + "] "
+                    + computed.getMessage());
+        }
+        SlabMillerMath.MillerPlane plane = computed.getValue().get();
+        StringBuilder text = new StringBuilder();
+        text.append(String.format(Locale.ROOT, "Requested plane: (%d %d %d)", indices[0],
+                indices[1], indices[2]));
+        if (plane.getCommonFactor() > 1) {
+            text.append(String.format(Locale.ROOT,
+                    "  (normalized: common factor %d removed; the SAME family is (%d %d %d))",
+                    plane.getCommonFactor(), plane.getH(), plane.getK(), plane.getL()));
+        }
+        text.append('\n');
+        text.append(String.format(Locale.ROOT, "Cell volume |det(lattice rows)| = %.6f "
+                + "Ang^3%n", plane.getVolumeAng3()));
+        text.append(String.format(Locale.ROOT,
+                "|G(%d %d %d)| = %.6f 1/Ang;  d-spacing = %.6f Ang%n", plane.getH(),
+                plane.getK(), plane.getL(), plane.getRecipNormInvAng(),
+                plane.getDSpacingAng()));
+        text.append(String.format(Locale.ROOT,
+                "Surface normal (Cartesian): (%.6f, %.6f, %.6f)%n", plane.getNx(),
+                plane.getNy(), plane.getNz()));
+        if (plane.isEsmAligned()) {
+            text.append("ESM z-gate: ALIGNED - the surface normal is along +z within "
+                    + "1e-8; a slab built this way can host assume_isolated='esm' "
+                    + "(final audit after building stays with ESM_SLAB_CHECK).\n");
+        } else {
+            text.append("ESM z-gate: NOT along +z - a slab destined for "
+                    + "assume_isolated='esm' must be ROTATED so this normal becomes +z "
+                    + "before/at building; QE's ESM requires it.\n");
+        }
+        text.append(String.format(Locale.ROOT,
+                "%nHonesty boundary: exact plane geometry from the live cell (reciprocal "
+                        + "metric, 2*pi convention; the normal follows the lattice-row "
+                        + "handedness). NO termination enumeration, stoichiometry or "
+                        + "polarity audit, no atom construction, no vacuum sizing - that "
+                        + "is the remaining #82 builder depth. Do not confuse d-spacing "
+                        + "with a slab thickness or a vacuum gap.%n"));
+        List<String> csv = new ArrayList<>();
+        csv.add("item,value,note");
+        csv.add(String.format(Locale.ROOT, "plane,(%d %d %d),normalized", plane.getH(),
+                plane.getK(), plane.getL()));
+        csv.add(String.format(Locale.ROOT, "common_factor,%d,provenance",
+                plane.getCommonFactor()));
+        csv.add(String.format(Locale.ROOT, "volume_ang3,%.6f,abs-det",
+                plane.getVolumeAng3()));
+        csv.add(String.format(Locale.ROOT, "recip_norm_inv_ang,%.6f,exact-metric",
+                plane.getRecipNormInvAng()));
+        csv.add(String.format(Locale.ROOT, "d_spacing_ang,%.6f,computed",
+                plane.getDSpacingAng()));
+        csv.add(String.format(Locale.ROOT, "normal,[%.6f %.6f %.6f],unit-cartesian",
+                plane.getNx(), plane.getNy(), plane.getNz()));
+        csv.add(String.format(Locale.ROOT, "esm_aligned,%s,z-gate-1e-8",
+                plane.isEsmAligned()));
+        return new AnalysisReport(label, true, text.toString(), csv, null);
     }
 
     /**
