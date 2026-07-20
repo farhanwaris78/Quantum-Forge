@@ -392,6 +392,7 @@ def main() -> int:
                   "JobCancelPlan", "JOB_CANCEL_PLAN",
                   "MonitorPollPlan", "MONITOR_POLL_PLAN",
                   "SyncManifestBuilder", "SYNC_MANIFEST_DRAFT",
+                  "SmearingLadderPlan", "SMEARING_LADDER_PLAN",
                   "JournalReplayMath", "replay_combined_det"]:
         if token not in service:
             error(f"ResultAnalysisService is not bound to {token}")
@@ -450,6 +451,7 @@ def main() -> int:
                 "quantumforge/remote/JobCancelPlan.java",
                 "quantumforge/remote/MonitorPollPlan.java",
                 "quantumforge/remote/SyncManifestBuilder.java",
+                "quantumforge/run/SmearingLadderPlan.java",
                 "quantumforge/builder/JournalReplayMath.java"]:
         text = (SRC / rel).read_text(encoding="utf-8")
         if "class " not in text:

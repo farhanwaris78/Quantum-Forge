@@ -301,7 +301,8 @@ public final class ResultAnalysisService {
         NEB_INPUT_DRAFT("neb.x &PATH namelist draft (typed, image-checklisted)"),
         JOB_CANCEL_PLAN("Scheduler job-cancellation review plan (typed id, retype-confirm)"),
         MONITOR_POLL_PLAN("Remote-monitoring poll plan (bounded backoff, offline semantics)"),
-        SYNC_MANIFEST_DRAFT("Selective result-sync manifest draft (role-per-name, intent not facts)");
+        SYNC_MANIFEST_DRAFT("Selective result-sync manifest draft (role-per-name, intent not facts)"),
+        SMEARING_LADDER_PLAN("Smearing down-ladder plan (degauss Ry/eV, never declares convergence)");
 
         private final String label;
 
@@ -359,7 +360,7 @@ public final class ResultAnalysisService {
                     || this == SLURM_SCRIPT_DRAFT || this == KMESH_CONVERGENCE_PLAN
                     || this == SITE_PROFILE_DRAFT || this == NEB_INPUT_DRAFT
                     || this == JOB_CANCEL_PLAN || this == MONITOR_POLL_PLAN
-                    || this == SYNC_MANIFEST_DRAFT;
+                    || this == SYNC_MANIFEST_DRAFT || this == SMEARING_LADDER_PLAN;
         }
 
         /** True for project-bound kinds that additionally parse a user data file. */
@@ -500,6 +501,8 @@ public final class ResultAnalysisService {
         private String syncOptional = "";
         private String syncLarge = "";
         private String syncExcluded = "";
+        private String smearScheme = "gaussian";  // SMEARING_LADDER_PLAN typed scheme
+        private String smearLadder = "";          // descending degauss values in Ry
 
         public double getFermiEv() { return this.fermiEv; }
         public int getKpointIndex() { return this.kpointIndex; }
@@ -1003,6 +1006,15 @@ public final class ResultAnalysisService {
             this.syncOptional = optional == null ? "" : optional;
             this.syncLarge = large == null ? "" : large;
             this.syncExcluded = excluded == null ? "" : excluded;
+            return this;
+        }
+
+        public String getSmearScheme() { return this.smearScheme; }
+        public String getSmearLadder() { return this.smearLadder; }
+
+        public AnalysisParameters withSmearingPlan(String scheme, String ladder) {
+            this.smearScheme = scheme == null ? "" : scheme;
+            this.smearLadder = ladder == null ? "" : ladder;
             return this;
         }
     }
@@ -1637,6 +1649,8 @@ public final class ResultAnalysisService {
                 return analyzeMonitorPollPlan(params);
             case SYNC_MANIFEST_DRAFT:
                 return analyzeSyncManifestDraft(params);
+            case SMEARING_LADDER_PLAN:
+                return analyzeSmearingLadderPlan(params);
             case SLAB_MILLER_PREVIEW:
                 return analyzeSlabMillerPreview(project, params);
             default:
@@ -8224,6 +8238,57 @@ public final class ResultAnalysisService {
                 csvCell(String.join(" ", manifest.getExcluded())),
                 manifest.getExcluded().size()));
         return new AnalysisReport(label, true, text.toString(), csv, block);
+    }
+
+    /**
+     * Roadmap #38 (plan slice): the smearing DOWN-ladder. Where the k-mesh
+     * ladder refines, this ladder DAMPENS toward zero broadening - widening
+     * refuses (it inverts the physical question, and nothing re-sorts user
+     * input). eV equivalents come from the shared QEUnits.EV_PER_RY constant.
+     * The plan NEVER declares convergence: the entropy (-T*S) term and the
+     * delta-E/delta-F comparison are runtime results, stated plainly.
+     */
+    private static AnalysisReport analyzeSmearingLadderPlan(AnalysisParameters params) {
+        String label = AnalysisKind.SMEARING_LADDER_PLAN.getLabel();
+        OperationResult<SmearingLadderPlan.Ladder> validated =
+                SmearingLadderPlan.validate(params.getSmearScheme(), params.getSmearLadder());
+        if (!validated.isSuccess() || validated.getValue().isEmpty()) {
+            return failure(label, "The smearing ladder was refused:\n["
+                    + validated.getCode() + "] " + validated.getMessage());
+        }
+        SmearingLadderPlan.Ladder ladder = validated.getValue().get();
+        StringBuilder text = new StringBuilder();
+        text.append(String.format(Locale.ROOT,
+                "Scheme: %s (typed; occupations='smearing' applies to all rungs - one "
+                        + "scheme per study so the comparison is scheme-pure).%n%n",
+                ladder.getScheme()));
+        text.append(String.format(Locale.ROOT, "%-4s %-14s %-14s %-18s%n", "#",
+                "degauss (Ry)", "degauss (eV)", "reduction vs prev"));
+        List<String> csv = new ArrayList<>();
+        csv.add("rung,degauss_ry,degauss_ev,reduction_factor_vs_prev");
+        for (SmearingLadderPlan.Rung rung : ladder.getRungs()) {
+            text.append(String.format(Locale.ROOT, "%-4d %-14.6f %-14.6f %-18s%n",
+                    rung.getIndex(), rung.getDegaussRy(), rung.getDegaussEv(),
+                    rung.getReductionVsPrev() == null ? "-"
+                            : String.format(Locale.ROOT, "x%.6f",
+                                    rung.getReductionVsPrev())));
+            csv.add(String.format(Locale.ROOT, "%d,%.6f,%.6f,%s", rung.getIndex(),
+                    rung.getDegaussRy(), rung.getDegaussEv(),
+                    rung.getReductionVsPrev() == null ? ""
+                            : String.format(Locale.ROOT, "%.6f",
+                                    rung.getReductionVsPrev())));
+        }
+        text.append("\nHonesty block: this plan schedules the broadening ladder ONLY - "
+                + "it NEVER declares convergence. In the actual runs you MUST monitor "
+                + "the entropy (-T*S) contribution and the total energy/force change "
+                + "between consecutive rungs; a wide-band system that LOOKS converged "
+                + "at large degauss can still be metallic-biased. Schemes are not "
+                + "interchangeable: mv (cold) and mp bias forces differently, and fd "
+                + "carries a physical-temperature reading - the study compares rungs "
+                + "within ONE scheme. degauss = 0 is refused as a rung: extrapolation "
+                + "to zero broadening is an analysis you do from the results, not a "
+                + "claim the plan makes by omission.\n");
+        return new AnalysisReport(label, true, text.toString(), csv, null);
     }
 
     /**

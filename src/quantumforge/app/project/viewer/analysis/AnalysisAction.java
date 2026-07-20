@@ -574,6 +574,21 @@ public final class AnalysisAction {
             parameters.withSyncManifest(required, optional, large, excluded);
             break;
         }
+        case SMEARING_LADDER_PLAN: {
+            String scheme = askText("smearing scheme - TYPED: gaussian | mp | mv | fd "
+                    + "(one scheme per study)", "gaussian");
+            if (scheme == null) {
+                return null;
+            }
+            String ladder = askText("degauss DOWN-ladder in Ry, ';'-separated "
+                    + "(e.g. '0.02; 0.01; 0.005'; 2..8 rungs, never widening; 0 is "
+                    + "NOT a rung)", "");
+            if (ladder == null) {
+                return null;
+            }
+            parameters.withSmearingPlan(scheme, ladder);
+            break;
+        }
         case SLAB_MILLER_PREVIEW: {
             Integer h = askInteger("Miller index h (-16..16)", 1);
             if (h == null) {

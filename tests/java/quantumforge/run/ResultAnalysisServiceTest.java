@@ -5019,4 +5019,45 @@ class ResultAnalysisServiceTest {
         assertTrue(ceremonial.getText().contains("[SYNC_REQUIRED]"),
                 ceremonial.getText());
     }
+
+
+    @Test
+    void smearingLadderPlanPinsUnitsAndHonesty() throws IOException {
+        AnalysisReport report = ResultAnalysisService.analyze(
+                AnalysisKind.SMEARING_LADDER_PLAN, stubProject(this.tempDir),
+                new AnalysisParameters().withSmearingPlan("gaussian", "0.02; 0.01; 0.005"));
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains("Scheme: gaussian"), report.getText());
+        assertTrue(report.getText().contains("NEVER declares convergence"),
+                report.getText());
+        assertTrue(report.getText().contains("-T*S"), report.getText(),
+                "the entropy term is named as the thing to monitor");
+        String csv = String.join("\n", report.getCsvLines());
+        assertTrue(csv.contains("1,0.020000,0.272114,"), csv,
+                "0.02 Ry = 0.272114 eV via shared QEUnits.EV_PER_RY");
+        assertTrue(csv.contains("2,0.010000,0.136057,2.000000"), csv);
+        assertTrue(csv.contains("3,0.005000,0.068028,2.000000"), csv);
+    }
+
+    @Test
+    void smearingLadderPlanFailClosedPaths() throws IOException {
+        AnalysisReport widening = ResultAnalysisService.analyze(
+                AnalysisKind.SMEARING_LADDER_PLAN, stubProject(this.tempDir),
+                new AnalysisParameters().withSmearingPlan("gaussian", "0.01; 0.02"));
+        assertFalse(widening.isSuccess(),
+                "a widening study inverts the physical question - refused, not re-sorted");
+        assertTrue(widening.getText().contains("[SMEAR_LADDER]"), widening.getText());
+
+        AnalysisReport zero = ResultAnalysisService.analyze(
+                AnalysisKind.SMEARING_LADDER_PLAN, stubProject(this.tempDir),
+                new AnalysisParameters().withSmearingPlan("gaussian", "0.02; 0.0"));
+        assertFalse(zero.isSuccess(), "degauss = 0 is a different calculation");
+        assertTrue(zero.getText().contains("[SMEAR_VALUE]"), zero.getText());
+
+        AnalysisReport scheme = ResultAnalysisService.analyze(
+                AnalysisKind.SMEARING_LADDER_PLAN, stubProject(this.tempDir),
+                new AnalysisParameters().withSmearingPlan("tetrahedron", "0.02; 0.01"));
+        assertFalse(scheme.isSuccess(), "free-form schemes refuse");
+        assertTrue(scheme.getText().contains("[SMEAR_SCHEME]"), scheme.getText());
+    }
 }
