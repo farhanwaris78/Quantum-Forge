@@ -77,6 +77,7 @@ import quantumforge.hpc.PoolDivisorMath;
 import quantumforge.hpc.JobDbSchema;
 import quantumforge.remote.OptimadeQueryBuilder;
 import quantumforge.remote.MpApiQueryBuilder;
+import quantumforge.remote.SshTargetSpec;
 import quantumforge.com.math.QEUnits;
 import quantumforge.input.QESCFInput;
 import quantumforge.input.QEVersionRuleCatalog;
@@ -280,7 +281,8 @@ public final class ResultAnalysisService {
         JOB_DB_SCHEMA_PLAN("Job database schema + migration plan (SQLite WAL target)"),
         OPTIMADE_QUERY_DRAFT("OPTIMADE /structures query draft (validated, unfetched)"),
         OCCUPATION_LEVELS_REVIEW("HOMO/LUMO occupation-level review (line-provenanced)"),
-        MP_QUERY_DRAFT("Materials Project summary query draft (validated, unfetched, key-safe)");
+        MP_QUERY_DRAFT("Materials Project summary query draft (validated, unfetched, key-safe)"),
+        SSH_CONFIG_DRAFT("SSH target ssh_config draft (publickey-only, validated)");
 
         private final String label;
 
@@ -333,7 +335,8 @@ public final class ResultAnalysisService {
                     || this == UNIT_CONVERT || this == XSPECTRA_INPUT_DRAFT
                     || this == GIPAW_INPUT_DRAFT || this == SLAB_MILLER_PREVIEW
                     || this == TDDFPT_INPUT_DRAFT || this == JOB_DB_SCHEMA_PLAN
-                    || this == OPTIMADE_QUERY_DRAFT || this == MP_QUERY_DRAFT;
+                    || this == OPTIMADE_QUERY_DRAFT || this == MP_QUERY_DRAFT
+                    || this == SSH_CONFIG_DRAFT;
         }
 
         /** True for project-bound kinds that additionally parse a user data file. */
@@ -430,6 +433,11 @@ public final class ResultAnalysisService {
         private String mpBase = "https://api.materialsproject.org";
         private String mpMaterialIds = "";    // csv of mp-/mvc- ids, REQUIRED
         private String mpApiKey = "";         // never echoed back into reports
+        private String sshAlias = "";           // SSH_CONFIG_DRAFT host alias
+        private String sshHost = "";
+        private String sshUser = "";
+        private int sshPort = 22;
+        private String sshIdentityFile = "";  // empty = agent/default keys noted
 
         public double getFermiEv() { return this.fermiEv; }
         public int getKpointIndex() { return this.kpointIndex; }
@@ -790,6 +798,22 @@ public final class ResultAnalysisService {
             this.mpBase = base == null ? "" : base.trim();
             this.mpMaterialIds = ids == null ? "" : ids.trim();
             this.mpApiKey = key == null ? "" : key;
+            return this;
+        }
+
+        public String getSshAlias() { return this.sshAlias; }
+        public String getSshHost() { return this.sshHost; }
+        public String getSshUser() { return this.sshUser; }
+        public int getSshPort() { return this.sshPort; }
+        public String getSshIdentityFile() { return this.sshIdentityFile; }
+
+        public AnalysisParameters withSshTarget(String alias, String host,
+                String user, int port, String identityFile) {
+            this.sshAlias = alias == null ? "" : alias;
+            this.sshHost = host == null ? "" : host;
+            this.sshUser = user == null ? "" : user;
+            this.sshPort = port;
+            this.sshIdentityFile = identityFile == null ? "" : identityFile;
             return this;
         }
     }
@@ -1396,6 +1420,8 @@ public final class ResultAnalysisService {
                 return analyzeOptimadeQueryDraft(params);
             case MP_QUERY_DRAFT:
                 return analyzeMpQueryDraft(params);
+            case SSH_CONFIG_DRAFT:
+                return analyzeSshConfigDraft(params);
             case SLAB_MILLER_PREVIEW:
                 return analyzeSlabMillerPreview(project, params);
             default:
@@ -7443,6 +7469,59 @@ public final class ResultAnalysisService {
                 .append(" - never in the URL\n");
         draft.append(query.getUrl()).append('\n');
         return new AnalysisReport(label, true, text.toString(), csv, draft.toString());
+    }
+
+    /**
+     * Roadmap #91 (config-draft slice): validates an SSH target and renders
+     * a hardened ssh_config stanza. Password auth is structurally absent
+     * (no password field exists); the draft writes a file only via the
+     * explicit save action; no connection is attempted.
+     */
+    private static AnalysisReport analyzeSshConfigDraft(AnalysisParameters params) {
+        String label = AnalysisKind.SSH_CONFIG_DRAFT.getLabel();
+        OperationResult<SshTargetSpec.SshTarget> validated = SshTargetSpec.validate(
+                params.getSshAlias(), params.getSshHost(), params.getSshUser(),
+                params.getSshPort(), params.getSshIdentityFile());
+        if (!validated.isSuccess() || validated.getValue().isEmpty()) {
+            return failure(label, "The SSH target draft was refused:\n["
+                    + validated.getCode() + "] " + validated.getMessage());
+        }
+        SshTargetSpec.SshTarget target = validated.getValue().get();
+        String stanza = target.stanza();
+        StringBuilder text = new StringBuilder();
+        text.append(String.format(Locale.ROOT,
+                "Validated target: %s@%s:%d (alias '%s')%n", target.getUser(),
+                target.getHostName(), target.getPort(), target.getAlias()));
+        text.append(String.format(Locale.ROOT,
+                "Identity file: %s%n",
+                target.getIdentityFile().isEmpty()
+                        ? "unset - the stanza says so and offers the agent keys "
+                                + "honestly"
+                        : target.getIdentityFile() + " (quoted fields never "
+                                + "needed: unsafe characters were refused)"));
+        text.append("\nRendered stanza (also in the draft channel):\n\n").append(stanza);
+        text.append("\nHonesty block: password auth is STRUCTURALLY ABSENT - "
+                + "no password field exists, and the stanza pins "
+                + "PasswordAuthentication no + BatchMode yes. Host-key "
+                + "pinning (known_hosts), bastion/proxy chains, key-agent "
+                + "setup and the actual SSH session library (JSch/sshj "
+                + "decision) remain the #91 runtime depth; nothing connects "
+                + "from this build, and the stanza saves only via the explicit "
+                + "save action.\n");
+        List<String> csv = new ArrayList<>();
+        csv.add("item,value,note");
+        csv.add(String.format(Locale.ROOT, "alias,%s,validated", csvCell(target.getAlias())));
+        csv.add(String.format(Locale.ROOT, "hostname,%s,validated",
+                csvCell(target.getHostName())));
+        csv.add(String.format(Locale.ROOT, "user,%s,posix logname", csvCell(target.getUser())));
+        csv.add(String.format(Locale.ROOT, "port,%d,1..65535", target.getPort()));
+        csv.add(String.format(Locale.ROOT, "identity_file,%s,%s",
+                csvCell(target.getIdentityFile().isEmpty() ? "(unset)"
+                        : target.getIdentityFile()),
+                target.getIdentityFile().isEmpty() ? "agent-key honesty"
+                        : "expansion-guard passed"));
+        csv.add("password_field,absent,by design");
+        return new AnalysisReport(label, true, text.toString(), csv, stanza);
     }
 
     /**

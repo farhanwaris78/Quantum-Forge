@@ -320,6 +320,34 @@ public final class AnalysisAction {
             parameters.withMpQuery(mpBase, ids, key);
             break;
         }
+        case SSH_CONFIG_DRAFT: {
+            String alias = askText("Host alias ([A-Za-z0-9][A-Za-z0-9_-]{0,63})",
+                    "hpc-cluster");
+            if (alias == null) {
+                return null;
+            }
+            String host = askText("HostName (hostname or IP)", "");
+            if (host == null) {
+                return null;
+            }
+            String user = askText("User (POSIX logname [a-z_][a-z0-9_-]{0,31})",
+                    "");
+            if (user == null) {
+                return null;
+            }
+            Integer port = askInteger("Port (1..65535)", 22);
+            if (port == null) {
+                return null;
+            }
+            String identity = askText("IdentityFile path (blank = agent/default "
+                    + "keys, stated honestly; whitespace/expansion chars refused)",
+                    "");
+            if (identity == null) {
+                return null;
+            }
+            parameters.withSshTarget(alias, host, user, port, identity);
+            break;
+        }
         case SLAB_MILLER_PREVIEW: {
             Integer h = askInteger("Miller index h (-16..16)", 1);
             if (h == null) {

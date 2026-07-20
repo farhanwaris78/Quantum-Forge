@@ -4345,4 +4345,50 @@ class ResultAnalysisServiceTest {
         assertFalse(badId.isSuccess(), "undocumented id forms fail closed");
         assertTrue(badId.getText().contains("[MP_ID]"), badId.getText());
     }
+
+    @Test
+    void testSshConfigDraftKindHardenedStanzaAndRefusals() {
+        AnalysisReport report = ResultAnalysisService.analyze(
+                AnalysisKind.SSH_CONFIG_DRAFT, stubProject(this.tempDir),
+                new AnalysisParameters().withSshTarget("hpc-cluster",
+                        "cluster.univ.edu", "farhan", 22, "~/.ssh/id_ed25519_qe"));
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains(
+                "Validated target: farhan@cluster.univ.edu:22 (alias 'hpc-cluster')"),
+                report.getText());
+        assertTrue(report.getGeneratedInput() != null
+                        && report.getGeneratedInput().contains("Host hpc-cluster"),
+                "the stanza travels the generated-input channel");
+        assertTrue(report.getGeneratedInput().contains(
+                "    PasswordAuthentication no"), report.getGeneratedInput());
+        assertTrue(report.getGeneratedInput().contains(
+                "    IdentitiesOnly yes"), report.getGeneratedInput());
+        assertTrue(report.getGeneratedInput().contains("    BatchMode yes"),
+                report.getGeneratedInput());
+        assertTrue(report.getText().contains("STRUCTURALLY ABSENT"),
+                report.getText());
+        assertTrue(report.getCsvLines().contains("password_field,absent,by design"),
+                String.join("\n", report.getCsvLines()));
+        assertTrue(report.getCsvLines().contains("user,farhan,posix logname"),
+                String.join("\n", report.getCsvLines()));
+
+        AnalysisReport badUser = ResultAnalysisService.analyze(
+                AnalysisKind.SSH_CONFIG_DRAFT, stubProject(this.tempDir),
+                new AnalysisParameters().withSshTarget("x", "h.edu", "0bad", 22, ""));
+        assertFalse(badUser.isSuccess(), "POSIX logname rules fail closed");
+        assertTrue(badUser.getText().contains("[SSH_USER]"), badUser.getText());
+
+        AnalysisReport badKey = ResultAnalysisService.analyze(
+                AnalysisKind.SSH_CONFIG_DRAFT, stubProject(this.tempDir),
+                new AnalysisParameters().withSshTarget("x", "h.edu", "u", 22,
+                        "/keys/$(id)"));
+        assertFalse(badKey.isSuccess(), "expansion chars fail closed");
+        assertTrue(badKey.getText().contains("[SSH_KEY_PATH]"), badKey.getText());
+
+        AnalysisReport badPort = ResultAnalysisService.analyze(
+                AnalysisKind.SSH_CONFIG_DRAFT, stubProject(this.tempDir),
+                new AnalysisParameters().withSshTarget("x", "h.edu", "u", 70000, ""));
+        assertFalse(badPort.isSuccess(), "ports outside 1..65535 fail closed");
+        assertTrue(badPort.getText().contains("[SSH_PORT]"), badPort.getText());
+    }
 }
