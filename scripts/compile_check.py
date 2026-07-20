@@ -375,7 +375,8 @@ def main() -> int:
                   "CompositionalBaselineMath", "ML_DATASET_BASELINE",
                   "SeriesAlignmentMath", "SERIES_REF_ALIGN",
                   "BandsFermiReviewMath", "BANDS_FERMI_REVIEW",
-                  "BandGapBandMath", "BAND_GAP_BANDS"]:
+                  "BandGapBandMath", "BAND_GAP_BANDS",
+                  "TransformJournal", "PROVENANCE_JOURNAL_REVIEW"]:
         if token not in service:
             error(f"ResultAnalysisService is not bound to {token}")
     for rel in ["quantumforge/com/math/SymmetricEigen3.java",
@@ -416,7 +417,8 @@ def main() -> int:
                 "quantumforge/neural/CompositionalBaselineMath.java",
                 "quantumforge/run/parser/SeriesAlignmentMath.java",
                 "quantumforge/run/parser/BandsFermiReviewMath.java",
-                "quantumforge/run/parser/BandGapBandMath.java"]:
+                "quantumforge/run/parser/BandGapBandMath.java",
+                "quantumforge/builder/TransformJournal.java"]:
         text = (SRC / rel).read_text(encoding="utf-8")
         if "class " not in text:
             error(f"{rel} does not declare a type")

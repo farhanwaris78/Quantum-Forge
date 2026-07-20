@@ -32,6 +32,7 @@ import quantumforge.atoms.model.Atom;
 import quantumforge.atoms.model.Cell;
 import quantumforge.builder.CifStructureReader;
 import quantumforge.builder.SdfStructureReader;
+import quantumforge.builder.TransformJournal;
 import quantumforge.builder.CslSigmaMath;
 import quantumforge.builder.SlabMillerMath;
 import quantumforge.builder.MoireTwistMath;
@@ -269,7 +270,8 @@ public final class ResultAnalysisService {
         ML_DATASET_BASELINE("ML dataset compositional baseline (physics-informed screen)"),
         SERIES_REF_ALIGN("Two-series explicit reference alignment (Fermi/VBM/vacuum/user)"),
         BANDS_FERMI_REVIEW("Band structure E-E_F review (explicit Fermi, crossing stats)"),
-        BAND_GAP_BANDS("Band-gap classification (valence count, metallicity tolerance)");
+        BAND_GAP_BANDS("Band-gap classification (valence count, metallicity tolerance)"),
+        PROVENANCE_JOURNAL_REVIEW("Structure provenance journal verify (hash-chained)");
 
         private final String label;
 
@@ -1011,6 +1013,8 @@ public final class ResultAnalysisService {
         case BAND_GAP_BANDS:
             return name.endsWith(".dat.gnu") || (name.startsWith("bands")
                     && name.endsWith(".dat"));
+        case PROVENANCE_JOURNAL_REVIEW:
+            return name.endsWith(".qfj") || name.contains("journal");
         default:
             return false;
         }
@@ -1170,6 +1174,8 @@ public final class ResultAnalysisService {
                 return analyzeBandsFermiReview(source, params);
             case BAND_GAP_BANDS:
                 return analyzeBandGapBands(source, params);
+            case PROVENANCE_JOURNAL_REVIEW:
+                return analyzeProvenanceJournalReview(source);
             default:
                 return failure(kind.getLabel(), "This analysis kind is not implemented.");
             }
@@ -7117,6 +7123,61 @@ public final class ResultAnalysisService {
         csv.add(String.format(Locale.ROOT, "tolerance_ev,%.6f,analyst-supplied",
                 gap.getToleranceEv()));
         csv.add(String.format(Locale.ROOT, "verdict,%s,", gap.getVerdict()));
+        return new AnalysisReport(label, true, text.toString(), csv, null);
+    }
+
+    /**
+     * Roadmap #90 (format + integrity slice): verifies a TransformJournal
+     * chain (sequence, parent linkage, SHA-256 per entry) and reviews the
+     * recorded provenance. Replay wiring into the builder paths remains the
+     * #90 depth; this slice guarantees the journal itself cannot be tampered
+     * with silently.
+     */
+    private static AnalysisReport analyzeProvenanceJournalReview(File source) {
+        String label = AnalysisKind.PROVENANCE_JOURNAL_REVIEW.getLabel();
+        OperationResult<TransformJournal.JournalSummary> verified =
+                TransformJournal.verify(source.toPath());
+        if (!verified.isSuccess() || verified.getValue().isEmpty()) {
+            return failure(label, "The provenance journal refused the file "
+                    + source.getName() + ":\n[" + verified.getCode() + "] "
+                    + verified.getMessage());
+        }
+        TransformJournal.JournalSummary summary = verified.getValue().get();
+        StringBuilder text = new StringBuilder();
+        text.append("File: ").append(source.getName()).append('\n');
+        text.append(String.format(Locale.ROOT,
+                "Chain VERIFIED: %d entry(ies), 1-based sequence intact, parent "
+                        + "linkage intact, every SHA-256 entry hash recomputed "
+                        + "and equal - a tampered or reordered journal would "
+                        + "have been refused, not repaired.%n",
+                summary.getEntryCount()));
+        text.append(String.format(Locale.ROOT,
+                "Entries carrying a 3x3 transform matrix: %d (the rest are "
+                        + "parameter-only operations).%n",
+                summary.getMatrixCount()));
+        TransformJournal.JournalEntry first = summary.getEntries().get(0);
+        TransformJournal.JournalEntry last = summary.getEntries()
+                .get(summary.getEntries().size() - 1);
+        text.append(String.format(Locale.ROOT,
+                "First: seq %d '%s' from source '%s'%nLast:  seq %d '%s' (hash "
+                        + "%.16s...)%n",
+                first.getSeq(), first.getOperation(), first.getSourceId(),
+                last.getSeq(), last.getOperation(), last.getEntryHash()));
+        text.append("\nReplay note: every entry records source id, operation, "
+                + "the exact row-major matrix (or '-') and ordered k=v "
+                + "parameters - the data model exact reconstruction needs - but "
+                + "the REPLAY wiring into each builder path is the remaining "
+                + "#90 depth; this review verifies integrity only and applies "
+                + "nothing to the project.\n");
+        List<String> csv = new ArrayList<>();
+        csv.add("seq,source,operation,has_matrix,parameters,entry_hash");
+        for (TransformJournal.JournalEntry entry : summary.getEntries()) {
+            csv.add(String.format(Locale.ROOT, "%d,%s,%s,%s,%s,%s",
+                    entry.getSeq(), csvCell(entry.getSourceId()),
+                    csvCell(entry.getOperation()), entry.getMatrix() != null,
+                    csvCell(String.join(";", entry.getParameters())),
+                    entry.getEntryHash()));
+        }
         return new AnalysisReport(label, true, text.toString(), csv, null);
     }
 

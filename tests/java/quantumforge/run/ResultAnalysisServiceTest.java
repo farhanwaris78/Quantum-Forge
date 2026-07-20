@@ -4119,4 +4119,45 @@ class ResultAnalysisServiceTest {
         assertFalse(badTol.isSuccess(), "NaN tolerance must fail closed");
         assertTrue(badTol.getText().contains("[GAPMATH_VALUE]"), badTol.getText());
     }
+
+    @Test
+    void testProvenanceJournalReviewKindVerifyAndTamper() throws IOException {
+        File journal = write("structure.qfj",
+                "# qf-journal v1\n"
+                + "1|cod:9011998|supercell|2.0,0.0,0.0,0.0,2.0,0.0,0.0,0.0,2.0"
+                + "|atoms=8|GENESIS"
+                + "|eaf3ad94a184fc3927360fd5fdb11361588fec4f17d9e7d4062875eff3f91e92\n"
+                + "2|journal-chain|strain|1.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,1.5"
+                + "|axis=c;magnitude=0.5"
+                + "|eaf3ad94a184fc3927360fd5fdb11361588fec4f17d9e7d4062875eff3f91e92"
+                + "|f464ae338ee61702520a2cf21b0e3a442fabffac995d87facd6950b04f766a34\n");
+        AnalysisReport report = ResultAnalysisService.analyze(
+                AnalysisKind.PROVENANCE_JOURNAL_REVIEW, new ProjectProperty(),
+                this.tempDir.toFile(), "prov", "run.log", journal,
+                new AnalysisParameters());
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains("Chain VERIFIED: 2 entry(ies)"),
+                report.getText());
+        assertTrue(report.getText().contains(
+                "Entries carrying a 3x3 transform matrix: 2"), report.getText());
+        assertTrue(report.getText().contains("'supercell' from source 'cod:9011998'"),
+                report.getText());
+        assertTrue(report.getText().contains("Replay note"), report.getText());
+        assertTrue(report.getCsvLines().contains(
+                "1,cod:9011998,supercell,true,atoms=8,"
+                        + "eaf3ad94a184fc3927360fd5fdb11361588fec4f17d9e7d4062875eff3f91e92"),
+                String.join("\n", report.getCsvLines()));
+
+        File tampered = write("tampered.qfj",
+                "# qf-journal v1\n"
+                + "1|cod:9011998|supercell|2.0,0.0,0.0,0.0,2.0,0.0,0.0,0.0,2.0"
+                + "|atoms=9|GENESIS"
+                + "|eaf3ad94a184fc3927360fd5fdb11361588fec4f17d9e7d4062875eff3f91e92\n");
+        AnalysisReport refused = ResultAnalysisService.analyze(
+                AnalysisKind.PROVENANCE_JOURNAL_REVIEW, new ProjectProperty(),
+                this.tempDir.toFile(), "prov", "run.log", tampered,
+                new AnalysisParameters());
+        assertFalse(refused.isSuccess(), "tampered chains must fail closed");
+        assertTrue(refused.getText().contains("[JOURNAL_HASH]"), refused.getText());
+    }
 }
