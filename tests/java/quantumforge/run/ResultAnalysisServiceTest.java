@@ -5558,4 +5558,57 @@ class ResultAnalysisServiceTest {
         assertTrue(refused.getText().contains("[WORKFLOW_FILE]"), refused.getText());
         assertTrue(refused.getText().contains("Export workflow script"), refused.getText());
     }
+
+
+    @Test
+    void nebPathAuditMeasuresDuplicatesAndSpacingRules() {
+        File path = write("neb_ladder.path",
+                "1\ninterp image 1\nH 0.0 0.0 0.0\n"
+                        + "1\ninterp image 2 - DUPLICATE of 1\nH 0.0 0.0 0.0\n"
+                        + "1\ninterp image 3\nH 0.0 0.0 1.0\n");
+        AnalysisReport report = ResultAnalysisService.analyze(AnalysisKind.NEB_PATH_AUDIT,
+                new ProjectProperty(), this.tempDir.toFile(), "espresso", "espresso.log",
+                path, new AnalysisParameters());
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains("Frames: 3, atoms/frame: 1"), report.getText());
+        assertTrue(report.getText().contains("DUPLICATED-IMAGE pair(s) NAMED"),
+                report.getText());
+        assertTrue(report.getText().contains("1 -> 2"), report.getText(),
+                "the duplicated pair is NAMED by image numbers");
+        assertTrue(report.getText().contains("INFINITE (duplicated image present)"),
+                report.getText());
+        assertTrue(report.getText().contains("2 -> 3"), report.getText());
+        String csv = String.join("\n", report.getCsvLines());
+        assertTrue(csv.contains("1,2,0.000000,0.000000"), csv);
+        assertTrue(csv.contains("2,3,1.000000,1.000000"), csv);
+        assertTrue(report.getText().contains("no minimum-image wrap"), report.getText());
+        assertTrue(report.getText().contains("NO editing"), report.getText(),
+                "the read-only boundary is printed on every report");
+    }
+
+    @Test
+    void nebPathAuditRefusesClosedOnGrammar() {
+        File single = write("neb_single.path", "1\nsole image\nH 0 0 0\n");
+        AnalysisReport refused = ResultAnalysisService.analyze(AnalysisKind.NEB_PATH_AUDIT,
+                new ProjectProperty(), this.tempDir.toFile(), "espresso", "espresso.log",
+                single, new AnalysisParameters());
+        assertFalse(refused.isSuccess(), "one frame is a structure, not a ladder");
+        assertTrue(refused.getText().contains("[NEB_SHAPE]"), refused.getText());
+        assertTrue(refused.getText().contains("not a ladder"), refused.getText());
+
+        File reordered = write("neb_bad.path",
+                "2\nf1\nH 0 0 0\nO 1 0 0\n2\nf2\nO 1 0 0.5\nH 0 0 0.5\n");
+        AnalysisReport refused2 = ResultAnalysisService.analyze(AnalysisKind.NEB_PATH_AUDIT,
+                new ProjectProperty(), this.tempDir.toFile(), "espresso", "espresso.log",
+                reordered, new AnalysisParameters());
+        assertFalse(refused2.isSuccess(), "reordered atoms make displacement meaningless");
+        assertTrue(refused2.getText().contains("reordered atoms between images"),
+                refused2.getText());
+
+        File missing = this.tempDir.resolve("neb_none.path").toFile();
+        AnalysisReport refused3 = ResultAnalysisService.analyze(AnalysisKind.NEB_PATH_AUDIT,
+                new ProjectProperty(), this.tempDir.toFile(), "espresso", "espresso.log",
+                missing, new AnalysisParameters());
+        assertFalse(refused3.isSuccess(), "absent artifact refuses closed");
+    }
 }

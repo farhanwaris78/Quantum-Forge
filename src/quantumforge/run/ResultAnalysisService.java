@@ -62,6 +62,7 @@ import quantumforge.neural.MlModelManifest;
 import quantumforge.input.CpInputPlanner;
 import quantumforge.input.GipawInputPlanner;
 import quantumforge.input.TurboLanczosInputPlanner;
+import quantumforge.input.NebPathAudit;
 import quantumforge.input.Wannier90WinPlanner;
 import quantumforge.input.XspectraInputPlanner;
 import quantumforge.input.QEEsmAuditor;
@@ -315,7 +316,8 @@ public final class ResultAnalysisService {
         PHONON_GRID_PLAN("Phonon q-grid ladder plan (k/q commensurability verdicts, named)"),
         CHECKPOINT_RESUBMIT_PLAN("Checkpoint resubmission advice (typed stop reason, no writes)"),
         JOB_QUEUE_AUDIT("Job queue store audit (read-only; raw malformed/duplicate/chain verdicts)"),
-        WORKFLOW_EXPORT_AUDIT("Exported workflow audit (stage census, sync vs current, read-only)");
+        WORKFLOW_EXPORT_AUDIT("Exported workflow audit (stage census, sync vs current, read-only)"),
+        NEB_PATH_AUDIT("NEB path ladder audit (multi-frame XYZ geometry; verdicts, no edits)");
 
         private final String label;
 
@@ -1277,6 +1279,8 @@ public final class ResultAnalysisService {
             return name.endsWith(".xyz");
         case JOB_QUEUE_AUDIT:
             return name.equals("job-queue.jsonl") || name.endsWith(".jsonl");
+        case NEB_PATH_AUDIT:
+            return name.endsWith(".path") || (name.contains("neb") && name.endsWith(".xyz"));
         case HULL_STABILITY:
         case VOLTAGE_PROFILE:
             return name.endsWith(".csv");
@@ -1562,6 +1566,8 @@ public final class ResultAnalysisService {
                 return analyzeProvenanceJournalReview(source);
             case JOB_QUEUE_AUDIT:
                 return analyzeJobQueueAudit(source);
+            case NEB_PATH_AUDIT:
+                return analyzeNebPathAudit(source);
             default:
                 return failure(kind.getLabel(), "This analysis kind is not implemented.");
             }
@@ -8986,6 +8992,89 @@ public final class ResultAnalysisService {
         List<String> provenance = new ArrayList<>();
         provenance.add("workflow-audit: sync_verdict=" + verdict);
         provenance.add("workflow-audit: stages=" + audit.getStages().size());
+        return new AnalysisReport(label, true, text.toString(), csv, null, provenance);
+    }
+
+    /**
+     * Roadmap #50 (review slice): READ-ONLY geometric audit of a multi-frame XYZ
+     * NEB ladder. Verdicts, not edits: per-pair RMSD/max-displacement exact
+     * arithmetic, NAMED duplicated-image pairs, coincident-endpoint reporting
+     * (legal - ring paths exist), and an owned spacing-ratio RULE-OF-THUMB
+     * (labeled ours). The cell-aware minimum-image / spring / climbing-image
+     * depth stays explicitly out of scope. Nothing is rewritten or re-shaped.
+     */
+    private static AnalysisReport analyzeNebPathAudit(File source) {
+        String label = AnalysisKind.NEB_PATH_AUDIT.getLabel();
+        OperationResult<NebPathAudit.Audit> audited = NebPathAudit.audit(source.toPath());
+        if (!audited.isSuccess() || audited.getValue().isEmpty()) {
+            return failure(label, "The NEB path audit refused " + source.getName() + ":\n["
+                    + audited.getCode() + "] " + audited.getMessage());
+        }
+        NebPathAudit.Audit audit = audited.getValue().get();
+        StringBuilder text = new StringBuilder();
+        text.append("Path artifact: ").append(audit.getFile()).append('\n');
+        text.append(String.format(Locale.ROOT,
+                "Frames: %d, atoms/frame: %d, coordinates: Cartesian Angstrom (stated "
+                        + "convention - no cell, no minimum-image wrap)%n",
+                audit.getFrames(), audit.getAtomsPerFrame()));
+        text.append(String.format(Locale.ROOT, "%n%-12s %-14s %-14s%n", "image pair",
+                "RMS disp (A)", "max atom (A)"));
+        List<String> csv = new ArrayList<>();
+        csv.add("pair_from,pair_to,rmsd_angstrom,max_disp_angstrom");
+        for (NebPathAudit.PairMetrics pair : audit.getPairs()) {
+            text.append(String.format(Locale.ROOT, " %2d -> %-6d %-14s %-14s%n",
+                    pair.getFrom() + 1, pair.getFrom() + 2,
+                    NebPathAudit.fmt(pair.getRmsd()), NebPathAudit.fmt(pair.getMaxDisp())));
+            csv.add(String.format(Locale.ROOT, "%d,%d,%s,%s", pair.getFrom() + 1,
+                    pair.getFrom() + 2, NebPathAudit.fmt(pair.getRmsd()),
+                    NebPathAudit.fmt(pair.getMaxDisp())));
+        }
+        text.append(String.format(Locale.ROOT,
+                "%nPath length (sum of pair RMSDs): %s A%n", NebPathAudit.fmt(audit.getTotalLength())));
+        text.append(String.format(Locale.ROOT,
+                "Spacing ratio max/min RMSD: %s  (owned RULE-OF-THUMB bound is %.2f - ours, "
+                        + "never a QE rule)%n",
+                Double.isInfinite(audit.spacingRatio()) ? "INFINITE (duplicated image present)"
+                        : NebPathAudit.fmt(audit.spacingRatio()),
+                NebPathAudit.SPACING_RATIO_RULE));
+        if (!Double.isInfinite(audit.spacingRatio())
+                && audit.spacingRatio() > NebPathAudit.SPACING_RATIO_RULE) {
+            text.append("  above the owned bound: widest pair is ")
+                    .append(audit.getWorstPairFrom() + 1).append(" -> ")
+                    .append(audit.getWorstPairFrom() + 2).append(", narrowest is ")
+                    .append(audit.getBestPairFrom() + 1).append(" -> ")
+                    .append(audit.getBestPairFrom() + 2)
+                    .append(" (consider re-interpolating BETWEEN the wide pair)\n");
+        }
+        if (audit.getDuplicatePairs().isEmpty()) {
+            text.append("Duplicated-image pairs: none\n");
+        } else {
+            text.append("DUPLICATED-IMAGE pair(s) NAMED (zero spring force, silently breaks "
+                    + "the path parameterization): ");
+            for (int i = 0; i < audit.getDuplicatePairs().size(); i++) {
+                if (i > 0) {
+                    text.append(", ");
+                }
+                int from = audit.getDuplicatePairs().get(i);
+                text.append(from + 1).append(" -> ").append(from + 2);
+            }
+            text.append('\n');
+        }
+        text.append("Endpoints: ").append(audit.hasCoincidentEndpoints()
+                ? "COINCIDENT (max displacement " + NebPathAudit.fmt(audit.getEndpointMaxDisp())
+                        + " A) - REPORTED as an observation; ring/closed paths are legitimate"
+                : "distinct (first->last max displacement "
+                        + NebPathAudit.fmt(audit.getEndpointMaxDisp()) + " A)")
+                .append('\n');
+        text.append("\nScope boundary (stated, never hidden): this is a GEOMETRY audit of "
+                + "the ladder as written. NO minimum-image convention (periodic paths can "
+                + "be misjudged), no spring-constant energy model, no force projections, no "
+                + "climbing-image verdict, and NO editing - image interpolation / insertion "
+                + "is the #50 path-editor depth, done deliberately elsewhere.");
+        List<String> provenance = new ArrayList<>();
+        provenance.add("neb-audit: frames=" + audit.getFrames());
+        provenance.add("neb-audit: spacing_ratio=" + (Double.isInfinite(audit.spacingRatio())
+                ? "infinite" : NebPathAudit.fmt(audit.spacingRatio())));
         return new AnalysisReport(label, true, text.toString(), csv, null, provenance);
     }
 
