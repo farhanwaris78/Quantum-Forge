@@ -3500,4 +3500,64 @@ class ResultAnalysisServiceTest {
         assertFalse(domain.isSuccess(), "incompatible domains must fail closed");
         assertTrue(domain.getText().contains("[UNIT_DOMAIN]"), domain.getText());
     }
+
+
+    @Test
+    void testLogErrorDiagnosisKindMatchesAndHonestEmpty() throws IOException {
+        File log = write("pw.log",
+                "Program PWSCF v.7.2 starts ...\n"
+                + "     io routine, version 7.2\n"
+                + "convergence NOT achieved after 100 iterations: stopping\n"
+                + "convergence NOT achieved after 100 iterations: stopping\n"
+                + "convergence NOT achieved after 100 iterations: stopping\n"
+                + "convergence NOT achieved after 100 iterations: stopping\n"
+                + "\n"
+                + "     Error in routine electrons (2):\n");
+        AnalysisReport report = ResultAnalysisService.analyze(
+                AnalysisKind.LOG_ERROR_DIAGNOSIS, new ProjectProperty(),
+                this.tempDir.toFile(), "metallic", log.getName(), null,
+                new AnalysisParameters());
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains("Scanned 8 lines"), report.getText());
+        assertTrue(report.getText().contains("[scf-not-converged] ERROR - line 3"),
+                report.getText());
+        assertTrue(report.getText().contains("electron_maxstep"), report.getText());
+        assertTrue(report.getText().contains("mixing_beta"), report.getText());
+        assertTrue(report.getText().contains(
+                "scf-not-converged: 4 match(es), 3 verbatim quote(s) kept "
+                        + "(1 repeats suppressed - counted, not hidden)"),
+                report.getText());
+        assertTrue(report.getText().contains("Matched signatures (2 distinct)"),
+                report.getText());
+        assertTrue(report.getText().contains("[generic-error-routine] ERROR - line 8"),
+                report.getText());
+        assertTrue(report.getText().contains("user_guide"), report.getText());
+        assertTrue(report.getCsvLines().stream().anyMatch(line ->
+                        line.startsWith("scf-not-converged,ERROR,3,")),
+                String.join("\n", report.getCsvLines()));
+
+        File crash = write("CRASH",
+                " %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%\n"
+                + "     Error in routine read_namelists (1):\n"
+                + "     bad line in namelist &system: \"nospin=2\" (error could be in the "
+                        + "input)\n");
+        AnalysisReport crashReport = ResultAnalysisService.analyze(
+                AnalysisKind.LOG_ERROR_DIAGNOSIS, new ProjectProperty(),
+                this.tempDir.toFile(), " metallic", log.getName(), crash,
+                new AnalysisParameters());
+        assertTrue(crashReport.isSuccess(), crashReport.getText());
+        assertTrue(crashReport.getText().contains(
+                "[generic-error-routine] ERROR - line 2"), crashReport.getText());
+
+        File clean = write("clean.out", "Program PWSCF\njob done.\n");
+        AnalysisReport empty = ResultAnalysisService.analyze(
+                AnalysisKind.LOG_ERROR_DIAGNOSIS, new ProjectProperty(),
+                this.tempDir.toFile(), "insulator", log.getName(), clean,
+                new AnalysisParameters());
+        assertTrue(empty.isSuccess(), empty.getText());
+        assertTrue(empty.getText().contains("No curated signature matched"),
+                empty.getText());
+        assertTrue(empty.getText().contains("NOT proof the run is healthy"),
+                empty.getText());
+    }
 }

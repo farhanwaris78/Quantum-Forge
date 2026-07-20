@@ -364,7 +364,8 @@ def main() -> int:
                   "CslSigmaMath", "GB_CSL_PREVIEW",
                   "QEVersionRuleCatalog", "QE_VERSION_CHECK",
                   "PoolDivisorMath", "MPI_POOLS_ADVISOR",
-                  "QEUnits", "UNIT_CONVERT"]:
+                  "QEUnits", "UNIT_CONVERT",
+                  "QEErrorSignatureCatalog", "LOG_ERROR_DIAGNOSIS"]:
         if token not in service:
             error(f"ResultAnalysisService is not bound to {token}")
     for rel in ["quantumforge/com/math/SymmetricEigen3.java",
@@ -394,7 +395,8 @@ def main() -> int:
                 "quantumforge/builder/CslSigmaMath.java",
                 "quantumforge/input/QEVersionRuleCatalog.java",
                 "quantumforge/hpc/PoolDivisorMath.java",
-                "quantumforge/com/math/QEUnits.java"]:
+                "quantumforge/com/math/QEUnits.java",
+                "quantumforge/run/QEErrorSignatureCatalog.java"]:
         text = (SRC / rel).read_text(encoding="utf-8")
         if "class " not in text:
             error(f"{rel} does not declare a type")

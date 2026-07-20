@@ -248,7 +248,8 @@ public final class ResultAnalysisService {
         GB_CSL_PREVIEW("Grain-boundary CSL rotation preview (exact Ranganathan law)"),
         QE_VERSION_CHECK("QE version keyword audit (curated 7.2-7.5 window snapshot)"),
         MPI_POOLS_ADVISOR("MPI pool-divisor audit (exact uniform mesh, -nk/-npool)"),
-        UNIT_CONVERT("Scientific unit conversion (curated registry, pinned constants)");
+        UNIT_CONVERT("Scientific unit conversion (curated registry, pinned constants)"),
+        LOG_ERROR_DIAGNOSIS("QE log error diagnosis (curated signature KB, 7.x window)");
 
         private final String label;
 
@@ -268,7 +269,8 @@ public final class ResultAnalysisService {
 
         /** True when this kind normally reads the primary pw.x project log. */
         public boolean usesProjectLog() {
-            return this == MAGNETIZATION || this == BORN_DIELECTRIC || this == THERMOPW_EOS;
+            return this == MAGNETIZATION || this == BORN_DIELECTRIC || this == THERMOPW_EOS
+                    || this == LOG_ERROR_DIAGNOSIS;
         }
 
         /** True when the analysis synthesizes a pp.x input instead of parsing output. */
@@ -922,6 +924,10 @@ public final class ResultAnalysisService {
             return name.endsWith(".pdb") || name.endsWith(".ent");
         case LAMMPS_DATA_REVIEW:
             return name.endsWith(".data") || name.contains("lammps.data");
+        case LOG_ERROR_DIAGNOSIS:
+            return name.equals("crash") || name.endsWith(".crash")
+                    || name.endsWith(".err") || name.endsWith(".log")
+                    || name.endsWith(".out");
         default:
             return false;
         }
@@ -1067,6 +1073,8 @@ public final class ResultAnalysisService {
                 return analyzePdbReview(source);
             case LAMMPS_DATA_REVIEW:
                 return analyzeLammpsDataReview(source, params);
+            case LOG_ERROR_DIAGNOSIS:
+                return analyzeLogErrorDiagnosis(source);
             default:
                 return failure(kind.getLabel(), "This analysis kind is not implemented.");
             }
@@ -6203,6 +6211,63 @@ public final class ResultAnalysisService {
         csv.add(String.format(Locale.ROOT, "unit_to,%s,canonical", to.getCanonicalName()));
         csv.add(String.format(Locale.ROOT, "spectroscopic_bridge,%s,SI-exact-hc",
                 result.isSpectroscopicBridge()));
+        return new AnalysisReport(label, true, text.toString(), csv, null);
+    }
+
+    /**
+     * Roadmap #31: curated error-KB scan of a QE log. Matches print the
+     * verbatim line; an empty result is NOT a health certificate.
+     */
+    private static AnalysisReport analyzeLogErrorDiagnosis(File source) {
+        String label = AnalysisKind.LOG_ERROR_DIAGNOSIS.getLabel();
+        OperationResult<QEErrorSignatureCatalog.ScanResult> scanned =
+                QEErrorSignatureCatalog.scanPath(source.toPath());
+        if (!scanned.isSuccess() || scanned.getValue().isEmpty()) {
+            return failure(label, "Log scan refused: [" + scanned.getCode() + "] "
+                    + scanned.getMessage());
+        }
+        QEErrorSignatureCatalog.ScanResult result = scanned.getValue().get();
+        StringBuilder text = new StringBuilder();
+        text.append("Source: ").append(source.getName()).append('\n');
+        text.append(String.format(Locale.ROOT,
+                "Scanned %d lines; curated KB holds %d signatures (QE 7.x window, "
+                        + "deterministic substring matching, quotes kept verbatim)%n",
+                result.getLineCount(), QEErrorSignatureCatalog.listSignatures().size()));
+        List<String> csv = new ArrayList<>();
+        csv.add("signature,severity,line,cause");
+        if (result.isEmpty()) {
+            text.append("\nNo curated signature matched. This is NOT proof the run is "
+                    + "healthy: the KB covers only its curated slice - read the end of "
+                    + "the log and the CRASH file before rerun.\n");
+        } else {
+            text.append(String.format(Locale.ROOT, "%nMatched signatures (%d distinct):%n",
+                    result.distinctSignatures()));
+            for (String id : result.matchedSignatureIds()) {
+                long total = result.totalMatches(id);
+                long kept = Math.min(total, QEErrorSignatureCatalog.MAX_QUOTES_PER_SIGNATURE);
+                text.append(String.format(Locale.ROOT,
+                        "  %s: %d match(es), %d verbatim quote(s) kept%s%n", id, total,
+                        kept, total > kept
+                                ? " (" + (total - kept) + " repeats suppressed - counted, "
+                                        + "not hidden)"
+                                : ""));
+            }
+            for (QEErrorSignatureCatalog.Hit hit : result.getHits()) {
+                QEErrorSignatureCatalog.Signature signature = hit.getSignature();
+                text.append(String.format(Locale.ROOT, "%n[%s] %s - line %d%n"
+                        + "  verbatim: \"%s\"%n  cause: %s%n  checks: %s%n  docs: %s%n",
+                        signature.getId(), signature.getSeverity(), hit.getLineNumber(),
+                        hit.getQuotedLine(), signature.getCause(), signature.getChecks(),
+                        signature.getDocsUrl()));
+                csv.add(String.format(Locale.ROOT, "%s,%s,%d,%s", signature.getId(),
+                        signature.getSeverity(), hit.getLineNumber(),
+                        csvCell(signature.getCause())));
+            }
+        }
+        text.append("\nHonesty boundary: recommendations are deterministic heuristics "
+                + "over a small curated corpus (Roadmap #31 first slice) - not an "
+                + "exhaustive error oracle, and never a substitute for reading the log; "
+                + "the corpus grows only from real, cited failure reports.\n");
         return new AnalysisReport(label, true, text.toString(), csv, null);
     }
 
