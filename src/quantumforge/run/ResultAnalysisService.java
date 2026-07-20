@@ -66,6 +66,7 @@ import quantumforge.input.QEKpointMeshAdvisor;
 import quantumforge.input.QEPpChargePotentialBuilder;
 import quantumforge.input.QEPpWavefunctionBuilder;
 import quantumforge.hpc.PoolDivisorMath;
+import quantumforge.com.math.QEUnits;
 import quantumforge.input.QESCFInput;
 import quantumforge.input.QEVersionRuleCatalog;
 import quantumforge.input.card.QEKPoints;
@@ -246,7 +247,8 @@ public final class ResultAnalysisService {
         W90_WIN_DRAFT("Wannier90 .win draft (mesh-echoed, required-edit guarded)"),
         GB_CSL_PREVIEW("Grain-boundary CSL rotation preview (exact Ranganathan law)"),
         QE_VERSION_CHECK("QE version keyword audit (curated 7.2-7.5 window snapshot)"),
-        MPI_POOLS_ADVISOR("MPI pool-divisor audit (exact uniform mesh, -nk/-npool)");
+        MPI_POOLS_ADVISOR("MPI pool-divisor audit (exact uniform mesh, -nk/-npool)"),
+        UNIT_CONVERT("Scientific unit conversion (curated registry, pinned constants)");
 
         private final String label;
 
@@ -294,7 +296,8 @@ public final class ResultAnalysisService {
                     || this == SPIN_CUBE_MAGNETIZATION || this == ESM_SLAB_CHECK
                     || this == MOIRE_TWIST_PREVIEW || this == CP_INPUT_DRAFT
                     || this == W90_WIN_DRAFT || this == QE_VERSION_CHECK
-                    || this == MPI_POOLS_ADVISOR;
+                    || this == MPI_POOLS_ADVISOR || this == GB_CSL_PREVIEW
+                    || this == UNIT_CONVERT;
         }
 
         /** True for project-bound kinds that additionally parse a user data file. */
@@ -370,6 +373,9 @@ public final class ResultAnalysisService {
         private int cslV = 0;
         private int cslW = 1;
         private int currentPools = 0;        // existing -nk pool count to audit (0 = none)
+        private double quantityValue = Double.NaN; // UNIT_CONVERT: value (NaN = unset)
+        private String unitFrom = "ry";      // UNIT_CONVERT: source unit token
+        private String unitTo = "ev";        // UNIT_CONVERT: target unit token
 
         public double getFermiEv() { return this.fermiEv; }
         public int getKpointIndex() { return this.kpointIndex; }
@@ -656,6 +662,18 @@ public final class ResultAnalysisService {
         }
 
         public int getCurrentPools() { return this.currentPools; }
+
+        public AnalysisParameters withUnitConversion(double value, String from,
+                String to) {
+            this.quantityValue = value;
+            this.unitFrom = from == null ? "" : from;
+            this.unitTo = to == null ? "" : to;
+            return this;
+        }
+
+        public double getQuantityValue() { return this.quantityValue; }
+        public String getUnitFrom() { return this.unitFrom; }
+        public String getUnitTo() { return this.unitTo; }
     }
 
     /** A completed, self-describing analysis result. */
@@ -1206,6 +1224,8 @@ public final class ResultAnalysisService {
                 return analyzeQeVersionCheck(project, params);
             case MPI_POOLS_ADVISOR:
                 return analyzeMpiPoolsAdvisor(project, params);
+            case UNIT_CONVERT:
+                return analyzeUnitConvert(params);
             default:
                 return failure(kind.getLabel(), "This analysis kind is not implemented.");
         }
@@ -6128,6 +6148,62 @@ public final class ResultAnalysisService {
             joined.append(value);
         }
         return joined.toString();
+    }
+
+    /**
+     * Roadmap #26: curated unit conversion. Constants carry their provenance;
+     * unknown tokens and incompatible domains fail closed.
+     */
+    private static AnalysisReport analyzeUnitConvert(AnalysisParameters params) {
+        String label = AnalysisKind.UNIT_CONVERT.getLabel();
+        OperationResult<QEUnits.Conversion> converted = QEUnits.convert(
+                params.getQuantityValue(), params.getUnitFrom(), params.getUnitTo());
+        if (!converted.isSuccess() || converted.getValue().isEmpty()) {
+            return failure(label, "Unit conversion refused: [" + converted.getCode() + "] "
+                    + converted.getMessage());
+        }
+        QEUnits.Conversion result = converted.getValue().get();
+        StringBuilder text = new StringBuilder();
+        text.append(String.format(Locale.ROOT, "%s %s = %s %s%n",
+                Double.toString(result.getValueFrom()), result.getFromUnit(),
+                Double.toString(result.getValueTo()), result.getToUnit()));
+        QEUnits.Unit from = QEUnits.findUnit(params.getUnitFrom()).orElseThrow();
+        QEUnits.Unit to = QEUnits.findUnit(params.getUnitTo()).orElseThrow();
+        text.append(String.format(Locale.ROOT,
+                "Factors pinned (canonical base per domain: eV / Angstrom / GPa): %s = %s, "
+                        + "%s = %s%n",
+                from.getCanonicalName(), Double.toString(from.getFactorToCanonical()),
+                to.getCanonicalName(), Double.toString(to.getFactorToCanonical())));
+        if (result.isSpectroscopicBridge()) {
+            text.append("Spectroscopic bridge crossed: E = h*c*(wavenumber) and E = h*f "
+                    + "via the SI-EXACT constants (h, c, e are exact SI definitions since "
+                    + "2019) - stated, not assumed silently.\n");
+        }
+        text.append(String.format(Locale.ROOT,
+                "%nConstants provenance: SI-exact relations (2019 SI: e, N_A, h, c) for "
+                        + "eV<->kJ/mol and the spectroscopic bridge; CODATA-2018 measured "
+                        + "values for Ha (%s eV), Ry (pinned half-scale %s eV) and bohr "
+                        + "(%s Ang, same digits as the cube reader) - reported at these "
+                        + "digits, never as exact.%n",
+                Double.toString(QEUnits.EV_PER_HA), Double.toString(QEUnits.EV_PER_RY),
+                Double.toString(QEUnits.ANG_PER_BOHR)));
+        text.append("Round-trip rule: A->B->A must reproduce A at machine precision (the "
+                + "backend test pins this for six pairs).\n");
+        text.append("Curated registry (unknown tokens fail UNIT_UNKNOWN; incompatible "
+                + "domains fail UNIT_DOMAIN): ").append(QEUnits.listUnitTokens())
+                .append('\n');
+        List<String> csv = new ArrayList<>();
+        csv.add("item,value,note");
+        csv.add(String.format(Locale.ROOT, "value_from,%s,verbatim",
+                Double.toString(result.getValueFrom())));
+        csv.add(String.format(Locale.ROOT, "unit_from,%s,canonical",
+                from.getCanonicalName()));
+        csv.add(String.format(Locale.ROOT, "value_to,%s,converted",
+                Double.toString(result.getValueTo())));
+        csv.add(String.format(Locale.ROOT, "unit_to,%s,canonical", to.getCanonicalName()));
+        csv.add(String.format(Locale.ROOT, "spectroscopic_bridge,%s,SI-exact-hc",
+                result.isSpectroscopicBridge()));
+        return new AnalysisReport(label, true, text.toString(), csv, null);
     }
 
     /**

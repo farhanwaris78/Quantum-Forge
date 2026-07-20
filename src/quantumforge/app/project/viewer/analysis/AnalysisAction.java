@@ -204,6 +204,23 @@ public final class AnalysisAction {
             parameters.withTotalRanks(ranks).withCurrentPools(pools);
             break;
         }
+        case UNIT_CONVERT: {
+            Double value = askDouble("Finite value to convert", "1.0");
+            if (value == null) {
+                return null;
+            }
+            String from = askText("From unit (curated: ry, ev, mev, ha, kJ/mol, cm-1, "
+                    + "THz, bohr, Angstrom, nm, pm, kbar, GPa)", "ry");
+            if (from == null) {
+                return null;
+            }
+            String to = askText("To unit (same curated registry)", "ev");
+            if (to == null) {
+                return null;
+            }
+            parameters.withUnitConversion(value, from, to);
+            break;
+        }
         case GEOMETRY_MEASURE: {
             int[] indices = askAtomIndices();
             if (indices == null) {

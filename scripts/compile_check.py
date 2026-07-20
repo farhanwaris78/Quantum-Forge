@@ -363,7 +363,8 @@ def main() -> int:
                   "Wannier90WinPlanner", "W90_WIN_DRAFT",
                   "CslSigmaMath", "GB_CSL_PREVIEW",
                   "QEVersionRuleCatalog", "QE_VERSION_CHECK",
-                  "PoolDivisorMath", "MPI_POOLS_ADVISOR"]:
+                  "PoolDivisorMath", "MPI_POOLS_ADVISOR",
+                  "QEUnits", "UNIT_CONVERT"]:
         if token not in service:
             error(f"ResultAnalysisService is not bound to {token}")
     for rel in ["quantumforge/com/math/SymmetricEigen3.java",
@@ -392,7 +393,8 @@ def main() -> int:
                 "quantumforge/input/Wannier90WinPlanner.java",
                 "quantumforge/builder/CslSigmaMath.java",
                 "quantumforge/input/QEVersionRuleCatalog.java",
-                "quantumforge/hpc/PoolDivisorMath.java"]:
+                "quantumforge/hpc/PoolDivisorMath.java",
+                "quantumforge/com/math/QEUnits.java"]:
         text = (SRC / rel).read_text(encoding="utf-8")
         if "class " not in text:
             error(f"{rel} does not declare a type")

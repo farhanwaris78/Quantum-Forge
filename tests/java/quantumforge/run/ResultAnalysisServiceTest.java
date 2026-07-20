@@ -3461,4 +3461,43 @@ class ResultAnalysisServiceTest {
         assertFalse(missing.isSuccess(), "no current input must fail closed");
         assertTrue(missing.getText().contains("[POOL_INPUT]"), missing.getText());
     }
+
+
+    @Test
+    void testUnitConvertKindConversionsAndRefusals() {
+        AnalysisReport report = ResultAnalysisService.analyze(AnalysisKind.UNIT_CONVERT,
+                stubProject(this.tempDir),
+                new AnalysisParameters().withUnitConversion(1.0, "ha", "ev"));
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains("1.0 Ha = 27.211386245988 eV"),
+                report.getText());
+        assertTrue(report.getText().contains("CODATA-2018"), report.getText());
+        assertFalse(report.getText().contains("Spectroscopic bridge crossed"),
+                report.getText());
+        assertTrue(report.getCsvLines().contains("value_to,27.211386245988,converted"),
+                String.join("\n", report.getCsvLines()));
+        assertTrue(report.getCsvLines().contains("spectroscopic_bridge,false,SI-exact-hc"),
+                String.join("\n", report.getCsvLines()));
+
+        AnalysisReport bridge = ResultAnalysisService.analyze(AnalysisKind.UNIT_CONVERT,
+                stubProject(this.tempDir),
+                new AnalysisParameters().withUnitConversion(300.0, "cm-1", "mev"));
+        assertTrue(bridge.isSuccess(), bridge.getText());
+        assertTrue(bridge.getText().contains("300.0 cm^-1 = 37.195259529960076 meV"),
+                bridge.getText());
+        assertTrue(bridge.getText().contains("Spectroscopic bridge crossed"),
+                bridge.getText());
+
+        AnalysisReport unknown = ResultAnalysisService.analyze(AnalysisKind.UNIT_CONVERT,
+                stubProject(this.tempDir),
+                new AnalysisParameters().withUnitConversion(1.0, "furlong", "ev"));
+        assertFalse(unknown.isSuccess(), "unknown tokens must fail closed");
+        assertTrue(unknown.getText().contains("[UNIT_UNKNOWN]"), unknown.getText());
+
+        AnalysisReport domain = ResultAnalysisService.analyze(AnalysisKind.UNIT_CONVERT,
+                stubProject(this.tempDir),
+                new AnalysisParameters().withUnitConversion(1.0, "ev", "bohr"));
+        assertFalse(domain.isSuccess(), "incompatible domains must fail closed");
+        assertTrue(domain.getText().contains("[UNIT_DOMAIN]"), domain.getText());
+    }
 }
