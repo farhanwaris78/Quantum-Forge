@@ -40,6 +40,7 @@ import quantumforge.project.Project;
 import quantumforge.ssh.ArrayLoopSubmitExecutor;
 import quantumforge.ssh.ArraySubmitExecutor;
 import quantumforge.ssh.RemotePathGuard;
+import quantumforge.ssh.SSHConnectRetry;
 import quantumforge.ssh.SSHServer;
 import quantumforge.ssh.SSHServerList;
 import quantumforge.ssh.SSHServerScheduler;
@@ -246,8 +247,17 @@ public final class ArraySubmitAction {
             OperationResult<JobRecord> single = null;
             OperationResult<ArrayLoopSubmitExecutor.LoopSubmitReport> loop = null;
             String executorFailure = null;
+            // Batch 145 (#96 retry slice): bounded connect retry, same combinator
+            // and provenance discipline as the batch-139 run path.
+            final SSHConnectRetry.RetryOutcome[] retryBox = new SSHConnectRetry.RetryOutcome[1];
             try {
-                connect = HostKeyAcceptance.connectInteractive(server, true);
+                SSHConnectRetry.RetryOutcome retried = SSHConnectRetry.connectWithRetry(
+                        server, srv -> HostKeyAcceptance.connectInteractive(srv, true),
+                        SSHConnectRetry.DEFAULT_MAX_ATTEMPTS,
+                        SSHConnectRetry.DEFAULT_INITIAL_DELAY,
+                        SSHConnectRetry.DEFAULT_MAX_DELAY, SSHConnectRetry.THREAD_SLEEPER);
+                retryBox[0] = retried;
+                connect = retried.getFinal();
             } catch (RuntimeException unexpected) {
                 // The connector owns its own failed transport; nothing to close here.
                 AppLog.error("array-submit", "connect failed unexpectedly: " + unexpected);
@@ -276,11 +286,12 @@ public final class ArraySubmitAction {
             final OperationResult<JobRecord> finalSingle = single;
             final OperationResult<ArrayLoopSubmitExecutor.LoopSubmitReport> finalLoop = loop;
             final String finalExecutorFailure = executorFailure;
+            final SSHConnectRetry.RetryOutcome finalRetry = retryBox[0];
             Platform.runLater(() -> {
                 waitDialog.close();
                 worker.shutdownNow();
                 handleOutcome(adapter, finalConnect, finalSingle, finalLoop,
-                        finalExecutorFailure);
+                        finalExecutorFailure, finalRetry);
             });
         });
     }
@@ -289,7 +300,7 @@ public final class ArraySubmitAction {
     private void handleOutcome(SchedulerAdapter adapter,
             OperationResult<SshTransport> connect, OperationResult<JobRecord> single,
             OperationResult<ArrayLoopSubmitExecutor.LoopSubmitReport> loop,
-            String executorFailure) {
+            String executorFailure, SSHConnectRetry.RetryOutcome retryOutcome) {
         if (connect == null) {
             showError("Array submission unavailable",
                     "the submit worker failed unexpectedly - see the application log; "
@@ -298,7 +309,9 @@ public final class ArraySubmitAction {
         }
         if (!connect.isSuccess() || connect.getValue().isEmpty()) {
             AppLog.error("array-submit", connect.toString());
-            showError("Array submission unavailable", connect.getMessage());
+            showError("Array submission unavailable", connect.getMessage()
+                    + (retryOutcome == null ? ""
+                            : "\n\n(" + retryOutcome.provenanceLine() + ")"));
             return;
         }
         if (executorFailure != null) {
@@ -392,7 +405,9 @@ public final class ArraySubmitAction {
                 + " on a background daemon (qf-array-submit); the GUI stays responsive.");
         Label note = new Label(
                 "You may close this window: the submission continues and reports back. "
-                        + "A host-key prompt, if needed, appears on top.");
+                        + "A host-key prompt, if needed, appears on top. Connect retries "
+                        + "are bounded (up to 3 attempts, capped backoff) and never "
+                        + "re-ask a host-key answer.");
         note.setWrapText(true);
         HBox box = new HBox(10.0, new ProgressIndicator(), note);
         box.setPadding(new Insets(10.0));

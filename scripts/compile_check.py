@@ -427,6 +427,7 @@ def main() -> int:
                 "quantumforge/ssh/ArraySubmitExecutor.java",
                 "quantumforge/ssh/ArrayLoopSubmitExecutor.java",
                 "quantumforge/ssh/SSHServerScheduler.java",
+                "quantumforge/ssh/SSHConnectRetry.java",
                 "quantumforge/app/project/viewer/run/ArraySubmitAction.java",
                 "quantumforge/builder/ExtXyzCellExporter.java",
                 "quantumforge/run/parser/TrajectoryWindowReader.java",
@@ -521,6 +522,11 @@ def main() -> int:
         error("RunAction lost exactly-once transport ownership tracking (batch 138)")
     if "qf-ssh-submit" not in runAction or "RemoteSubmitChain" not in runAction:
         error("RunAction lost the background submit worker / headless chain (batch 139)")
+    if "SSHConnectRetry" not in runAction or "provenanceLine" not in runAction:
+        error("RunAction lost the bounded connect retry with provenance (batch 145)")
+    retry = SRC / "quantumforge/ssh/SSHConnectRetry.java"
+    if not retry.is_file() or "isRetriable" not in retry.read_text(encoding="utf-8"):
+        error("SSHConnectRetry (batch-145 retry combinator) missing its retriable owner")
     if "waitDialog" not in runAction or "Platform.runLater" not in runAction.replace(
             "javafx.application.Platform.runLater", "Platform.runLater"):
         error("RunAction lost its FX-marshalling/lifecycle discipline (batch 139)")
@@ -563,6 +569,8 @@ def main() -> int:
             error("ArraySubmitAction lost the shape-split executor wiring (batch 144)")
         if "QEFXJobMonitorDialog" not in arrayRaw or "transport.close()" not in arrayRaw:
             error("ArraySubmitAction lost the monitor offer / exactly-once closes (batch 144)")
+        if "SSHConnectRetry" not in arrayRaw:
+            error("ArraySubmitAction lost the bounded connect retry (batch 145)")
     viewerItems = (SRC / "quantumforge/app/project/viewer/ViewerItemSet.java").read_text(
         encoding="utf-8")
     viewerActs = (SRC / "quantumforge/app/project/viewer/ViewerActions.java").read_text(

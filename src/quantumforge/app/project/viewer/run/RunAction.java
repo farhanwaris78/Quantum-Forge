@@ -19,6 +19,7 @@ import quantumforge.operation.OperationResult;
 import quantumforge.run.RunningManager;
 import quantumforge.run.RunningNode;
 import quantumforge.ssh.RemoteSubmitChain;
+import quantumforge.ssh.SSHConnectRetry;
 import quantumforge.ssh.SSHJob;
 import quantumforge.ssh.SshTransport;
 
@@ -85,9 +86,24 @@ public class RunAction {
         waitDialog.show();
         worker.submit(() -> {
             RemoteSubmitChain.SubmitOutcome outcome = null;
+            // Batch 145 (#96 retry slice): bounded connect retry as a connector
+            // combinator - the batch-139 chain's ownership rules are untouched,
+            // consent codes are never re-asked, and the attempt history rides
+            // into the failure dialog as a provenance line.
+            final SSHConnectRetry.RetryOutcome[] retryBox = new SSHConnectRetry.RetryOutcome[1];
             try {
                 outcome = RemoteSubmitChain.connectAndSubmit(sshJob.getSSHServer(), sshJob,
-                        server -> HostKeyAcceptance.connectInteractive(server, true));
+                        server -> {
+                            SSHConnectRetry.RetryOutcome retried =
+                                    SSHConnectRetry.connectWithRetry(server,
+                                            srv -> HostKeyAcceptance.connectInteractive(srv, true),
+                                            SSHConnectRetry.DEFAULT_MAX_ATTEMPTS,
+                                            SSHConnectRetry.DEFAULT_INITIAL_DELAY,
+                                            SSHConnectRetry.DEFAULT_MAX_DELAY,
+                                            SSHConnectRetry.THREAD_SLEEPER);
+                            retryBox[0] = retried;
+                            return retried.getFinal();
+                        });
             } catch (RuntimeException unexpected) {
                 // Never silently lost; outcome stays null and marshals as an
                 // honest worker-failure error below.
@@ -106,7 +122,8 @@ public class RunAction {
                 OperationResult<SshTransport> connect = finalOutcome.getConnect();
                 if (!connect.isSuccess() || connect.getValue().isEmpty()) {
                     AppLog.error("ssh-run", connect.toString());
-                    showError("Remote submission unavailable", connect.getMessage());
+                    showError("Remote submission unavailable", connect.getMessage()
+                            + retrySuffix(retryBox[0]));
                     return;
                 }
                 if (!finalOutcome.isSubmitted()) {
@@ -160,7 +177,9 @@ public class RunAction {
                 + "(qf-ssh-submit); the GUI stays responsive.");
         javafx.scene.control.Label note = new javafx.scene.control.Label(
                 "You may close this window: the submission continues and reports "
-                        + "back. A host-key prompt, if needed, appears on top.");
+                        + "back. A host-key prompt, if needed, appears on top. "
+                        + "Connect retries are bounded (up to 3 attempts, capped "
+                        + "backoff) and never re-ask a host-key answer.");
         note.setWrapText(true);
         javafx.scene.layout.HBox box = new javafx.scene.layout.HBox(10.0,
                 new javafx.scene.control.ProgressIndicator(), note);
@@ -201,6 +220,11 @@ public class RunAction {
             showError("Monitoring unavailable", String.valueOf(ex.getMessage()));
             return false;
         }
+    }
+
+    /** Batch-145 provenance: how hard the connect tried, for the failure dialog. */
+    private static String retrySuffix(SSHConnectRetry.RetryOutcome outcome) {
+        return outcome == null ? "" : "\n\n(" + outcome.provenanceLine() + ")";
     }
 
     private static void showError(String header, String message) {
