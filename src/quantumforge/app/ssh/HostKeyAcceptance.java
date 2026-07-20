@@ -96,17 +96,17 @@ public final class HostKeyAcceptance {
                         first.getMessage() + " (interactive acceptance disabled)", null);
             }
 
-            // Prompt user; on YES, reconnect with acceptNewHostKeys.
+            // Prompt user; on YES, reconnect with acceptNewHostKeys. The
+            // prompt is batch-139 thread-safe: from a background worker it
+            // is marshalled onto the FX thread and awaited - showing an
+            // Alert off the FX thread would throw and previously surfaced
+            // as a bogus SSH_CONNECT_UI_ERROR.
             String details = first.getMessage();
-            Alert alert = new Alert(AlertType.CONFIRMATION);
-            QEFXMain.initializeDialogOwner(alert);
-            alert.setTitle("Unknown SSH host key");
-            alert.setHeaderText("Accept host key for " + server.getUser() + "@"
-                    + server.getHost() + ":" + server.intPort() + "?");
-            alert.setContentText(details
-                    + "\n\nOnly accept if this fingerprint matches your cluster documentation.");
-            Optional<ButtonType> answer = alert.showAndWait();
-            if (answer.isEmpty() || answer.get() != ButtonType.OK) {
+            String header = "Accept host key for " + server.getUser() + "@"
+                    + server.getHost() + ":" + server.intPort() + "?";
+            boolean accepted = awaitHostKeyConfirmation(header, details);
+
+            if (!accepted) {
                 transport.close();
                 return OperationResult.cancelled("SSH_HOST_KEY_DECLINED",
                         "User declined the unknown host key.");
@@ -134,5 +134,45 @@ public final class HostKeyAcceptance {
             return OperationResult.failed("SSH_CONNECT_UI_ERROR",
                     "Interactive SSH connect failed: " + ex.getMessage(), ex);
         }
+    }
+
+    /**
+     * Show the host-key confirmation and block for the answer, honest from
+     * ANY thread (batch 139, Roadmap #96 FX-thread depth): from the FX
+     * thread it is a direct showAndWait; from a background daemon the Alert
+     * is created and shown via {@link javafx.application.Platform#runLater}
+     * while the worker waits on a latch. There is deliberately NO timeout -
+     * the user's accept/decline IS the security boundary, and a timed-out
+     * prompt would silently masquerade as "declined".
+     */
+    private static boolean awaitHostKeyConfirmation(String header, String details)
+            throws InterruptedException {
+        if (javafx.application.Platform.isFxApplicationThread()) {
+            return showHostKeyAlert(header, details);
+        }
+        java.util.concurrent.atomic.AtomicReference<Boolean> answer =
+                new java.util.concurrent.atomic.AtomicReference<>(Boolean.FALSE);
+        java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(1);
+        javafx.application.Platform.runLater(() -> {
+            try {
+                answer.set(Boolean.valueOf(showHostKeyAlert(header, details)));
+            } finally {
+                latch.countDown();
+            }
+        });
+        latch.await();
+        return answer.get().booleanValue();
+    }
+
+    /** FX-thread-only: the dialog itself; returns true on OK. */
+    private static boolean showHostKeyAlert(String header, String details) {
+        Alert alert = new Alert(AlertType.CONFIRMATION);
+        QEFXMain.initializeDialogOwner(alert);
+        alert.setTitle("Unknown SSH host key");
+        alert.setHeaderText(header);
+        alert.setContentText(details
+                + "\n\nOnly accept if this fingerprint matches your cluster documentation.");
+        Optional<ButtonType> answer = alert.showAndWait();
+        return answer.isPresent() && answer.get() == ButtonType.OK;
     }
 }

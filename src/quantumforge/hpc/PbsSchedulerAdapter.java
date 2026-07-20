@@ -97,6 +97,15 @@ public final class PbsSchedulerAdapter implements SchedulerAdapter {
         return new String[] {"qstat", "-f", schedulerJobId.trim()};
     }
 
+    /**
+     * PBS/Torque documents the absence shape: qstat against an unknown job id
+     * prints "qstat: Unknown Job Id ..." on stderr and exits non-zero.
+     */
+    @Override
+    public boolean isJobAbsent(String stderrText) {
+        return stderrText != null && stderrText.contains("Unknown Job Id");
+    }
+
     @Override
     public String[] submitCommand(String remoteScriptPath) {
         if (remoteScriptPath == null || remoteScriptPath.isBlank() || remoteScriptPath.contains("..")) {
@@ -113,5 +122,19 @@ public final class PbsSchedulerAdapter implements SchedulerAdapter {
         if (schedulerJobId == null || !schedulerJobId.trim().matches("[0-9]+(?:\\.[A-Za-z0-9._-]+)?")) {
             throw new IllegalArgumentException("invalid PBS job id: " + schedulerJobId);
         }
+    }
+
+    @Override
+    public ArraySubmitSpec arraySubmitSpec() {
+        // PBS Professional and Torque DIVERGE here and both hide behind the
+        // 'pbs' name: Pro uses `-J 1-N` with PBS_ARRAY_INDEX, Torque uses
+        // `-t 1-N` with PBS_ARRAYID. This adapter family covers both
+        // deployments and cannot tell which one a given site runs - so per
+        // the no-default doctrine it refuses to guess: the per-task submit
+        // loop runs the SAME documented qsub once per task instead.
+        return ArraySubmitSpec.unsupported(
+                "PBS Professional (-J flag, PBS_ARRAY_INDEX) and Torque (-t flag, "
+                        + "PBS_ARRAYID) diverge and this adapter family covers both - "
+                        + "it refuses to guess which deployment your site runs");
     }
 }

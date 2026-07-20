@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Test;
 import quantumforge.atoms.model.Cell;
 import quantumforge.com.math.Matrix3D;
 import quantumforge.input.QEInput;
+import quantumforge.input.QEInputReader;
 import quantumforge.input.namelist.QENamelist;
 import quantumforge.input.namelist.QEValueBase;
 import quantumforge.run.QEMpiTopologyAdvisor.TopologyRecommendation;

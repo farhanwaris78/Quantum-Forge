@@ -5,6 +5,7 @@
 package quantumforge.app.project.viewer.result;
 
 import quantumforge.app.project.QEFXProjectController;
+import quantumforge.app.project.editor.result.QEFXResultEditor;
 import quantumforge.com.graphic.svg.SVGLibrary.SVGData;
 import quantumforge.project.Project;
 import javafx.scene.control.Alert;

@@ -177,7 +177,9 @@ public final class JobQueueStore {
                 .replace("\n", "\\n").replace("\r", "\\r");
     }
 
-    private static String extractString(String json, String key) {
+    // Package-private so the read-only JobQueueAudit (same package) can re-read raw
+    // fields for its audit verdicts; not part of the public mutation API.
+    static String extractString(String json, String key) {
         java.util.regex.Matcher m = java.util.regex.Pattern
                 .compile("\"" + java.util.regex.Pattern.quote(key) + "\"\\s*:\\s*\"((?:\\\\.|[^\"\\\\])*)\"")
                 .matcher(json);

@@ -98,6 +98,11 @@
                                     <Insets left="35.0" />
                                  </padding>
                               </Label>
+                              <Label text="Job Scheduler" GridPane.rowIndex="3">
+                                 <padding>
+                                    <Insets left="35.0" />
+                                 </padding>
+                              </Label>
                               <TextField fx:id="hostField" prefWidth="290.0" GridPane.columnIndex="1" />
                               <TextField fx:id="portField" prefWidth="290.0" GridPane.columnIndex="1" GridPane.rowIndex="1" />
                               <Button fx:id="keyButton" mnemonicParsing="false" prefWidth="290.0" GridPane.columnIndex="1" GridPane.rowIndex="2">
@@ -105,6 +110,7 @@
                                     <Font size="11.0" />
                                  </font>
                               </Button>
+                              <ComboBox fx:id="schedulerCombo" prefWidth="290.0" GridPane.columnIndex="1" GridPane.rowIndex="3" />
                            </children>
                            <columnConstraints>
                               <ColumnConstraints hgrow="SOMETIMES" prefWidth="120.0" />
@@ -114,6 +120,7 @@
                               <Insets left="10.0" right="20.0" />
                            </padding>
                            <rowConstraints>
+                              <RowConstraints minHeight="10.0" prefHeight="30.0" vgrow="SOMETIMES" />
                               <RowConstraints minHeight="10.0" prefHeight="30.0" vgrow="SOMETIMES" />
                               <RowConstraints minHeight="10.0" prefHeight="30.0" vgrow="SOMETIMES" />
                               <RowConstraints minHeight="10.0" prefHeight="30.0" vgrow="SOMETIMES" />

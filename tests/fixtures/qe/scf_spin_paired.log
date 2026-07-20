@@ -1,0 +1,35 @@
+     Program PWSCF v.7.5 starts on 16Jul2026 at 16: 0: 0
+     number of atoms/cell      =            2
+     number of electrons       =        16.00
+     nspin                     =            2
+     occupations               =            fixed
+     total magnetization (fixed) =       2.00
+
+     iteration #  1
+     total energy              =     -31.10000000 Ry
+     estimated scf accuracy    <       0.08000000 Ry
+     total magnetization       =       2.00 Bohr mag/cell
+          highest occupied, lowest unoccupied level (ev):   -18.7200    -9.4100
+
+     iteration #  2
+     total energy              =     -31.24000000 Ry
+     estimated scf accuracy    <       0.00900000 Ry
+     total magnetization       =       2.00 Bohr mag/cell
+          highest occupied, lowest unoccupied level (ev):   -18.6500    -9.3200
+
+     iteration #  3
+     total energy              =     -31.26000000 Ry
+     estimated scf accuracy    <       0.00090000 Ry
+     total magnetization       =       2.00 Bohr mag/cell
+          highest occupied, lowest unoccupied level (ev):   -18.6100    -9.2800
+
+     iteration #  4
+!    total energy              =     -31.26500000 Ry
+     estimated scf accuracy    <       0.00006000 Ry
+     total magnetization       =       2.00 Bohr mag/cell
+          highest occupied, lowest unoccupied level (ev):   -18.6000    -9.2600
+
+     total magnetization       =       2.00 Bohr mag/cell
+     absolute magnetization    =       2.00 Bohr mag/cell
+
+     JOB DONE.

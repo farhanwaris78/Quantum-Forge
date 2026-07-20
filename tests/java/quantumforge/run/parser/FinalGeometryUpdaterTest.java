@@ -24,7 +24,7 @@ class FinalGeometryUpdaterTest {
     }
 
     @Test
-    void previewSucceedsForConvergedListButApplyRemainsUnsupported() throws Exception {
+    void previewSucceedsForConvergedListAndApplyDelegatesToTransaction() throws Exception {
         // Use a real temp property directory via reflection-free lightweight double.
         java.nio.file.Path dir = java.nio.file.Files.createTempDirectory("qf-geom");
         ProjectProperty property = new ProjectProperty(dir.toString(), "espresso");
@@ -68,9 +68,13 @@ class FinalGeometryUpdaterTest {
                 FinalGeometryUpdater.preview(project);
         assertTrue(preview.isSuccess(), preview.toString());
         OperationResult<Void> apply = FinalGeometryUpdater.apply(project);
-        assertFalse(apply.isSuccess());
-        assertTrue(apply.getMessage().toLowerCase().contains("not yet implemented")
-                || apply.getCode().contains("UNAVAILABLE"));
+        assertFalse(apply.isSuccess(),
+                "converged trail but ZERO resolved decks cannot transact - typed refusal");
+        assertTrue(apply.getCode().equals("GEOMETRY_PRECONDITION"),
+                "the transaction names the precondition, not a blank 'unavailable': "
+                        + apply.getCode());
+        assertTrue(apply.getMessage().contains("nothing honest to transact"),
+                apply.getMessage());
     }
 
     private static Project stubProject(ProjectProperty property) {

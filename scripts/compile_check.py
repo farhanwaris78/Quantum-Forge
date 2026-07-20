@@ -88,11 +88,115 @@ def check_file(path: Path, source_root: Path) -> None:
         error(f"public type {public.group(1)} != file {path.name}")
 
 
+def build_type_index(files):
+    """Maps repo simple type names (top-level and nested) to (package, owner) tuples.
+
+    Nested types are registered both on their own name and are considered
+    accessible when their top-level owner is accessible (Outer.Inner usage).
+    """
+    index: dict[str, list[tuple[str, str | None]]] = {}
+    for path in files:
+        root = SRC if SRC in path.parents else TESTS
+        rel = path.relative_to(root).with_suffix("")
+        package = ".".join(rel.parent.parts)
+        raw = path.read_text(encoding="utf-8", errors="replace")
+        text = strip_strings_and_comments(raw)
+        top = None
+        for match in re.finditer(r"(?:^|[}\s])(?:class|interface|enum|record)\s+([A-Za-z_][A-Za-z0-9_]*)", text):
+            name = match.group(1)
+            if top is None:
+                top = name
+                owner = None
+            else:
+                owner = top
+            index.setdefault(name, []).append((package, owner))
+        if top is None:
+            index.setdefault(path.stem, []).append((package, None))
+    return index
+
+
+def check_repo_type_imports(files, index):
+    """Flags references to same-repository types that are not imported or otherwise
+    accessible. External (JDK/JavaFX/third-party) types cannot be resolved without
+    javac and are intentionally skipped.
+
+    A name is accessible when any of these holds:
+      * the file itself declares it (top-level or nested);
+      * it lives in the same package;
+      * it is imported exactly, or via a wildcard import of its package;
+      * it is a nested type whose top-level owner is accessible by these rules;
+      * an explicit non-repo import shadows the simple name.
+    """
+    java_lang = {
+        "Boolean", "Byte", "Character", "Class", "Double", "Enum", "Exception",
+        "Float", "IllegalArgumentException", "IllegalStateException", "Integer",
+        "InterruptedException", "Long", "Math", "NullPointerException", "Number",
+        "NumberFormatException", "Object", "Override", "RuntimeException",
+        "Short", "String", "StringBuilder", "SuppressWarnings", "System",
+        "Thread", "Throwable", "Void",
+    }
+    for path in files:
+        root = SRC if SRC in path.parents else TESTS
+        package = ".".join(path.relative_to(root).parent.parts)
+        raw = path.read_text(encoding="utf-8", errors="replace")
+        text = strip_strings_and_comments(raw)
+
+        own_names = set(re.findall(r"(?:class|interface|enum|record)\s+([A-Za-z_][A-Za-z0-9_]*)", text))
+        exact_imports: set[str] = set()
+        wildcard_packages: set[str] = set()
+        for imp in re.findall(r"(?m)^import\s+(?:static\s+)?([\w.]+?)(\.\*)?;", text):
+            target, star = imp
+            if star:
+                wildcard_packages.add(target)
+            else:
+                exact_imports.add(target.rsplit(".", 1)[-1])
+
+        # Inline fully-qualified uses (parseTree.Java types embedded in code)
+        # need no import; remove them before token scanning.
+        code = re.sub(r"\bquantumforge(?:\.[A-Za-z_]\w*)+", " ", text)
+        code = re.sub(r"(?m)^\s*(?:import|package)\s+[\w.]+\s*;.*$", " ", code)
+
+        declared = own_names | {path.stem}
+
+        def accessible(name: str, depth: int = 0) -> bool:
+            if name in declared or name in exact_imports or name in java_lang:
+                return True
+            entries = index.get(name)
+            if not entries:
+                return True  # external type: cannot verify here
+            for pkg, owner in entries:
+                if pkg == package or pkg in wildcard_packages:
+                    return True
+            if depth < 1:
+                for pkg, owner in entries:
+                    if owner and accessible(owner, depth + 1):
+                        return True
+            return False
+
+        for token in set(re.findall(r"\b([A-Z][A-Za-z0-9_]{2,})\b", code)):
+            entries = index.get(token)
+            if not entries:
+                continue  # not a repo type; JDK/JavaFX names are unverifiable here
+            # Dot-qualified member uses (Outer.Inner, Map.Entry, FQN chains) are
+            # resolved through their owner; only standalone uses need an import.
+            if all(m.start() > 0 and code[m.start() - 1] == "."
+                   for m in re.finditer(rf"(?<![\w]){re.escape(token)}\b", code)):
+                continue
+            if not accessible(token):
+                locations = ", ".join(sorted({pkg for pkg, _ in entries}))
+                error(
+                    f"{path.relative_to(ROOT)} references repository type '{token}' "
+                    f"(declared in {locations}) without an import or same-package access"
+                )
+
+
 def main() -> int:
     files = list(SRC.rglob("*.java")) + list(TESTS.rglob("*.java"))
+    type_index = build_type_index(files)
     for path in files:
         root = SRC if SRC in path.parents else TESTS
         check_file(path, root)
+    check_repo_type_imports(files, type_index)
 
     project = (SRC / "quantumforge/project/Project.java").read_text(encoding="utf-8")
     if "exportQEInputsTo" not in project:
@@ -156,14 +260,347 @@ def main() -> int:
             or "actionValidateInput" not in actions or "actionDiagnoseLog" not in actions
             or "actionAnalyzeBandGap" not in actions or "actionPreviewFinalGeometry" not in actions
             or "actionInspectPdos" not in actions or "actionInspectPhonons" not in actions
-            or "actionInspectSpectra" not in actions or "actionDensityDifference" not in actions):
-        error("ViewerActions missing required export, validation, diagnosis, band-gap, geometry-preview, PDOS, phonon, spectra, or density actions")
+            or "actionInspectSpectra" not in actions or "actionDensityDifference" not in actions
+            or "actionAnalyzeResults" not in actions):
+        error("ViewerActions missing required export, validation, diagnosis, band-gap, geometry-preview, PDOS, phonon, spectra, density, or result-analysis actions")
+    for rel in [
+        "quantumforge/run/ResultAnalysisService.java",
+        "quantumforge/app/project/viewer/analysis/AnalysisAction.java",
+    ]:
+        text = (SRC / rel).read_text(encoding="utf-8")
+        if "class " not in text and "enum " not in text:
+            error(f"{rel} does not declare a type")
+    service = (SRC / "quantumforge/run/ResultAnalysisService.java").read_text(encoding="utf-8")
+    for token in ["QEBandsDataParser", "QEMagneticMomentParser", "QEBornChargeDielectricParser",
+                  "QEHubbardHpParser", "QETurboSpectrumParser", "QEXSpectraXanesParser",
+                  "QEGipawNmrParser", "QEPwcondConductanceParser", "QEWannier90SpreadParser",
+                  "QEThermoPwEosParser", "QEPhono3pyKappaParser", "QEEliashbergTcCalculator",
+                  "QEPpChargePotentialBuilder", "QEPpWavefunctionBuilder",
+                  "QEAcousticSumRuleValidator"]:
+        if token not in service:
+            error(f"ResultAnalysisService is not bound to {token}")
+    for token in ["DryRunPreflight", "RestartManager", "QEScratchStoragePolicy",
+                  "QEResourceEstimator", "QEMpiTopologyAdvisor", "RunManifest",
+                  "GeometryMeasurer", "QEMdDiffusionMsdParser", "QEHullThermodynamics"]:
+        if token not in service:
+            error(f"ResultAnalysisService is not bound to {token}")
+    for token in ["QEBerryPolarizationParser", "QESlabPlateauDiagnostic",
+                  "QECarParrinelloParser", "MagneticSpaceGroupDetector",
+                  "CubeGridReader", "QECitationManager",
+                  "ScfConvergenceAnalyzer", "QETimingResourceParser",
+                  "QESmearingConvergenceAnalyzer", "PhononDosThermodynamics",
+                  "ElasticParser", "QEElasticStabilityValidator", "QELammpsThermoParser"]:
+        if token not in service:
+            error(f"ResultAnalysisService is not bound to {token}")
+    for token in ["GeometryConvergenceValidator", "PseudoFamilyValidator",
+                  "SpglibService", "QeXmlResultParser",
+                  "QEVasprunXmlParser", "QECastepLogParser"]:
+        if token not in service:
+            error(f"ResultAnalysisService is not bound to {token}")
+    for token in ["QEInputDiffPreview", "QEKpointMeshAdvisor", "QEPointDefectBuilder"]:
+        if token not in service:
+            error(f"ResultAnalysisService is not bound to {token}")
+    for token in ["QETensorAnalyzer", "QEDynmatModesParser", "QEBatteryVoltage",
+                  "MoleculeAdsorber"]:
+        if token not in service:
+            error(f"ResultAnalysisService is not bound to {token}")
+    for token in ["SiteProfileValidator", "SiteProfile"]:
+        if token not in service:
+            error(f"ResultAnalysisService is not bound to {token}")
+    text = (SRC / "quantumforge/hpc/SiteProfileValidator.java").read_text(encoding="utf-8")
+    if "class " not in text:
+        error("quantumforge/hpc/SiteProfileValidator.java does not declare a type")
+    for token in ["MlModelManifest"]:
+        if token not in service:
+            error(f"ResultAnalysisService is not bound to {token}")
+    for token in ["QEExxPlanner"]:
+        if token not in service:
+            error(f"ResultAnalysisService is not bound to {token}")
+    rel = "quantumforge/input/QEExxPlanner.java"
+    text = (SRC / rel).read_text(encoding="utf-8")
+    if "class " not in text:
+        error(f"{rel} does not declare a type")
+    for token in ["QEBrillouinZoneGeometry", "BandGapParser", "QEPdosParser"]:
+        if token not in service:
+            error(f"ResultAnalysisService is not bound to {token}")
+    rel = "quantumforge/symmetry/QEBrillouinZoneGeometry.java"
+    text = (SRC / rel).read_text(encoding="utf-8")
+    if "class " not in text:
+        error(f"{rel} does not declare a type")
+    rel = "quantumforge/export/SvgSeriesPlotter.java"
+    text = (SRC / rel).read_text(encoding="utf-8")
+    if "class " not in text:
+        error(f"{rel} does not declare a type")
+    if "SvgSeriesPlotter" not in (SRC / "quantumforge/app/project/viewer/analysis/AnalysisAction.java").read_text(encoding="utf-8"):
+        error("AnalysisAction is not wired to SvgSeriesPlotter SVG export")
+    for token in ["MethodsTextBuilder", "RoCrateExporter", "QEThermochemistryMath",
+                  "QEDiffusionBarrierLink", "EffectiveMassTensor", "SymmetricEigen3",
+                  "QEConstraintSpec", "QEIonicConstraintManager",
+                  "PhonopyForceSetsReader", "QEPhonopyForceSetsWriter",
+                  "TrajectoryIndexReader", "ExtXyzDatasetValidator",
+                  "EnergySeriesComparer", "TENSOR_EIGEN",
+                  "PhononFrameSynthesis", "PHONON_MODE_FRAMES",
+                  "HyperfineMapper", "HYPERFINE_LOOKUP",
+                  "QEKeywordHelp", "KEYWORD_HELP",
+                  "ArraySweepPlanner", "ARRAY_SWEEP_PLAN", "ArrayDeckTemplate",
+                  "ArrayTaskIntent", "ArraySubmitPlan",
+                  "ExtXyzCellExporter", "CELL_EXTXYZ_EXPORT",
+                  "QERamanIRSpectraParser", "RAMAN_IR_SPECTRUM",
+                  "TrajectoryWindowReader", "TRAJECTORY_WINDOW_SCAN",
+                  "TENSOR_DIRECTIONAL", "QEGridDensityDifference",
+                  "DENSITY_DIFFERENCE", "SupercellMatrixValidator",
+                  "SUPERCELL_PREVIEW", "QEHubbardPlanner",
+                  "HUBBARD_HP_DRAFT", "QETimingParser", "TIMING_RESOURCE",
+                  "WorkspaceLightIndex", "WORKSPACE_SEARCH",
+                  "QEWorkflowTemplateLibrary", "TEMPLATE_LIBRARY",
+                  "PoscarStructureReader", "POSCAR_REVIEW",
+                  "ELateTensorDraft", "ELASTIC_ELATE_DRAFT",
+                  "SPIN_CUBE_MAGNETIZATION",
+                  "QEEsmAuditor", "ESM_SLAB_CHECK",
+                  "MoireTwistMath", "MOIRE_TWIST_PREVIEW",
+                  "PdbStructureReader", "PDB_REVIEW",
+                  "LammpsDataReader", "LAMMPS_DATA_REVIEW",
+                  "CpInputPlanner", "CP_INPUT_DRAFT",
+                  "Wannier90WinPlanner", "W90_WIN_DRAFT",
+                  "CslSigmaMath", "GB_CSL_PREVIEW",
+                  "QEVersionRuleCatalog", "QE_VERSION_CHECK",
+                  "PoolDivisorMath", "MPI_POOLS_ADVISOR",
+                  "QEUnits", "UNIT_CONVERT",
+                  "QEErrorSignatureCatalog", "LOG_ERROR_DIAGNOSIS",
+                  "XspectraInputPlanner", "XSPECTRA_INPUT_DRAFT",
+                  "GipawInputPlanner", "GIPAW_INPUT_DRAFT",
+                  "SlabMillerMath", "SLAB_MILLER_PREVIEW",
+                  "CifStructureReader", "CIF_REVIEW",
+                  "SdfStructureReader", "MOL_SDF_REVIEW",
+                  "TurboLanczosInputPlanner", "TDDFPT_INPUT_DRAFT",
+                  "CompositionalBaselineMath", "ML_DATASET_BASELINE",
+                  "SeriesAlignmentMath", "SERIES_REF_ALIGN",
+                  "BandsFermiReviewMath", "BANDS_FERMI_REVIEW",
+                  "BandGapBandMath", "BAND_GAP_BANDS",
+                  "TransformJournal", "PROVENANCE_JOURNAL_REVIEW",
+                  "JobDbSchema", "JOB_DB_SCHEMA_PLAN",
+                  "OptimadeQueryBuilder", "OPTIMADE_QUERY_DRAFT",
+                  "OccupationLevelsParser", "OCCUPATION_LEVELS_REVIEW",
+                  "MpApiQueryBuilder", "MP_QUERY_DRAFT",
+                  "SshTargetSpec", "SSH_CONFIG_DRAFT",
+                  "SftpTransferPlan", "SFTP_TRANSFER_PLAN",
+                  "OptimadeStructuresParser", "OPTIMADE_RESPONSE_PARSE",
+                  "MpSummaryParser", "MP_SUMMARY_PARSE",
+                  "SlurmScriptBuilder", "SLURM_SCRIPT_DRAFT",
+                  "KMeshConvergenceLadder", "KMESH_CONVERGENCE_PLAN",
+                  "SiteProfileSpec", "SITE_PROFILE_DRAFT", "ContainerLaunchBridge",
+                  "NebInputPlanner", "NEB_INPUT_DRAFT",
+                  "JobCancelPlan", "JOB_CANCEL_PLAN",
+                  "MonitorPollPlan", "MONITOR_POLL_PLAN",
+                  "SyncManifestBuilder", "SYNC_MANIFEST_DRAFT",
+                  "SmearingLadderPlan", "SMEARING_LADDER_PLAN",
+                  "CutoffLadderPlan", "CUTOFF_LADDER_PLAN",
+                  "ArrayJobPlan", "ARRAY_JOB_PLAN",
+                  "ContainerProfileSpec", "CONTAINER_PROFILE_DRAFT",
+                  "JobStateGuard", "JOB_STATE_GUARD",
+                  "PhononGridLadderPlan", "PHONON_GRID_PLAN",
+                  "ResubmitAdvice", "CHECKPOINT_RESUBMIT_PLAN",
+                  "JobQueueAudit", "JOB_QUEUE_AUDIT",
+                  "WorkflowAudit", "WORKFLOW_EXPORT_AUDIT",
+                  "NebPathAudit", "NEB_PATH_AUDIT",
+                  "FinalGeometryTransaction", "FINAL_GEOMETRY_APPLY",
+                  "SchedulerAdapters", "SCHEDULER_ADAPTER_AUDIT",
+                  "RemoteJobMonitor", "JOB_MONITOR_AUDIT",
+                  "SelectiveResultSync", "SYNC_RUNTIME_AUDIT",
+                  "ArraySweepPlanner", "ARRAY_JOB_AUDIT",
+                  "JournalReplayMath", "replay_combined_det"]:
+        if token not in service:
+            error(f"ResultAnalysisService is not bound to {token}")
+    for rel in ["quantumforge/com/math/SymmetricEigen3.java",
+                "quantumforge/builder/QEConstraintSpec.java",
+                "quantumforge/run/parser/PhonopyForceSetsReader.java",
+                "quantumforge/run/parser/TrajectoryIndexReader.java",
+                "quantumforge/neural/ExtXyzDatasetValidator.java",
+                "quantumforge/run/parser/EnergySeriesComparer.java",
+                "quantumforge/run/parser/PhononFrameSynthesis.java",
+                "quantumforge/input/QEKeywordHelp.java",
+                "quantumforge/hpc/ArraySweepPlanner.java",
+                "quantumforge/hpc/ArrayDeckTemplate.java",
+                "quantumforge/hpc/ArrayTaskIntent.java",
+                "quantumforge/hpc/ArraySubmitPlan.java",
+                "quantumforge/hpc/ArraySubmitSpec.java",
+                "quantumforge/ssh/ArraySubmitExecutor.java",
+                "quantumforge/ssh/ArrayLoopSubmitExecutor.java",
+                "quantumforge/ssh/SSHServerScheduler.java",
+                "quantumforge/ssh/SSHConnectRetry.java",
+                "quantumforge/ssh/TransferChunkPlan.java",
+                "quantumforge/app/project/viewer/run/ArraySubmitAction.java",
+                "quantumforge/builder/ExtXyzCellExporter.java",
+                "quantumforge/run/parser/TrajectoryWindowReader.java",
+                "quantumforge/builder/SupercellMatrixValidator.java",
+                "quantumforge/input/QEHubbardPlanner.java",
+                "quantumforge/run/parser/QETimingParser.java",
+                "quantumforge/project/WorkspaceLightIndex.java",
+                "quantumforge/input/QEWorkflowTemplateLibrary.java",
+                "quantumforge/builder/PoscarStructureReader.java",
+                "quantumforge/export/ELateTensorDraft.java",
+                "quantumforge/input/QEEsmAuditor.java",
+                "quantumforge/builder/MoireTwistMath.java",
+                "quantumforge/builder/PdbStructureReader.java",
+                "quantumforge/builder/LammpsDataReader.java",
+                "quantumforge/input/CpInputPlanner.java",
+                "quantumforge/input/Wannier90WinPlanner.java",
+                "quantumforge/builder/CslSigmaMath.java",
+                "quantumforge/input/QEVersionRuleCatalog.java",
+                "quantumforge/hpc/PoolDivisorMath.java",
+                "quantumforge/com/math/QEUnits.java",
+                "quantumforge/run/QEErrorSignatureCatalog.java",
+                "quantumforge/input/XspectraInputPlanner.java",
+                "quantumforge/input/GipawInputPlanner.java",
+                "quantumforge/builder/SlabMillerMath.java",
+                "quantumforge/builder/CifStructureReader.java",
+                "quantumforge/builder/SdfStructureReader.java",
+                "quantumforge/input/TurboLanczosInputPlanner.java",
+                "quantumforge/neural/CompositionalBaselineMath.java",
+                "quantumforge/run/parser/SeriesAlignmentMath.java",
+                "quantumforge/run/parser/BandsFermiReviewMath.java",
+                "quantumforge/run/parser/BandGapBandMath.java",
+                "quantumforge/builder/TransformJournal.java",
+                "quantumforge/hpc/JobDbSchema.java",
+                "quantumforge/remote/OptimadeQueryBuilder.java",
+                "quantumforge/run/parser/OccupationLevelsParser.java",
+                "quantumforge/remote/MpApiQueryBuilder.java",
+                "quantumforge/remote/SshTargetSpec.java",
+                "quantumforge/remote/SftpTransferPlan.java",
+                "quantumforge/remote/OptimadeStructuresParser.java",
+                "quantumforge/remote/MpSummaryParser.java",
+                "quantumforge/remote/SlurmScriptBuilder.java",
+                "quantumforge/run/KMeshConvergenceLadder.java",
+                "quantumforge/remote/SiteProfileSpec.java",
+                "quantumforge/input/NebInputPlanner.java",
+                "quantumforge/remote/JobCancelPlan.java",
+                "quantumforge/remote/MonitorPollPlan.java",
+                "quantumforge/remote/SyncManifestBuilder.java",
+                "quantumforge/run/SmearingLadderPlan.java",
+                "quantumforge/run/CutoffLadderPlan.java",
+                "quantumforge/remote/ArrayJobPlan.java",
+                "quantumforge/remote/ContainerProfileSpec.java",
+                "quantumforge/remote/ContainerLaunchBridge.java",
+                "quantumforge/remote/ContainerImageAttestor.java",
+                "quantumforge/remote/JobStateGuard.java",
+                "quantumforge/run/PhononGridLadderPlan.java",
+                "quantumforge/run/ResubmitAdvice.java",
+                "quantumforge/hpc/JobQueueAudit.java",
+                "quantumforge/run/WorkflowAudit.java",
+                "quantumforge/input/NebPathAudit.java",
+                "quantumforge/run/parser/FinalGeometryTransaction.java",
+                "quantumforge/hpc/PjmSchedulerAdapter.java",
+                "quantumforge/hpc/SchedulerAdapters.java",
+                "quantumforge/builder/JournalReplayMath.java"]:
+        text = (SRC / rel).read_text(encoding="utf-8")
+        if "class " not in text:
+            error(f"{rel} does not declare a type")
+    rel = "quantumforge/export/MethodsTextBuilder.java"
+    text = (SRC / rel).read_text(encoding="utf-8")
+    if "class " not in text:
+        error(f"{rel} does not declare a type")
+    for rel in ["quantumforge/neural/MlModelManifest.java",
+                "quantumforge/neural/MLPotentialService.java"]:
+        text = (SRC / rel).read_text(encoding="utf-8")
+        if "class " not in text:
+            error(f"{rel} does not declare a type")
+    for stale in ["GNNFroceField", "GNNField"]:
+        # Roadmap #136: the misspelled names must not reappear in code (comments
+        # and strings are stripped so the historical note in the javadoc stays).
+        for path in list(SRC.rglob("*.java")) + list(TESTS.rglob("*.java")):
+            raw = path.read_text(encoding="utf-8", errors="replace")
+            if stale in strip_strings_and_comments(raw):
+                error(f"stale pre-rename name {stale} remains in {path.relative_to(ROOT)}")
+                break
     node = (SRC / "quantumforge/run/RunningNode.java").read_text(encoding="utf-8")
     if "DryRunPreflight" not in node or "ArtifactScanner" not in node or "QECommandDag" not in node:
         error("RunningNode is not wired to dry-run/DAG/artifact scanning")
     runAction = (SRC / "quantumforge/app/project/viewer/run/RunAction.java").read_text(encoding="utf-8")
-    if "postJobToServerResult" not in runAction or "HostKeyAcceptance" not in runAction:
+    if ("postJobToServerResult" not in runAction and "RemoteSubmitChain" not in runAction) \
+            or "HostKeyAcceptance" not in runAction:
         error("RunAction still uses untyped/fake SSH submit path")
+    if "offerMonitoring" not in runAction or "QEFXJobMonitorDialog" not in runAction:
+        error("RunAction lost the job-monitor offer wiring (batch 138)")
+    if "transportHandedOff" not in runAction:
+        error("RunAction lost exactly-once transport ownership tracking (batch 138)")
+    if "qf-ssh-submit" not in runAction or "RemoteSubmitChain" not in runAction:
+        error("RunAction lost the background submit worker / headless chain (batch 139)")
+    if "SSHConnectRetry" not in runAction or "provenanceLine" not in runAction:
+        error("RunAction lost the bounded connect retry with provenance (batch 145)")
+    retry = SRC / "quantumforge/ssh/SSHConnectRetry.java"
+    if not retry.is_file() or "isRetriable" not in retry.read_text(encoding="utf-8"):
+        error("SSHConnectRetry (batch-145 retry combinator) missing its retriable owner")
+    transfer = (SRC / "quantumforge/ssh/SSHFileTransfer.java").read_text(encoding="utf-8")
+    if "uploadChunkedVerifiedResult" not in transfer or "TRANSFER_CHUNK_STALE" not in transfer:
+        error("SSHFileTransfer lost the batch-146 chunked/resumable verified upload")
+    syncRuns = (SRC / "quantumforge/ssh/SelectiveResultSync.java").read_text(encoding="utf-8")
+    if "downloadVerifiedResult" not in syncRuns or "pin-verified" not in syncRuns:
+        error("SelectiveResultSync lost the batch-146 hash-pinned download path")
+    if "NOT hash-verified (no pins supplied)" not in syncRuns:
+        error("SelectiveResultSync lost the unpinned-posture honesty sentence (batch 146)")
+    svcText = (SRC / "quantumforge/run/ResultAnalysisService.java").read_text(encoding="utf-8")
+    if "uploadChunkedVerifiedResult" not in svcText or "TransferChunkPlan" not in svcText:
+        error("ResultAnalysisService lost the batch-146 integrity boundary/provenance")
+    if "waitDialog" not in runAction or "Platform.runLater" not in runAction.replace(
+            "javafx.application.Platform.runLater", "Platform.runLater"):
+        error("RunAction lost its FX-marshalling/lifecycle discipline (batch 139)")
+    hka = (SRC / "quantumforge/app/ssh/HostKeyAcceptance.java").read_text(encoding="utf-8")
+    if "isFxApplicationThread" not in hka or "CountDownLatch" not in hka:
+        error("HostKeyAcceptance lost its cross-thread audited prompt (batch 139)")
+    chain = SRC / "quantumforge/ssh/RemoteSubmitChain.java"
+    if not chain.is_file() or "wasTransportClosedByChain" not in chain.read_text(
+            encoding="utf-8"):
+        error("RemoteSubmitChain (batch 139 headless submit chain) missing ownership flags")
+    monitorGui = SRC / "quantumforge/app/ssh/QEFXJobMonitorDialog.java"
+    monitorModel = SRC / "quantumforge/app/ssh/MonitorLogModel.java"
+    if not monitorGui.is_file() or not monitorModel.is_file():
+        error("batch-138 monitor GUI host classes missing")
+    else:
+        monitorRaw = monitorGui.read_text(encoding="utf-8")
+        if "Platform.runLater" not in monitorRaw or "shutdownNow" not in monitorRaw:
+            error("QEFXJobMonitorDialog lost its FX-thread/lifecycle discipline")
+        if "MAX_LINES" not in monitorModel.read_text(encoding="utf-8"):
+            error("MonitorLogModel lost its owned ring bound")
+    actionFx = (SRC / "quantumforge/app/project/viewer/analysis/AnalysisAction.java").read_text(
+        encoding="utf-8")
+    if "withContainerSiteProfile" not in actionFx:
+        error("AnalysisAction lost the batch-147 launch-bridge prompt wiring")
+    if "launch_bridge" not in svcText:
+        error("ResultAnalysisService lost the batch-147 launch-bridge render/csv trail")
+    sshJob = (SRC / "quantumforge/ssh/SSHJob.java").read_text(encoding="utf-8")
+    if "SSHServerScheduler" not in sshJob:
+        error("SSHJob lost the batch-144 single-owner scheduler resolution fix")
+    resolver = SRC / "quantumforge/ssh/SSHServerScheduler.java"
+    if not resolver.is_file() or "SSH_SCHEDULER_UNSET" not in resolver.read_text(
+            encoding="utf-8"):
+        error("SSHServerScheduler (batch-144 resolver) missing its typed refusals")
+    loopExec = SRC / "quantumforge/ssh/ArrayLoopSubmitExecutor.java"
+    if not loopExec.is_file() or "SUBMIT_LOOP_WRONG_SHAPE" not in loopExec.read_text(
+            encoding="utf-8"):
+        error("ArrayLoopSubmitExecutor (batch 143) missing its loop-only shape guard")
+    arrayGui = SRC / "quantumforge/app/project/viewer/run/ArraySubmitAction.java"
+    if not arrayGui.is_file():
+        error("ArraySubmitAction (batch-144 GUI array-submit dialogue) missing")
+    else:
+        arrayRaw = arrayGui.read_text(encoding="utf-8")
+        if "qf-array-submit" not in arrayRaw or "SSHServerScheduler" not in arrayRaw:
+            error("ArraySubmitAction lost its daemon/resolver wiring (batch 144)")
+        if "ArrayLoopSubmitExecutor" not in arrayRaw or "ArraySubmitExecutor" not in arrayRaw:
+            error("ArraySubmitAction lost the shape-split executor wiring (batch 144)")
+        if "QEFXJobMonitorDialog" not in arrayRaw or "transport.close()" not in arrayRaw:
+            error("ArraySubmitAction lost the monitor offer / exactly-once closes (batch 144)")
+        if "SSHConnectRetry" not in arrayRaw:
+            error("ArraySubmitAction lost the bounded connect retry (batch 145)")
+    viewerItems = (SRC / "quantumforge/app/project/viewer/ViewerItemSet.java").read_text(
+        encoding="utf-8")
+    viewerActs = (SRC / "quantumforge/app/project/viewer/ViewerActions.java").read_text(
+        encoding="utf-8")
+    if "Submit array sweep" not in viewerItems or "ArraySubmitAction" not in viewerActs:
+        error("viewer menu lost the batch-144 array-sweep submission entry")
+    sshDialog = (SRC / "quantumforge/app/ssh/QEFXSSHDialog.java").read_text(encoding="utf-8")
+    sshFxml = (SRC / "quantumforge/app/ssh/QEFXSSHDialog.fxml").read_text(encoding="utf-8")
+    if "schedulerCombo" not in sshDialog or "schedulerCombo" not in sshFxml:
+        error("SSH dialog lost the batch-144 Job Scheduler chooser")
     neb = (SRC / "quantumforge/builder/neb/NEBPathCreator.java").read_text(encoding="utf-8")
     if "for (int k = 0; k < 3; k++)" not in neb and "for (int k = 0; k < 3; k++)" not in neb:
         # accept either classic or enhanced form

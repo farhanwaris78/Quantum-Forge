@@ -5,15 +5,21 @@ package quantumforge.app.project.viewer.run;
 
 import javafx.scene.control.Alert;
 import javafx.scene.control.Alert.AlertType;
+import javafx.scene.control.ButtonBar;
+import javafx.scene.control.ButtonType;
+import javafx.scene.control.Dialog;
 import quantumforge.app.QEFXMain;
 import quantumforge.app.QEFXMainController;
 import quantumforge.app.project.QEFXProjectController;
 import quantumforge.app.ssh.HostKeyAcceptance;
+import quantumforge.app.ssh.QEFXJobMonitorDialog;
 import quantumforge.com.log.AppLog;
 import quantumforge.hpc.JobRecord;
 import quantumforge.operation.OperationResult;
 import quantumforge.run.RunningManager;
 import quantumforge.run.RunningNode;
+import quantumforge.ssh.RemoteSubmitChain;
+import quantumforge.ssh.SSHConnectRetry;
 import quantumforge.ssh.SSHJob;
 import quantumforge.ssh.SshTransport;
 
@@ -56,42 +62,169 @@ public class RunAction {
         mainController.showHome();
     }
 
+    /**
+     * Batch-139 (#96 FX-thread depth): the whole connect+submit phase runs on
+     * a dedicated daemon (thread {@code qf-ssh-submit}) - a slow or unreachable
+     * cluster previously FROZE the entire GUI because this ran on the FX event
+     * thread. The host-key prompt inside {@link HostKeyAcceptance} is audited
+     * thread-safe (it awaits on the worker and shows on FX). The FX thread only
+     * hosts a closable wait dialog and the marshalled outcome handling; the
+     * connect-then-submit ordering and the transport's exactly-once close are
+     * owned (and headlessly pinned) by {@link RemoteSubmitChain}.
+     */
     private void runOnSSHServer(SSHJob sshJob) {
         if (sshJob == null) {
             return;
         }
-        // Prefer typed API; never treat missing transport as success.
-        OperationResult<SshTransport> connect =
-                HostKeyAcceptance.connectInteractive(sshJob.getSSHServer(), true);
-        if (!connect.isSuccess()) {
-            AppLog.error("ssh-run", connect.toString());
-            showError("Remote submission unavailable", connect.getMessage());
-            return;
+        Dialog<Void> waitDialog = buildSubmitWaitDialog(sshJob);
+        java.util.concurrent.ExecutorService worker =
+                java.util.concurrent.Executors.newSingleThreadExecutor(runnable -> {
+                    Thread thread = new Thread(runnable, "qf-ssh-submit");
+                    thread.setDaemon(true);
+                    return thread;
+                });
+        waitDialog.show();
+        worker.submit(() -> {
+            RemoteSubmitChain.SubmitOutcome outcome = null;
+            // Batch 145 (#96 retry slice): bounded connect retry as a connector
+            // combinator - the batch-139 chain's ownership rules are untouched,
+            // consent codes are never re-asked, and the attempt history rides
+            // into the failure dialog as a provenance line.
+            final SSHConnectRetry.RetryOutcome[] retryBox = new SSHConnectRetry.RetryOutcome[1];
+            try {
+                outcome = RemoteSubmitChain.connectAndSubmit(sshJob.getSSHServer(), sshJob,
+                        server -> {
+                            SSHConnectRetry.RetryOutcome retried =
+                                    SSHConnectRetry.connectWithRetry(server,
+                                            srv -> HostKeyAcceptance.connectInteractive(srv, true),
+                                            SSHConnectRetry.DEFAULT_MAX_ATTEMPTS,
+                                            SSHConnectRetry.DEFAULT_INITIAL_DELAY,
+                                            SSHConnectRetry.DEFAULT_MAX_DELAY,
+                                            SSHConnectRetry.THREAD_SLEEPER);
+                            retryBox[0] = retried;
+                            return retried.getFinal();
+                        });
+            } catch (RuntimeException unexpected) {
+                // Never silently lost; outcome stays null and marshals as an
+                // honest worker-failure error below.
+                AppLog.error("ssh-run", "submit worker failed: " + unexpected);
+            }
+            final RemoteSubmitChain.SubmitOutcome finalOutcome = outcome;
+            javafx.application.Platform.runLater(() -> {
+                waitDialog.close();
+                worker.shutdownNow();
+                if (finalOutcome == null) {
+                    showError("Remote submission unavailable",
+                            "the submit worker failed unexpectedly - see the "
+                                    + "application log; nothing was submitted.");
+                    return;
+                }
+                OperationResult<SshTransport> connect = finalOutcome.getConnect();
+                if (!connect.isSuccess() || connect.getValue().isEmpty()) {
+                    AppLog.error("ssh-run", connect.toString());
+                    showError("Remote submission unavailable", connect.getMessage()
+                            + retrySuffix(retryBox[0]));
+                    return;
+                }
+                if (!finalOutcome.isSubmitted()) {
+                    OperationResult<JobRecord> submit = finalOutcome.getSubmit();
+                    AppLog.error("ssh-run", String.valueOf(submit));
+                    showError("Remote submission failed", submit == null
+                            ? "submission was not attempted - see the application log"
+                            : submit.getMessage());
+                    // The chain already closed the transport exactly once.
+                    return;
+                }
+                JobRecord record = finalOutcome.getSubmit().getValue().orElse(null);
+                String id = record == null ? "?" : String.valueOf(record.getSchedulerJobId());
+                AppLog.info("ssh-run", "Submitted remote job " + id);
+                SshTransport transport = finalOutcome.getTransport();
+                if (record != null) {
+                    // Batch-138 (#96 GUI slice): offer the polling monitor; YES hands the
+                    // transport to the dialog, which owns and closes it exactly once.
+                    boolean transportHandedOff = offerMonitoring(sshJob, transport,
+                            finalOutcome.getSubmit().getMessage(), record);
+                    if (!transportHandedOff) {
+                        transport.close();
+                    }
+                } else {
+                    transport.close();
+                    Alert alert = new Alert(AlertType.INFORMATION);
+                    QEFXMain.initializeDialogOwner(alert);
+                    alert.setTitle("Remote job");
+                    alert.setHeaderText("Job submitted");
+                    alert.setContentText(finalOutcome.getSubmit().getMessage());
+                    alert.showAndWait();
+                }
+            });
+        });
+    }
+
+    /**
+     * The wait dialog shown while the daemon connects and submits. It carries
+     * NO cancel button on purpose - a cancel that cannot interrupt the wire
+     * would be a lie; the title-bar close simply dismisses the wait (and says
+     * that the submission continues and will report back).
+     */
+    private static Dialog<Void> buildSubmitWaitDialog(SSHJob sshJob) {
+        Dialog<Void> dialog = new Dialog<>();
+        QEFXMain.initializeDialogOwner(dialog);
+        dialog.setTitle("Remote submission");
+        String where = sshJob.getSSHServer() == null ? "the remote server"
+                : String.valueOf(sshJob.getSSHServer().getUser()) + "@"
+                + String.valueOf(sshJob.getSSHServer().getHost());
+        dialog.setHeaderText("Submitting to " + where + " on a background daemon "
+                + "(qf-ssh-submit); the GUI stays responsive.");
+        javafx.scene.control.Label note = new javafx.scene.control.Label(
+                "You may close this window: the submission continues and reports "
+                        + "back. A host-key prompt, if needed, appears on top. "
+                        + "Connect retries are bounded (up to 3 attempts, capped "
+                        + "backoff) and never re-ask a host-key answer.");
+        note.setWrapText(true);
+        javafx.scene.layout.HBox box = new javafx.scene.layout.HBox(10.0,
+                new javafx.scene.control.ProgressIndicator(), note);
+        box.setPadding(new javafx.geometry.Insets(10.0));
+        box.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
+        dialog.getDialogPane().setContent(box);
+        return dialog;
+    }
+
+    /**
+     * Offer the job monitor after a successful submit. Returns true when the
+     * transport's ownership moved to the monitor dialog (which closes it);
+     * otherwise the caller must close the transport itself.
+     */
+    private static boolean offerMonitoring(SSHJob sshJob, SshTransport transport,
+            String submitMessage, JobRecord record) {
+        ButtonType monitorButton = new ButtonType("Monitor job", ButtonBar.ButtonData.YES);
+        Alert alert = new Alert(AlertType.INFORMATION,
+                submitMessage + "\nState: " + record.getState()
+                        + "\n\nMonitor this job now? The monitor polls the scheduler on a "
+                        + "background daemon with stated backoff and then owns this "
+                        + "connection until you close it.",
+                monitorButton, ButtonType.CLOSE);
+        QEFXMain.initializeDialogOwner(alert);
+        alert.setTitle("Remote job");
+        alert.setHeaderText("Job submitted");
+        boolean monitor = alert.showAndWait()
+                .filter(button -> button == monitorButton).isPresent();
+        if (!monitor) {
+            return false;
         }
-        SshTransport transport = connect.getValue().orElse(null);
         try {
-            sshJob.setTransport(transport);
-            OperationResult<JobRecord> result = sshJob.postJobToServerResult();
-            if (!result.isSuccess()) {
-                AppLog.error("ssh-run", result.toString());
-                showError("Remote submission failed", result.getMessage());
-                return;
-            }
-            JobRecord record = result.getValue().orElse(null);
-            String id = record == null ? "?" : String.valueOf(record.getSchedulerJobId());
-            AppLog.info("ssh-run", "Submitted remote job " + id);
-            Alert alert = new Alert(AlertType.INFORMATION);
-            QEFXMain.initializeDialogOwner(alert);
-            alert.setTitle("Remote job");
-            alert.setHeaderText("Job submitted");
-            alert.setContentText(result.getMessage()
-                    + (record == null ? "" : "\nState: " + record.getState()));
-            alert.showAndWait();
-        } finally {
-            if (transport != null) {
-                transport.close();
-            }
+            QEFXJobMonitorDialog.showAndMonitor(transport, sshJob.monitorAdapter(), record);
+            return true;
+        } catch (RuntimeException ex) {
+            // Typed failures (e.g. an unknown site-profile scheduler) stay honest.
+            AppLog.error("ssh-run", "monitor unavailable: " + ex.getMessage());
+            showError("Monitoring unavailable", String.valueOf(ex.getMessage()));
+            return false;
         }
+    }
+
+    /** Batch-145 provenance: how hard the connect tried, for the failure dialog. */
+    private static String retrySuffix(SSHConnectRetry.RetryOutcome outcome) {
+        return outcome == null ? "" : "\n\n(" + outcome.provenanceLine() + ")";
     }
 
     private static void showError(String header, String message) {

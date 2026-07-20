@@ -42,6 +42,15 @@ MISSING_PSEUDO = re.compile(
 )
 HIGH_SYM = re.compile(r"high-symmetry point:")
 
+# Occupation-level needles, mirrored VERBATIM from the owning class
+# src/quantumforge/run/parser/OccupationLevelsParser.java (PAIR / SINGLE).
+# The Java parser is the single owner; if its grammar changes this mirror
+# must change in the same commit or the class-matrix pins below drift.
+OCC_PAIR = re.compile(
+    r"highest occupied, lowest unoccupied level \(ev\):\s*(\S+)\s+(\S+)"
+)
+OCC_SINGLE = re.compile(r"highest occupied level \(ev\):\s*(\S+)")
+
 
 def scf_iterations(text: str) -> list[tuple[float, bool]]:
     rows: list[tuple[float, bool]] = []
@@ -65,6 +74,8 @@ def main() -> int:
         error("si fixture missing ! converged total energy")
     if NOT_CONV.search(si):
         error("si fixture unexpectedly not-converged")
+    if OCC_PAIR.findall(si) or OCC_SINGLE.findall(si):
+        error("si fixture unexpectedly carries occupation needles")
 
     bad = read("scf_not_converged.log")
     if not NOT_CONV.search(bad):
@@ -77,6 +88,47 @@ def main() -> int:
         error("fe spin fixture missing spin/magnetization markers")
     if not any(c for _, c in scf_iterations(fe)):
         error("fe spin fixture missing converged energy")
+    if OCC_PAIR.findall(fe) or OCC_SINGLE.findall(fe):
+        error("fe metal fixture unexpectedly carries occupation needles")
+
+    # #47 acceptance-class matrix (batch 148): spin-polarized insulator with
+    # FIXED occupations prints one PAIR line per SCF step (all kept - no
+    # last-wins); an alkali-like partial-occupation metal with SMEARING
+    # prints SINGLE lines, and its gap must stay UNDEFINED.
+    paired = read("scf_spin_paired.log")
+    pair_hits = OCC_PAIR.findall(paired)
+    if len(pair_hits) != 4:
+        error(f"spin-paired fixture expected 4 pair lines, got {len(pair_hits)}")
+    if OCC_SINGLE.findall(paired):
+        error("spin-paired fixture unexpectedly carries single lines")
+    if "nspin" not in paired.lower():
+        error("spin-paired fixture missing nspin marker")
+    if paired.lower().count("total magnetization") < 5:
+        error("spin-paired fixture expected per-step magnetization lines")
+    if "fermi energy" in paired.lower():
+        error("spin-paired insulator fixture must NOT print a Fermi energy")
+    if not any(c for _, c in scf_iterations(paired)):
+        error("spin-paired fixture missing converged energy")
+    if NOT_CONV.search(paired):
+        error("spin-paired fixture unexpectedly not-converged")
+
+    partial = read("scf_partial_occupation.log")
+    single_hits = OCC_SINGLE.findall(partial)
+    if len(single_hits) != 2:
+        error(f"partial-occupation fixture expected 2 single lines, "
+              f"got {len(single_hits)}")
+    if OCC_PAIR.findall(partial):
+        error("partial-occupation fixture unexpectedly carries pair lines")
+    if "fermi energy" not in partial.lower():
+        error("partial-occupation fixture missing Fermi-energy line")
+    if "smearing" not in partial.lower():
+        error("partial-occupation fixture missing smearing marker")
+    if "magnetization" in partial.lower():
+        error("partial-occupation fixture must NOT claim magnetization")
+    if not any(c for _, c in scf_iterations(partial)):
+        error("partial-occupation fixture missing converged energy")
+    if NOT_CONV.search(partial):
+        error("partial-occupation fixture unexpectedly not-converged")
 
     relax = read("relax_converged.log")
     if not BFGS.search(relax):

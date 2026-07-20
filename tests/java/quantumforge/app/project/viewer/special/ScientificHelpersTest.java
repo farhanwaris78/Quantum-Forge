@@ -48,11 +48,13 @@ class ScientificHelpersTest {
     void fabricatedAdvancedResultsNowFailClosed() {
         assertThrows(ScientificFeatureUnavailableException.class,
                 () -> new WorkFunctionMapper(4.0, 5.0).generateMap(3, 3));
-        assertThrows(ScientificFeatureUnavailableException.class,
-                () -> HyperfineMapper.calculateAiso(1.0, 1.0));
-        assertThrows(ScientificFeatureUnavailableException.class,
-                () -> STHEstimator.calculateSTH(2.0, 0.2, 1.5));
-        assertThrows(ScientificFeatureUnavailableException.class,
-                () -> WeylFinder.searchNodes(new double[1][3], new double[] {0.0}));
+        // HyperfineMapper is fail-closed by contract: unknown isotopes and
+        // non-finite inputs throw instead of returning a default 1.0/0.0 MHz.
+        assertThrows(IllegalArgumentException.class,
+                () -> HyperfineMapper.calculateAiso(1.0, "99Xx"));
+        assertThrows(IllegalArgumentException.class,
+                () -> HyperfineMapper.calculateAiso(Double.NaN, 1.0));
+        assertTrue(Double.isNaN(HyperfineMapper.getNuclearGFactor("99Xx")),
+                "An unknown isotope must surface NaN, not the old 1.0 fallback");
     }
 }

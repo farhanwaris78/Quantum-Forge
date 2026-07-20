@@ -3,18 +3,34 @@
  */
 package quantumforge.app.project.viewer.result.special;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
 /**
- * Mathematically rigorous Fermi contact isotropic hyperfine coupling (Aiso) solver,
- * utilizing a registered database of nuclear g-factors (gN) and proper physical unit
- * conversions to translate GIPAW nuclear spin densities (|psi(0)|^2) to MHz (Roadmap #166).
+ * Fermi contact isotropic hyperfine coupling (A_iso) helper with a registered,
+ * explicitly bounded database of nuclear g-factors (gN) (Roadmap #166).
+ *
+ * <p>Fail-closed contract: an isotope that is not in the table yields NaN from
+ * {@link #getNuclearGFactor(String)} and an IllegalArgumentException from
+ * {@link #calculateAiso(double, String)}. Silent defaults (1.0) and silent zero
+ * results were removed because they masqueraded as computed couplings. Any
+ * non-finite input is rejected the same way.</p>
  */
 public final class HyperfineMapper {
 
-    // Database of standard nuclear g-factors (gN) for EPR-active isotopes
+    /**
+     * Compiled conversion constant in MHz * a0^3:
+     * A_iso = HYPERFINE_FACTOR_MHZ * gN * |psi(0)|^2 with |psi(0)|^2 in a.u.^-3
+     * (a0^-3). It embeds (mu0/4pi) * (8pi/3) * ge * muB * muN; treat the last
+     * digits as subject to CODATA revision.
+     */
+    public static final double HYPERFINE_FACTOR_MHZ = 44.757237;
+
+    // Database of standard nuclear g-factors (gN) for EPR-active isotopes.
     private static final Map<String, Double> ISOTOPE_GN_DATABASE = new HashMap<>();
     static {
         ISOTOPE_GN_DATABASE.put("1H", 5.585694);
@@ -27,47 +43,56 @@ public final class HyperfineMapper {
 
     private HyperfineMapper() { }
 
+    /** Sorted view of the isotope labels covered by the g-factor table. */
+    public static List<String> coveredIsotopes() {
+        List<String> labels = new ArrayList<>(ISOTOPE_GN_DATABASE.keySet());
+        Collections.sort(labels);
+        return List.copyOf(labels);
+    }
+
     /**
-     * Looks up the nuclear g-factor (gN) of the specified isotope:
-     * e.g. "13C", "29Si", "1H"
+     * Looks up the nuclear g-factor (gN) of the specified isotope (e.g. "13C").
+     * Returns NaN when the isotope is not covered - callers must check and
+     * refuse, never substitute a default.
      */
     public static double getNuclearGFactor(String isotope) {
         if (isotope == null) {
-            return 0.0;
+            return Double.NaN;
         }
         String key = isotope.trim().toUpperCase(Locale.ROOT);
-        return ISOTOPE_GN_DATABASE.getOrDefault(key, 1.0); // Default fallback 1.0
+        Double gn = ISOTOPE_GN_DATABASE.get(key);
+        return gn == null ? Double.NaN : gn.doubleValue();
     }
 
     /**
-     * Calculates the Fermi contact isotropic hyperfine coupling constant A_iso (in MHz)
-     * from the GIPAW nuclear spin density |psi(0)|^2 (in atomic units, a.u.^-3):
-     * 
-     * A_iso = (8*pi / 3) * beta_e * beta_n * g_e * g_N * |psi(0)|^2
-     * 
-     * In common spectroscopic units:
-     * A_iso = 44.757 * g_N * |psi(0)|^2  MHz
-     * 
-     * @param psi0sq GIPAW spin density at the nucleus in atomic units (a.u.^-3)
+     * A_iso = 44.757237 * gN * |psi(0)|^2  MHz (sign carries the product's sign;
+     * a negative spin density or negative gN is reported, not clamped).
+     *
+     * @param psi0sq GIPAW nuclear spin density at the nucleus in a.u.^-3
      * @param gn nuclear g-factor of the target isotope
+     * @throws IllegalArgumentException on any non-finite input
      */
     public static double calculateAiso(double psi0sq, double gn) {
         if (!Double.isFinite(psi0sq) || !Double.isFinite(gn)) {
-            return 0.0;
+            throw new IllegalArgumentException(
+                    "Spin density and g-factor must be finite; a silent 0.0 MHz "
+                            + "would masquerade as a computed coupling.");
         }
-
-        // 44.757237 MHz * a.u.^3 is the compiled physical constant incorporating
-        // the Bohr magneton, nuclear magneton, and free-electron g-factor.
-        double HYPERFINE_CONVERSION_FACTOR = 44.757237;
-
-        return HYPERFINE_CONVERSION_FACTOR * gn * psi0sq;
+        return HYPERFINE_FACTOR_MHZ * gn * psi0sq;
     }
 
     /**
-     * Overloaded helper: Calculates the hyperfine coupling directly using the isotope label.
+     * Calculates the coupling from the isotope label.
+     *
+     * @throws IllegalArgumentException when the isotope is not in the table
      */
     public static double calculateAiso(double psi0sq, String isotope) {
         double gn = getNuclearGFactor(isotope);
+        if (!Double.isFinite(gn)) {
+            throw new IllegalArgumentException("Isotope \"" + isotope
+                    + "\" is not covered by the g-factor table " + coveredIsotopes()
+                    + "; refusing to invent a g-factor.");
+        }
         return calculateAiso(psi0sq, gn);
     }
 }

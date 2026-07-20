@@ -6,13 +6,15 @@ package quantumforge.project;
 import quantumforge.operation.OperationResult;
 
 /**
- * Final-geometry update API retained in a fail-closed state.
+ * Final-geometry update API, now implemented transactionally (#40).
  *
  * <p>The removed prototype cleared all ATOMIC_POSITIONS cards without inserting
  * parsed coordinates and reused the input lattice instead of parsing output.
- * A future implementation must parse the last complete QE geometry into a new
- * immutable snapshot, preview it, update copies transactionally, and roll back
- * on any failure.</p>
+ * The current implementation parses the last complete QE geometry into the
+ * property snapshot, previews it via {@link FinalGeometryUpdater}, and commits
+ * through {@link FinalGeometryTransaction} (staged copies, per-mode audit
+ * artifacts under {@code .quantumforge/}, verified write-through and
+ * best-effort rollback).</p>
  */
 public final class ConfigUpdater {
     private final Project project;
@@ -25,8 +27,14 @@ public final class ConfigUpdater {
         if (this.project == null) {
             return OperationResult.failed("PROJECT_MISSING", "No project was supplied.", null);
         }
-        // Preview path is available; apply remains fail-closed until card rewrite lands.
-        return quantumforge.run.parser.FinalGeometryUpdater.apply(this.project);
+        // The transactional apply contains every failure mode as a typed result.
+        OperationResult<quantumforge.run.parser.FinalGeometryTransaction.Plan> applied =
+                quantumforge.run.parser.FinalGeometryTransaction.apply(this.project);
+        if (!applied.isSuccess()) {
+            return OperationResult.failed(applied.getCode(), applied.getMessage(),
+                    applied.getCause().orElse(null));
+        }
+        return OperationResult.success("CONFIG_UPDATED", applied.getMessage(), null);
     }
 
     /** @deprecated use the typed result method. */

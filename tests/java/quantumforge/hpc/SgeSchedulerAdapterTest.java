@@ -1,6 +1,7 @@
 package quantumforge.hpc;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
@@ -23,5 +24,15 @@ class SgeSchedulerAdapterTest {
         assertTrue(script.contains("#$ -l h_rt=1:30:00"));
         assertEquals("qsub", adapter.submitCommand("/tmp/x.sh")[0]);
         assertEquals("123", adapter.parseJobId("Your job 123 (\"qejob\") has been submitted").orElseThrow());
+    }
+
+    @Test
+    void documentedAbsenceNeedleIsOwned() {
+        SgeSchedulerAdapter adapter = new SgeSchedulerAdapter();
+        assertTrue(adapter.isJobAbsent("Following jobs do not exist: 8800"));
+        assertFalse(adapter.isJobAbsent(""));
+        assertFalse(adapter.isJobAbsent(null));
+        assertFalse(adapter.isJobAbsent("error: commlib error"),
+                "a commlib failure is never absence");
     }
 }

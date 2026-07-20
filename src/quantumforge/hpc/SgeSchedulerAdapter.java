@@ -95,6 +95,15 @@ public final class SgeSchedulerAdapter implements SchedulerAdapter {
         return new String[] {"qstat", "-j", schedulerJobId.trim()};
     }
 
+    /**
+     * Grid Engine documents the absence shape: qstat -j against an unknown job
+     * prints "Following jobs do not exist:" on stderr and exits non-zero.
+     */
+    @Override
+    public boolean isJobAbsent(String stderrText) {
+        return stderrText != null && stderrText.contains("do not exist");
+    }
+
     @Override
     public String[] submitCommand(String remoteScriptPath) {
         if (remoteScriptPath == null || remoteScriptPath.isBlank() || remoteScriptPath.contains("..")) {
@@ -123,5 +132,14 @@ public final class SgeSchedulerAdapter implements SchedulerAdapter {
         if (schedulerJobId == null || !schedulerJobId.trim().matches("\\d+")) {
             throw new IllegalArgumentException("invalid SGE job id: " + schedulerJobId);
         }
+    }
+
+    @Override
+    public ArraySubmitSpec arraySubmitSpec() {
+        // qsub(1) Grid Engine man page: -t <n>[-<m>[:<s>]]; each task sees
+        // SGE_TASK_ID. ONE documented form - safe to own.
+        return ArraySubmitSpec.supported("SGE_TASK_ID",
+                (from, to) -> new String[] {"-t", from + "-" + to},
+                "qsub(1) Grid Engine man page: -t <n>[-<m>[:<s>]]");
     }
 }

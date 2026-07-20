@@ -102,6 +102,16 @@ public final class SlurmSchedulerAdapter implements SchedulerAdapter {
         return new String[] {"squeue", "-j", schedulerJobId.trim(), "-h", "-o", "%T"};
     }
 
+    /**
+     * SLURM documents the absence shape: squeue against a job that left the
+     * queue exits non-zero with "Invalid job id specified" on stderr. Nothing
+     * else - in particular not a transport failure - is absence.
+     */
+    @Override
+    public boolean isJobAbsent(String stderrText) {
+        return stderrText != null && stderrText.contains("Invalid job id");
+    }
+
     @Override
     public String[] submitCommand(String remoteScriptPath) {
         if (remoteScriptPath == null || remoteScriptPath.isBlank() || remoteScriptPath.contains("..")) {
@@ -116,8 +126,23 @@ public final class SlurmSchedulerAdapter implements SchedulerAdapter {
     }
 
     private static void requireJobId(String schedulerJobId) {
-        if (schedulerJobId == null || !schedulerJobId.trim().matches("\\d+")) {
-            throw new IllegalArgumentException("invalid SLURM job id: " + schedulerJobId);
+        // scancel/squeue genuinely accept a single array task as 'jobid_index'
+        // (both numeric); accepting it here keeps this adapter the single
+        // grammar owner the cancel plan delegates to.
+        if (schedulerJobId == null
+                || !schedulerJobId.trim().matches("\\d+(?:_\\d+)?")) {
+            throw new IllegalArgumentException(
+                    "invalid SLURM job id (decimal digits, optionally one array"
+                            + " task as 'id_index', both numeric): " + schedulerJobId);
         }
+    }
+
+    @Override
+    public ArraySubmitSpec arraySubmitSpec() {
+        // sbatch(1) man page: --array=<index_list>; each task sees
+        // SLURM_ARRAY_TASK_ID. ONE documented form - safe to own.
+        return ArraySubmitSpec.supported("SLURM_ARRAY_TASK_ID",
+                (from, to) -> new String[] {"--array=" + from + "-" + to},
+                "sbatch(1) man page: --array=<index_list>");
     }
 }

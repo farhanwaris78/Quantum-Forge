@@ -1,5 +1,6 @@
 package quantumforge.ssh;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -78,5 +79,25 @@ class SSHJobPrepareTest {
             @Override public void exportQEInputsTo(String directoryPath) { }
             @Override public Project cloneProject(String directoryPath) { return null; }
         };
+    }
+
+    @Test
+    void anUnsetSchedulerRefusesPrepareInsteadOfGuessingSlurm() throws Exception {
+        Files.createDirectories(tempDir);
+        Project project = stub(tempDir);
+        SSHServer server = new SSHServer("legacy-none");
+        // No setSchedulerType call: every GUI-created server entry keeps 'none',
+        // and the batch-144 fix must refuse rather than default to slurm.
+        SSHJob job = new SSHJob(project, server);
+        job.setType(RunningType.SCF);
+
+        OperationResult<String> prepared = job.prepareScriptResult();
+        assertFalse(prepared.isSuccess(),
+                "batch 144: an unset scheduler must never default to slurm");
+        assertEquals("SSH_SCRIPT_FAILED", prepared.getCode());
+        assertTrue(prepared.getMessage().contains("SSH_SCHEDULER_UNSET"),
+                prepared.getMessage());
+        assertTrue(prepared.getMessage().contains("no default is ever picked"),
+                prepared.getMessage());
     }
 }
