@@ -3560,4 +3560,48 @@ class ResultAnalysisServiceTest {
         assertTrue(empty.getText().contains("NOT proof the run is healthy"),
                 empty.getText());
     }
+
+
+    @Test
+    void testXspectraDraftKindContextAndGuard() {
+        Cell cell = new Cell(quantumforge.com.math.Matrix3D.unit(10.0));
+        cell.addAtom("Fe", 0.0, 0.0, 0.0);
+        QESCFInput input = new QESCFInput();
+        input.getNamelist(QEInput.NAMELIST_CONTROL).setValue(
+                QEValueBase.getInstance("prefix", "'xanes_feo'"));
+        input.getNamelist(QEInput.NAMELIST_CONTROL).setValue(
+                QEValueBase.getInstance("outdir", "'./work'"));
+
+        AnalysisReport report = ResultAnalysisService.analyze(
+                AnalysisKind.XSPECTRA_INPUT_DRAFT, stubProjectWithInput(this.tempDir,
+                        input, cell), new AnalysisParameters());
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains(
+                "save context echoed from the live input"), report.getText());
+        assertTrue(report.getText().contains("prefix = 'xanes_feo'"), report.getText());
+        assertTrue(report.getText().contains("outdir = './work'"), report.getText());
+        assertTrue(report.getText().contains(
+                "DELIBERATELY NOT RUNNABLE: 8 REQUIRED-EDIT placeholders"),
+                report.getText());
+        assertTrue(report.getText().contains("core-hole pseudopotential"),
+                report.getText());
+        assertTrue(report.getGeneratedInput() != null
+                        && report.getGeneratedInput().contains("&input_xspectra"),
+                "the draft travels the generated-input channel");
+        assertTrue(report.getGeneratedInput().contains("xanes_dipole"),
+                report.getGeneratedInput());
+        assertTrue(report.getGeneratedInput().contains("filecore"),
+                report.getGeneratedInput());
+        assertTrue(report.getCsvLines().contains(
+                "required_edit_placeholders,8,draft-guard"),
+                String.join("\n", report.getCsvLines()));
+        assertTrue(report.getCsvLines().contains("prefix,xanes_feo,verbatim"),
+                String.join("\n", report.getCsvLines()));
+
+        AnalysisReport missing = ResultAnalysisService.analyze(
+                AnalysisKind.XSPECTRA_INPUT_DRAFT, stubProject(this.tempDir),
+                new AnalysisParameters());
+        assertFalse(missing.isSuccess(), "no current input must fail closed");
+        assertTrue(missing.getText().contains("[XSPEC_INPUT]"), missing.getText());
+    }
 }

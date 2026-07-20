@@ -1,8 +1,6 @@
 /* Copyright (C) 2025-2026 QuantumForge Development Team. */
 package quantumforge.input;
 
-import java.util.List;
-
 import quantumforge.input.namelist.QENamelist;
 import quantumforge.input.namelist.QEValue;
 import quantumforge.operation.OperationResult;
@@ -58,26 +56,24 @@ public final class CpInputPlanner {
         String calculation = null;
         QENamelist control = input.getNamelist(QEInput.NAMELIST_CONTROL);
         if (control != null) {
-            List<QEValue> values = control.listQEValues();
-            if (values != null) {
-                for (QEValue value : values) {
-                    if (value == null || value.getName() == null) {
-                        continue;
+            QEValue[] values = control.listQEValues();
+            for (QEValue value : values) {
+                if (value == null || value.getName() == null) {
+                    continue;
+                }
+                String name = value.getName();
+                if ("prefix".equalsIgnoreCase(name)) {
+                    String text = verbatim(value);
+                    if (text != null && !text.isBlank()) {
+                        prefix = text.trim();
                     }
-                    String name = value.getName();
-                    if ("prefix".equalsIgnoreCase(name)) {
-                        String text = verbatim(value);
-                        if (text != null && !text.isBlank()) {
-                            prefix = text.trim();
-                        }
-                    } else if ("outdir".equalsIgnoreCase(name)) {
-                        String text = verbatim(value);
-                        if (text != null && !text.isBlank()) {
-                            outdir = text.trim();
-                        }
-                    } else if ("calculation".equalsIgnoreCase(name)) {
-                        calculation = verbatim(value);
+                } else if ("outdir".equalsIgnoreCase(name)) {
+                    String text = verbatim(value);
+                    if (text != null && !text.isBlank()) {
+                        outdir = text.trim();
                     }
+                } else if ("calculation".equalsIgnoreCase(name)) {
+                    calculation = verbatim(value);
                 }
             }
         }

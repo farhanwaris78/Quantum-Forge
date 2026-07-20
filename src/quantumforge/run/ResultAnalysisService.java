@@ -56,6 +56,7 @@ import quantumforge.input.QEExxPlanner;
 import quantumforge.neural.MlModelManifest;
 import quantumforge.input.CpInputPlanner;
 import quantumforge.input.Wannier90WinPlanner;
+import quantumforge.input.XspectraInputPlanner;
 import quantumforge.input.QEEsmAuditor;
 import quantumforge.input.QEHubbardPlanner;
 import quantumforge.input.QEInput;
@@ -249,7 +250,8 @@ public final class ResultAnalysisService {
         QE_VERSION_CHECK("QE version keyword audit (curated 7.2-7.5 window snapshot)"),
         MPI_POOLS_ADVISOR("MPI pool-divisor audit (exact uniform mesh, -nk/-npool)"),
         UNIT_CONVERT("Scientific unit conversion (curated registry, pinned constants)"),
-        LOG_ERROR_DIAGNOSIS("QE log error diagnosis (curated signature KB, 7.x window)");
+        LOG_ERROR_DIAGNOSIS("QE log error diagnosis (curated signature KB, 7.x window)"),
+        XSPECTRA_INPUT_DRAFT("xspectra.x XANES input draft (required-edit guarded)");
 
         private final String label;
 
@@ -299,7 +301,7 @@ public final class ResultAnalysisService {
                     || this == MOIRE_TWIST_PREVIEW || this == CP_INPUT_DRAFT
                     || this == W90_WIN_DRAFT || this == QE_VERSION_CHECK
                     || this == MPI_POOLS_ADVISOR || this == GB_CSL_PREVIEW
-                    || this == UNIT_CONVERT;
+                    || this == UNIT_CONVERT || this == XSPECTRA_INPUT_DRAFT;
         }
 
         /** True for project-bound kinds that additionally parse a user data file. */
@@ -1234,6 +1236,8 @@ public final class ResultAnalysisService {
                 return analyzeMpiPoolsAdvisor(project, params);
             case UNIT_CONVERT:
                 return analyzeUnitConvert(params);
+            case XSPECTRA_INPUT_DRAFT:
+                return analyzeXspectraInputDraft(project);
             default:
                 return failure(kind.getLabel(), "This analysis kind is not implemented.");
         }
@@ -6269,6 +6273,63 @@ public final class ResultAnalysisService {
                 + "exhaustive error oracle, and never a substitute for reading the log; "
                 + "the corpus grows only from real, cited failure reports.\n");
         return new AnalysisReport(label, true, text.toString(), csv, null);
+    }
+
+    /**
+     * Roadmap #65: xspectra.x XANES draft from the live save context. The
+     * draft is deliberately non-runnable; only the prefix/outdir save context
+     * is echoed verbatim and the core-hole prerequisite is stated, never
+     * claimed verified.
+     */
+    private static AnalysisReport analyzeXspectraInputDraft(Project project) {
+        String label = AnalysisKind.XSPECTRA_INPUT_DRAFT.getLabel();
+        QEInput input;
+        try {
+            project.resolveQEInputs();
+            input = project.getQEInputCurrent();
+        } catch (RuntimeException ex) {
+            return failure(label, "Resolving the current QE input failed: "
+                    + ex.getMessage());
+        }
+        OperationResult<XspectraInputPlanner.XspectraContext> extracted =
+                XspectraInputPlanner.extractContext(input);
+        if (!extracted.isSuccess() || extracted.getValue().isEmpty()) {
+            return failure(label, "xspectra.x draft refused: [" + extracted.getCode()
+                    + "] " + extracted.getMessage());
+        }
+        XspectraInputPlanner.XspectraContext context = extracted.getValue().get();
+        String draft = XspectraInputPlanner.draft(context);
+        int requiredEdits = XspectraInputPlanner.countRequiredEdits(draft);
+        StringBuilder text = new StringBuilder();
+        text.append("Save context echoed from the live input:\n");
+        text.append(String.format(Locale.ROOT, "  prefix = '%s'; outdir = '%s'%n",
+                context.getPrefix(), context.getOutdir()));
+        text.append(String.format(Locale.ROOT,
+                "%nThe draft is DELIBERATELY NOT RUNNABLE: %d REQUIRED-EDIT placeholders "
+                        + "stand exactly where the experimental choices belong "
+                        + "(dipole-vs-quadrupole calculation, absorbing edge, energy "
+                        + "window, core-hole pseudo filecore, occupation smoothing).%n",
+                requiredEdits));
+        text.append("\nPrerequisites named by #65 before any XANES run: a CONVERGED SCF "
+                + "of the core-excited system (often a supercell) with a GIPAW "
+                + "core-hole pseudopotential for the absorbing atom - stated, not "
+                + "checkable offline; xnepoint=200 is a typical initial grid only "
+                + "(spectrum convergence is on you); consult the version-matched "
+                + "INPUT_XSPECTRA documentation. The draft carries the REQUIRED-EDIT "
+                + "guard header and is written ONLY via the explicit save action. "
+                + "The spectrum-parsing side of #65 (sigma/omega columns) and the "
+                + "core-hole supercell helper remain open work.");
+        List<String> csv = new ArrayList<>();
+        csv.add("item,value,note");
+        csv.add(String.format(Locale.ROOT, "prefix,%s,verbatim",
+                csvCell(context.getPrefix())));
+        csv.add(String.format(Locale.ROOT, "outdir,%s,verbatim",
+                csvCell(context.getOutdir())));
+        csv.add(String.format(Locale.ROOT, "required_edit_placeholders,%d,draft-guard",
+                requiredEdits));
+        csv.add(String.format(Locale.ROOT, "calculation_options,%s,curated",
+                csvCell(XspectraInputPlanner.CALCULATION_OPTIONS)));
+        return new AnalysisReport(label, true, text.toString(), csv, draft);
     }
 
     /**
