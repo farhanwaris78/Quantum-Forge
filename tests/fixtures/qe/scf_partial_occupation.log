@@ -1,0 +1,20 @@
+     Program PWSCF v.7.5 starts on 16Jul2026 at 17: 0: 0
+     number of atoms/cell      =            1
+     number of electrons       =         1.00
+     occupations               =            smearing
+     smearing width            =       0.0200 Ry
+
+     iteration #  1
+     total energy              =      -3.10000000 Ry
+     estimated scf accuracy    <       0.04000000 Ry
+          highest occupied level (ev):    -1.2500
+
+     iteration #  2
+!    total energy              =      -3.15200000 Ry
+     estimated scf accuracy    <       0.00004000 Ry
+          highest occupied level (ev):    -1.2400
+
+     the Fermi energy is   -1.2402 ev
+     smearing contrib. (-TS)   =      -0.00125 Ry
+
+     JOB DONE.
