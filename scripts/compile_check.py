@@ -504,12 +504,25 @@ def main() -> int:
     if "DryRunPreflight" not in node or "ArtifactScanner" not in node or "QECommandDag" not in node:
         error("RunningNode is not wired to dry-run/DAG/artifact scanning")
     runAction = (SRC / "quantumforge/app/project/viewer/run/RunAction.java").read_text(encoding="utf-8")
-    if "postJobToServerResult" not in runAction or "HostKeyAcceptance" not in runAction:
+    if ("postJobToServerResult" not in runAction and "RemoteSubmitChain" not in runAction) \
+            or "HostKeyAcceptance" not in runAction:
         error("RunAction still uses untyped/fake SSH submit path")
     if "offerMonitoring" not in runAction or "QEFXJobMonitorDialog" not in runAction:
         error("RunAction lost the job-monitor offer wiring (batch 138)")
     if "transportHandedOff" not in runAction:
         error("RunAction lost exactly-once transport ownership tracking (batch 138)")
+    if "qf-ssh-submit" not in runAction or "RemoteSubmitChain" not in runAction:
+        error("RunAction lost the background submit worker / headless chain (batch 139)")
+    if "waitDialog" not in runAction or "Platform.runLater" not in runAction.replace(
+            "javafx.application.Platform.runLater", "Platform.runLater"):
+        error("RunAction lost its FX-marshalling/lifecycle discipline (batch 139)")
+    hka = (SRC / "quantumforge/app/ssh/HostKeyAcceptance.java").read_text(encoding="utf-8")
+    if "isFxApplicationThread" not in hka or "CountDownLatch" not in hka:
+        error("HostKeyAcceptance lost its cross-thread audited prompt (batch 139)")
+    chain = SRC / "quantumforge/ssh/RemoteSubmitChain.java"
+    if not chain.is_file() or "wasTransportClosedByChain" not in chain.read_text(
+            encoding="utf-8"):
+        error("RemoteSubmitChain (batch 139 headless submit chain) missing ownership flags")
     monitorGui = SRC / "quantumforge/app/ssh/QEFXJobMonitorDialog.java"
     monitorModel = SRC / "quantumforge/app/ssh/MonitorLogModel.java"
     if not monitorGui.is_file() or not monitorModel.is_file():
