@@ -399,6 +399,7 @@ def main() -> int:
                   "JobStateGuard", "JOB_STATE_GUARD",
                   "PhononGridLadderPlan", "PHONON_GRID_PLAN",
                   "ResubmitAdvice", "CHECKPOINT_RESUBMIT_PLAN",
+                  "JobQueueAudit", "JOB_QUEUE_AUDIT",
                   "JournalReplayMath", "replay_combined_det"]:
         if token not in service:
             error(f"ResultAnalysisService is not bound to {token}")
@@ -464,6 +465,7 @@ def main() -> int:
                 "quantumforge/remote/JobStateGuard.java",
                 "quantumforge/run/PhononGridLadderPlan.java",
                 "quantumforge/run/ResubmitAdvice.java",
+                "quantumforge/hpc/JobQueueAudit.java",
                 "quantumforge/builder/JournalReplayMath.java"]:
         text = (SRC / rel).read_text(encoding="utf-8")
         if "class " not in text:

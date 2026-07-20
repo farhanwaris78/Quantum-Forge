@@ -5430,4 +5430,65 @@ class ResultAnalysisServiceTest {
         assertTrue(override.getText().contains("RECOMMENDATION: RESTART_AND_CONTINUE"),
                 override.getText());
     }
+
+
+    @Test
+    void jobQueueAuditNamesWhatTheLoaderTolerates() {
+        File queue = write("job-queue.jsonl",
+                "# QuantumForge job queue\n\n"
+                        + "not json at all\n"
+                        + "{\"jobId\":\"jobA\",\"scheduler\":\"slurm\",\"siteId\":\"\","
+                        + "\"projectPath\":\"\",\"schedulerJobId\":\"\",\"state\":\"RUNNING\","
+                        + "\"history\":["
+                        + "{\"state\":\"STAGED\",\"at\":\"2026-07-20T01:00:00Z\",\"note\":\"\"},"
+                        + "{\"state\":\"SUBMITTED\",\"at\":\"2026-07-20T02:00:00Z\",\"note\":\"\"},"
+                        + "{\"state\":\"PENDING\",\"at\":\"2026-07-20T03:00:00Z\",\"note\":\"\"},"
+                        + "{\"state\":\"RUNNING\",\"at\":\"2026-07-20T04:00:00Z\",\"note\":\"\"}]}\n"
+                        + "{\"jobId\":\"jobB\",\"scheduler\":\"slurm\",\"state\":\"PENDING\","
+                        + "\"history\":["
+                        + "{\"state\":\"STAGED\",\"at\":\"2026-07-20T01:00:00Z\",\"note\":\"\"},"
+                        + "{\"state\":\"RUNNING\",\"at\":\"2026-07-20T02:00:00Z\",\"note\":\"\"}]}\n");
+        AnalysisReport report = ResultAnalysisService.analyze(AnalysisKind.JOB_QUEUE_AUDIT,
+                new ProjectProperty(), this.tempDir.toFile(), "espresso", "espresso.log",
+                queue, new AnalysisParameters());
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains("1 malformed (RAW"), report.getText(),
+                "the malformed JSONL line is counted RAW, not silently dropped");
+        assertTrue(report.getText().contains("Malformed line numbers"), report.getText());
+        assertTrue(report.getText().contains("jobB"), report.getText());
+        assertTrue(report.getText().contains("STAGED -> RUNNING")
+                        && report.getText().contains("ILLEGAL"), report.getText(),
+                "typed-chain violation named with states and edge context");
+        assertTrue(report.getText().contains("Review-only boundary"), report.getText());
+        assertTrue(report.getText().contains("RUNNING: 2"), report.getText(),
+                "histogram over last occurrence per jobId");
+        String csv = String.join("\n", report.getCsvLines());
+        assertTrue(csv.contains("jobA,slurm,RUNNING,4,0,0"), csv);
+        assertTrue(csv.contains("jobB,slurm,RUNNING,2,1,0"), csv);
+    }
+
+    @Test
+    void jobQueueAuditDuplicatesAndMissingFile() {
+        File queue = write("job-queue.jsonl",
+                "{\"jobId\":\"dup\",\"scheduler\":\"pbs\",\"state\":\"PENDING\","
+                        + "\"history\":[{\"state\":\"STAGED\",\"at\":\"2026-07-20T01:00:00Z\",\"note\":\"\"},"
+                        + "{\"state\":\"SUBMITTED\",\"at\":\"2026-07-20T02:00:00Z\",\"note\":\"\"},"
+                        + "{\"state\":\"PENDING\",\"at\":\"2026-07-20T03:00:00Z\",\"note\":\"\"}]}\n"
+                        + "{\"jobId\":\"dup\",\"scheduler\":\"pbs\",\"state\":\"CANCELLED\","
+                        + "\"history\":[{\"state\":\"PENDING\",\"at\":\"2026-07-20T01:00:00Z\",\"note\":\"\"},"
+                        + "{\"state\":\"CANCELLED\",\"at\":\"2026-07-20T02:00:00Z\",\"note\":\"\"}]}\n");
+        AnalysisReport report = ResultAnalysisService.analyze(AnalysisKind.JOB_QUEUE_AUDIT,
+                new ProjectProperty(), this.tempDir.toFile(), "espresso", "espresso.log",
+                queue, new AnalysisParameters());
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains("Duplicate jobIds (loader semantics are "
+                + "LAST-WINS):"), report.getText());
+        assertTrue(report.getText().contains("- dup x2"), report.getText());
+
+        File missing = this.tempDir.resolve("missing.jsonl").toFile();
+        AnalysisReport refused = ResultAnalysisService.analyze(AnalysisKind.JOB_QUEUE_AUDIT,
+                new ProjectProperty(), this.tempDir.toFile(), "espresso", "espresso.log",
+                missing, new AnalysisParameters());
+        assertFalse(refused.isSuccess(), "an absent queue artifact refuses closed");
+    }
 }

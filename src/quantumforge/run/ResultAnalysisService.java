@@ -75,6 +75,8 @@ import quantumforge.input.QEPpChargePotentialBuilder;
 import quantumforge.input.QEPpWavefunctionBuilder;
 import quantumforge.hpc.PoolDivisorMath;
 import quantumforge.hpc.JobDbSchema;
+import quantumforge.hpc.JobQueueAudit;
+import quantumforge.hpc.JobState;
 import quantumforge.remote.OptimadeQueryBuilder;
 import quantumforge.remote.OptimadeStructuresParser;
 import quantumforge.remote.MpApiQueryBuilder;
@@ -311,7 +313,8 @@ public final class ResultAnalysisService {
         CONTAINER_PROFILE_DRAFT("Apptainer/Singularity profile draft (digest-pinned, MPI declared)"),
         JOB_STATE_GUARD("Job state transition/signal guard (typed edges, unknown-honest)"),
         PHONON_GRID_PLAN("Phonon q-grid ladder plan (k/q commensurability verdicts, named)"),
-        CHECKPOINT_RESUBMIT_PLAN("Checkpoint resubmission advice (typed stop reason, no writes)");
+        CHECKPOINT_RESUBMIT_PLAN("Checkpoint resubmission advice (typed stop reason, no writes)"),
+        JOB_QUEUE_AUDIT("Job queue store audit (read-only; raw malformed/duplicate/chain verdicts)");
 
         private final String label;
 
@@ -1270,6 +1273,8 @@ public final class ResultAnalysisService {
             return name.endsWith(".a2f") || name.contains("alpha2f") || name.contains("a2f");
         case MD_MSD:
             return name.endsWith(".xyz");
+        case JOB_QUEUE_AUDIT:
+            return name.equals("job-queue.jsonl") || name.endsWith(".jsonl");
         case HULL_STABILITY:
         case VOLTAGE_PROFILE:
             return name.endsWith(".csv");
@@ -1553,6 +1558,8 @@ public final class ResultAnalysisService {
                 return analyzeBandGapBands(source, params);
             case PROVENANCE_JOURNAL_REVIEW:
                 return analyzeProvenanceJournalReview(source);
+            case JOB_QUEUE_AUDIT:
+                return analyzeJobQueueAudit(source);
             default:
                 return failure(kind.getLabel(), "This analysis kind is not implemented.");
             }
@@ -8764,6 +8771,105 @@ public final class ResultAnalysisService {
                 csvCell(prefix), advice.getStopReason(), advice.isRestartSafe(),
                 advice.getRestartMode(), advice.getRecommendation()));
         return new AnalysisReport(label, true, text.toString(), csv, null);
+    }
+
+    /**
+     * Roadmap #105 (review slice): READ-ONLY audit of a durable job-queue JSONL
+     * artifact. The JobQueueStore loader is intentionally FORGIVING (malformed
+     * lines dropped, duplicate ids last-wins, unknown states mapped to UNKNOWN);
+     * this audit re-reads the RAW text and names what the loader would tolerate:
+     * malformed lines by number, duplicate jobIds, typed-chain history verdicts
+     * (batch 119), backward timestamps, final-state/history contradictions, and
+     * a final-state histogram. Nothing is repaired, migrated, or rewritten.
+     */
+    private static AnalysisReport analyzeJobQueueAudit(File source) {
+        String label = AnalysisKind.JOB_QUEUE_AUDIT.getLabel();
+        OperationResult<JobQueueAudit.Audit> audited = JobQueueAudit.audit(source.toPath());
+        if (!audited.isSuccess() || audited.getValue().isEmpty()) {
+            return failure(label, "The queue audit refused " + source.getName() + ":\n["
+                    + audited.getCode() + "] " + audited.getMessage());
+        }
+        JobQueueAudit.Audit audit = audited.getValue().get();
+        StringBuilder text = new StringBuilder();
+        text.append("Queue artifact: ").append(audit.getFile()).append('\n');
+        text.append(String.format(Locale.ROOT,
+                "Lines: %d total, %d blank/comment (skipped by the loader, counted here), "
+                        + "%d malformed (RAW - the loader would silently drop these)%n",
+                audit.getTotalLines(), audit.getSkippedLines(), audit.getMalformedCount()));
+        if (audit.getMalformedCount() > 0) {
+            text.append("Malformed line numbers (first ").append(JobQueueAudit.MAX_LISTED)
+                    .append("): ");
+            int shown = 0;
+            for (Integer lineNo : audit.getMalformedLines()) {
+                if (shown++ >= JobQueueAudit.MAX_LISTED) {
+                    text.append("... +").append(audit.getMalformedCount() - JobQueueAudit.MAX_LISTED)
+                            .append(" more");
+                    break;
+                }
+                if (shown > 1) {
+                    text.append(' ');
+                }
+                text.append(lineNo);
+            }
+            text.append('\n');
+        }
+        if (audit.getDuplicates().isEmpty()) {
+            text.append("Duplicate jobIds: none\n");
+        } else {
+            text.append("Duplicate jobIds (loader semantics are LAST-WINS):\n");
+            for (String id : audit.getDuplicates()) {
+                text.append(" - ").append(id).append(" x")
+                        .append(audit.getOccurrences().get(id)).append('\n');
+            }
+        }
+        text.append(String.format(Locale.ROOT, "%nRecords: %d, clean: %d, with problems: "
+                        + "%d; per-edge reconciliation (-> UNKNOWN, honest) edges tallied "
+                        + "below.%n",
+                audit.getRecords().size(), audit.getCleanCount(),
+                audit.getRecords().size() - audit.getCleanCount()));
+        int reconciliationTotal = 0;
+        for (JobQueueAudit.RecordVerdict record : audit.getRecords()) {
+            reconciliationTotal += record.getReconciliationEdges();
+            text.append(String.format(Locale.ROOT, "\n- %s [%s] final=%s history=%d edge(s)%n",
+                    record.getJobId(), record.getScheduler(), record.getFinalState(),
+                    record.getHistoryLength()));
+            if (record.getReconciliationEdges() > 0) {
+                text.append("    reconciliation edges (-> UNKNOWN): ")
+                        .append(record.getReconciliationEdges()).append('\n');
+            }
+            int shown = 0;
+            for (String problem : record.getProblems()) {
+                if (shown++ >= JobQueueAudit.MAX_LISTED) {
+                    text.append("    ... +")
+                            .append(record.getProblems().size() - JobQueueAudit.MAX_LISTED)
+                            .append(" more problem(s) (counted)\n");
+                    break;
+                }
+                text.append("    ! ").append(problem).append('\n');
+            }
+        }
+        text.append("\nFinal-state histogram (last occurrence per jobId):\n");
+        for (JobState state : JobState.values()) {
+            Integer count = audit.getHistogram().get(state);
+            if (count != null) {
+                text.append("  ").append(state).append(": ").append(count).append('\n');
+            }
+        }
+        text.append("\nReview-only boundary: this audit READ the artifact and VERDICTED "
+                + "only - no line was repaired, no record migrated, no store rewritten, "
+                + "and no scheduler was contacted. Loader-tolerated defects are YOUR call.");
+        List<String> csv = new ArrayList<>();
+        csv.add("job_id,scheduler,final_state,history_edges,problems,reconciliation_edges");
+        for (JobQueueAudit.RecordVerdict record : audit.getRecords()) {
+            csv.add(String.format(Locale.ROOT, "%s,%s,%s,%d,%d,%d",
+                    csvCell(record.getJobId()), csvCell(record.getScheduler()),
+                    record.getFinalState(), record.getHistoryLength(),
+                    record.getProblems().size(), record.getReconciliationEdges()));
+        }
+        List<String> provenance = new ArrayList<>();
+        provenance.add("queue-audit: total_problem_count=" + audit.getProblemTotal());
+        provenance.add("queue-audit: reconciliation_edges=" + reconciliationTotal);
+        return new AnalysisReport(label, true, text.toString(), csv, null, provenance);
     }
 
     /**
