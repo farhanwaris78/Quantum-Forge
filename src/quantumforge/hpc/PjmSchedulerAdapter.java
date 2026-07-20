@@ -153,4 +153,15 @@ public final class PjmSchedulerAdapter implements SchedulerAdapter {
                             + " array syntax is not PJM grammar): " + schedulerJobId);
         }
     }
+
+    @Override
+    public ArraySubmitSpec arraySubmitSpec() {
+        // Fujitsu TCS manual (the same manual family whose pjsub/pjdel/pjstat
+        // grammar batch 126 verified): bulk-job submission is
+        // `pjsub --bulk --sparam <start>-<end> job.sh`; each bulk element sees
+        // PJM_BULKNUM. Distinctively NOT a SLURM --array clone.
+        return ArraySubmitSpec.supported("PJM_BULKNUM",
+                (from, to) -> new String[] {"--bulk", "--sparam", from + "-" + to},
+                "Fujitsu TCS manual: bulk-job submission (pjsub --bulk --sparam)");
+    }
 }

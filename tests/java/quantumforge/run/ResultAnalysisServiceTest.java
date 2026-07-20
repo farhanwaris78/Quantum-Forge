@@ -2266,13 +2266,22 @@ class ResultAnalysisServiceTest {
                 report.getText());
         assertTrue(report.getText().contains("#SBATCH --array=1-3"), report.getText());
         assertTrue(report.getText().contains("nothing was submitted"), report.getText());
-        assertEquals(5, report.getCsvLines().size(),
-                "header + 3 task rows + the batch-137 deck_template row");
+        assertEquals(7, report.getCsvLines().size(),
+                "header + 3 task rows + batch-137 deck_template + batch-140 task_intent "
+                        + "+ batch-141 submit_plan rows");
         assertEquals("1,30.0,si-cut-001", report.getCsvLines().get(1));
         assertEquals("3,50.0,si-cut-003", report.getCsvLines().get(3));
         assertEquals("deck_template,not_exercised,no readable project deck - the sweep "
                 + "plan stands", report.getCsvLines().get(4),
                 "no espresso.in in the stub directory = honest NOT-exercised finding");
+        assertEquals("task_intent,not_exercised,deck templating did not produce a "
+                + "validated template", report.getCsvLines().get(5),
+                "no deck also means no intents - stated, never silent");
+        assertEquals("submit_plan,not_exercised,no scheduler selected",
+                report.getCsvLines().get(6),
+                "blank submit-scheduler input skips the lane honestly");
+        assertTrue(report.getText().contains("Submit-lane review: NOT exercised (no "
+                + "scheduler selected"), report.getText());
         assertTrue(report.getText().contains("Deck templating (project deck, one-line "
                 + "grammar owned by ArrayDeckTemplate):"), report.getText());
         assertTrue(report.getText().contains("NOT exercised: no readable project deck"),
@@ -6287,5 +6296,67 @@ class ResultAnalysisServiceTest {
         } catch (java.security.NoSuchAlgorithmException ex) {
             throw new IllegalStateException(ex);
         }
+    }
+
+    @Test
+    void arraySweepPlanDraftsTheSingleArraySubmitLane() throws IOException {
+        AnalysisReport report = ResultAnalysisService.analyze(AnalysisKind.ARRAY_SWEEP_PLAN,
+                stubProject(this.tempDir),
+                new AnalysisParameters().withSeriesKeyword("ecutwfc").withSeriesStart(30.0)
+                        .withSeriesStep(10.0).withSeriesCount(3).withJobBaseName("si-cut")
+                        .withSubmitScheduler("slurm"));
+        assertTrue(report.isSuccess(), report.getText());
+        String text = report.getText();
+        assertTrue(text.contains(
+                "Submit-lane review (guarded draft from the 'slurm' adapter's owned tokens):"),
+                text);
+        assertTrue(text.contains("SINGLE ARRAY SUBMISSION (scheduler 'slurm' OWNS array "
+                + "semantics)"), text);
+        assertTrue(text.contains("#   sbatch --array=1-3 <staged-script-path>"), text);
+        assertTrue(text.contains("#   [1] the staged script still carries its exit-2 guard"),
+                text);
+        assertTrue(text.contains("$SLURM_ARRAY_TASK_ID selects tasks.jsonl line N"), text);
+        String csv = String.join("\n", report.getCsvLines());
+        assertTrue(csv.contains("submit_plan,SUBMIT_DRAFT_OK,shape SINGLE_ARRAY on slurm"),
+                csv);
+    }
+
+    @Test
+    void arraySweepPlanRendersTheHonestPbsLoopLane() throws IOException {
+        AnalysisReport report = ResultAnalysisService.analyze(AnalysisKind.ARRAY_SWEEP_PLAN,
+                stubProject(this.tempDir),
+                new AnalysisParameters().withSeriesKeyword("ecutwfc").withSeriesStart(30.0)
+                        .withSeriesStep(10.0).withSeriesCount(3).withJobBaseName("si-cut")
+                        .withSubmitScheduler("pbs"));
+        assertTrue(report.isSuccess(), report.getText());
+        String text = report.getText();
+        assertTrue(text.contains("PER-TASK SUBMIT LOOP - the 'pbs' adapter deliberately "
+                + "owns no array form:"), text);
+        assertTrue(text.contains("PBS Professional (-J flag, PBS_ARRAY_INDEX) and Torque "
+                + "(-t flag, PBS_ARRAYID) diverge"), text);
+        assertTrue(text.contains("qsub <staged-script-path>/si-cut-001/job.sh"), text);
+        String csv = String.join("\n", report.getCsvLines());
+        assertTrue(csv.contains(
+                "submit_plan,SUBMIT_DRAFT_OK,shape PER_TASK_LOOP (adapter's stated refusal) "
+                        + "on pbs"), csv);
+    }
+
+    @Test
+    void arraySweepPlanSubmitLaneRefusesUnknownSchedulersAsFindings() throws IOException {
+        AnalysisReport report = ResultAnalysisService.analyze(AnalysisKind.ARRAY_SWEEP_PLAN,
+                stubProject(this.tempDir),
+                new AnalysisParameters().withSeriesKeyword("ecutwfc").withSeriesStart(30.0)
+                        .withSeriesStep(10.0).withSeriesCount(2).withJobBaseName("si-cut")
+                        .withSubmitScheduler("lsf"));
+        assertTrue(report.isSuccess(),
+                "registry refusal is a finding; the sweep plan still stands");
+        assertTrue(report.getText().contains(
+                "Submit-lane review: REFUSED as a FINDING [SCHEDULER_NAME] unknown "
+                        + "scheduler 'lsf'"), report.getText());
+        assertTrue(report.getText().contains(
+                "the registry is the single owner - no default is ever picked"),
+                report.getText());
+        String csv = String.join("\n", report.getCsvLines());
+        assertTrue(csv.contains("submit_plan,refused,SCHEDULER_NAME"), csv);
     }
 }

@@ -55,6 +55,7 @@ import quantumforge.builder.PoscarStructureReader;
 import quantumforge.builder.QEConstraintSpec;
 import quantumforge.builder.QEIonicConstraintManager;
 import quantumforge.hpc.ArrayDeckTemplate;
+import quantumforge.hpc.ArraySubmitPlan;
 import quantumforge.hpc.ArraySweepPlanner;
 import quantumforge.hpc.ArrayTaskIntent;
 import quantumforge.hpc.SiteProfile;
@@ -429,6 +430,7 @@ public final class ResultAnalysisService {
         private int defectCharge = 0;
         private String seriesKeyword = "ecutwfc";
         private double seriesStart = 30.0;
+        private String submitScheduler = "";   // ARRAY_SWEEP_PLAN submit-lane review; blank = skip
         private double seriesStep = 10.0;
         private int seriesCount = 6;
         private double energyToleranceRyPerAtom = 1.0e-3;
@@ -588,6 +590,7 @@ public final class ResultAnalysisService {
         public int getDefectCharge() { return this.defectCharge; }
         public String getSeriesKeyword() { return this.seriesKeyword; }
         public double getSeriesStart() { return this.seriesStart; }
+        public String getSubmitScheduler() { return this.submitScheduler; }
         public double getSeriesStep() { return this.seriesStep; }
         public int getSeriesCount() { return this.seriesCount; }
         public double getEnergyToleranceRyPerAtom() { return this.energyToleranceRyPerAtom; }
@@ -678,6 +681,11 @@ public final class ResultAnalysisService {
         }
         public AnalysisParameters withSeriesKeyword(String value) {
             this.seriesKeyword = value;
+            return this;
+        }
+
+        public AnalysisParameters withSubmitScheduler(String value) {
+            this.submitScheduler = value == null ? "" : value;
             return this;
         }
         public AnalysisParameters withSeriesStart(double value) {
@@ -4776,6 +4784,9 @@ public final class ResultAnalysisService {
         csv.add(deck.csvRow);
         csv.add(intentCsvRow);
         text.append(intentSection);
+        SubmitLaneOutcome submitLane = submitLaneOutcome(plan, params.getSubmitScheduler());
+        text.append(submitLane.reportSection);
+        csv.add(submitLane.csvRow);
         text.append("\nHonesty boundary: the JSONL task manifest and the sbatch preview are "
                 + "drafts - nothing was submitted, no directory was created, and the script "
                 + "carries an exit-2 guard plus REQUIRED-EDIT lines so it cannot be queued "
@@ -4861,6 +4872,66 @@ public final class ResultAnalysisService {
         return new DeckTemplateOutcome(section.toString(), String.format(Locale.ROOT,
                 "deck_template,DECK_TEMPLATE_OK,one sweep point; %d tasks render exactly",
                 template.getTaskCount()), template);
+    }
+
+    /** Report-section carrier for the guarded submit-lane review. */
+    private static final class SubmitLaneOutcome {
+        private final String reportSection;
+        private final String csvRow;
+
+        SubmitLaneOutcome(String reportSection, String csvRow) {
+            this.reportSection = reportSection;
+            this.csvRow = csvRow;
+        }
+    }
+
+    /**
+     * #93/#100 guarded submit-lane review: the array's submission SEQUENCE
+     * as a strictly-comment draft from the typed adapter owners. Blank
+     * scheduler input skips honestly; unknown names refuse as FINDINGS.
+     */
+    private static SubmitLaneOutcome submitLaneOutcome(ArraySweepPlanner.SweepPlan plan,
+            String schedulerName) {
+        String name = schedulerName == null ? "" : schedulerName.trim().toLowerCase(
+                Locale.ROOT);
+        if (name.isEmpty()) {
+            return new SubmitLaneOutcome("\nSubmit-lane review: NOT exercised (no "
+                    + "scheduler selected - the sweep, deck and intents above stand; "
+                    + "pick slurm/pjm/sge for a single-array draft or pbs to see its "
+                    + "honest loop).\n",
+                    "submit_plan,not_exercised,no scheduler selected");
+        }
+        java.util.Optional<SchedulerAdapter> resolved = SchedulerAdapters.forName(name);
+        if (resolved.isEmpty()) {
+            return new SubmitLaneOutcome(String.format(Locale.ROOT,
+                    "%nSubmit-lane review: REFUSED as a FINDING [SCHEDULER_NAME] unknown "
+                            + "scheduler '%s' (supported: %s; the registry is the single "
+                            + "owner - no default is ever picked). The sweep plan above "
+                            + "stands.%n", name, SchedulerAdapters.supportedNames()),
+                    String.format(Locale.ROOT, "submit_plan,refused,%s",
+                            csvCell("SCHEDULER_NAME")));
+        }
+        SchedulerAdapter adapter = resolved.get();
+        OperationResult<ArraySubmitPlan.SubmitPlan> drafted = ArraySubmitPlan.plan(plan,
+                adapter);
+        ArraySubmitPlan.SubmitPlan draftedPlan = drafted.getValue().orElse(null);
+        if (!drafted.isSuccess() || draftedPlan == null) {
+            return new SubmitLaneOutcome(String.format(Locale.ROOT,
+                    "%nSubmit-lane review: REFUSED as a FINDING [%s] %s (the sweep plan "
+                            + "above stands).%n", drafted.getCode(), drafted.getMessage()),
+                    String.format(Locale.ROOT, "submit_plan,refused,%s",
+                            csvCell(drafted.getCode())));
+        }
+        StringBuilder section = new StringBuilder();
+        section.append(String.format(Locale.ROOT,
+                "%nSubmit-lane review (guarded draft from the '%s' adapter's owned "
+                        + "tokens):%n", adapter.name()));
+        section.append(draftedPlan.reviewBlock());
+        String shapeNote = draftedPlan.getShape() == ArraySubmitPlan.Shape.SINGLE_ARRAY
+                ? "shape SINGLE_ARRAY" : "shape PER_TASK_LOOP (adapter's stated refusal)";
+        return new SubmitLaneOutcome(section.toString(),
+                String.format(Locale.ROOT, "submit_plan,SUBMIT_DRAFT_OK,%s on %s",
+                        shapeNote, adapter.name()));
     }
 
     /**

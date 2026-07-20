@@ -53,4 +53,18 @@ public interface SchedulerAdapter {
     default boolean isJobAbsent(String stderrText) {
         return false;
     }
+
+    /**
+     * OWNED array/bulk-submit knowledge (Roadmap #93/#100 submit-lane slice).
+     * The default is deliberately {@link ArraySubmitSpec#unsupported(String)}
+     * with its reason spelled out: per the no-default doctrine, an adapter
+     * that does not own array semantics must NEVER invent a flag - callers
+     * fall back to the honest per-task submit loop of the SAME documented
+     * {@link #submitCommand(String)}.
+     */
+    default ArraySubmitSpec arraySubmitSpec() {
+        return ArraySubmitSpec.unsupported("this adapter owns no array-submit "
+                + "form - the per-task loop runs the documented submitCommand "
+                + "once per task instead");
+    }
 }

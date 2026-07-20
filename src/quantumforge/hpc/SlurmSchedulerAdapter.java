@@ -136,4 +136,13 @@ public final class SlurmSchedulerAdapter implements SchedulerAdapter {
                             + " task as 'id_index', both numeric): " + schedulerJobId);
         }
     }
+
+    @Override
+    public ArraySubmitSpec arraySubmitSpec() {
+        // sbatch(1) man page: --array=<index_list>; each task sees
+        // SLURM_ARRAY_TASK_ID. ONE documented form - safe to own.
+        return ArraySubmitSpec.supported("SLURM_ARRAY_TASK_ID",
+                (from, to) -> new String[] {"--array=" + from + "-" + to},
+                "sbatch(1) man page: --array=<index_list>");
+    }
 }

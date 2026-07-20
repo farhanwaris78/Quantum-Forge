@@ -133,4 +133,13 @@ public final class SgeSchedulerAdapter implements SchedulerAdapter {
             throw new IllegalArgumentException("invalid SGE job id: " + schedulerJobId);
         }
     }
+
+    @Override
+    public ArraySubmitSpec arraySubmitSpec() {
+        // qsub(1) Grid Engine man page: -t <n>[-<m>[:<s>]]; each task sees
+        // SGE_TASK_ID. ONE documented form - safe to own.
+        return ArraySubmitSpec.supported("SGE_TASK_ID",
+                (from, to) -> new String[] {"-t", from + "-" + to},
+                "qsub(1) Grid Engine man page: -t <n>[-<m>[:<s>]]");
+    }
 }

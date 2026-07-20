@@ -1133,8 +1133,15 @@ public final class AnalysisAction {
             if (base == null) {
                 return null;
             }
+            String submitScheduler = askText("scheduler for the submit-lane review "
+                    + "(slurm/pjm/sge = single-array draft; pbs = honest per-task loop; "
+                    + "blank skips)", "slurm");
+            if (submitScheduler == null) {
+                return null;
+            }
             parameters.withSeriesKeyword(keyword).withSeriesStart(start)
-                    .withSeriesStep(step).withSeriesCount(count).withJobBaseName(base);
+                    .withSeriesStep(step).withSeriesCount(count).withJobBaseName(base)
+                    .withSubmitScheduler(submitScheduler);
             break;
         }
         case KEYWORD_HELP: {
