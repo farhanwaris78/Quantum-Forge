@@ -525,6 +525,22 @@ public final class AnalysisAction {
             parameters.withJobCancel(scheduler, jobId, confirm);
             break;
         }
+        case SCHEDULER_ADAPTER_AUDIT: {
+            String scheduler = askText("scheduler audit - TYPED: slurm | pbs | pjm | sge"
+                    + " (BLANK = census of every registered adapter; unknown names refuse"
+                    + " - there is no default)", "");
+            if (scheduler == null) {
+                return null;
+            }
+            String jobId = askText("job id for a per-id grammar verdict owned by the"
+                    + " adapter itself (BLANK = census only; the verdict is rendered"
+                    + " either way - nothing is executed)", "");
+            if (jobId == null) {
+                return null;
+            }
+            parameters.withSchedulerAudit(scheduler, jobId);
+            break;
+        }
         case MONITOR_POLL_PLAN: {
             Double initial = askDouble("initial poll interval [s] (1..3600)", "30");
             if (initial == null) {

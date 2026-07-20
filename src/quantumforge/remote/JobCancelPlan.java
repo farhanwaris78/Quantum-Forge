@@ -1,8 +1,10 @@
 /* Copyright (C) 2025-2026 QuantumForge Development Team. */
 package quantumforge.remote;
 
-import java.util.Locale;
+import java.util.Optional;
 
+import quantumforge.hpc.SchedulerAdapter;
+import quantumforge.hpc.SchedulerAdapters;
 import quantumforge.operation.OperationResult;
 
 /**
@@ -12,22 +14,36 @@ import quantumforge.operation.OperationResult;
  * the classic cancel errors structurally impossible:
  *
  * <ul>
- *   <li>the scheduler is TYPED (slurm/pbs/pjm/sge) and the job-id grammar is
- *       OWNED PER SCHEDULER: SLURM accepts a numeric job id or an array task
- *       {@code id_index} (both numeric); PBS/PJM/SGE accept a numeric id
- *       (with an optional {@code .server} suffix stated and preserved for PBS
- *       style). A free-form string is refused - it can never become a shell
- *       fragment (CANCEL_JOBID);</li>
+ *   <li>the scheduler is TYPED and resolved ONLY through the
+ *       {@code SchedulerAdapters} registry (slurm/pbs/pjm/sge); a free-form
+ *       scheduler name never reaches a cancel command (CANCEL_SCHEDULER)
+ *       and there is deliberately no default adapter;</li>
+ *   <li>the job-id grammar is ADAPTER-OWNED: this plan holds NO regex of its
+ *       own - it asks the resolved adapter for its cancel tokens and honors
+ *       the adapter's refusal verbatim (CANCEL_JOBID). That single-owner rule
+ *       is what keeps this review channel and the runtime channel from
+ *       drifting apart (e.g. SLURM's array {@code id_index} is SLURM-only
+ *       grammar, exactly as the SLURM adapter enforces);</li>
  *   <li>the CONFIRMATION must retype the job id EXACTLY - clicking a button
  *       is not confirmation that you meant THAT job (CANCEL_CONFIRM);</li>
- *   <li>the rendered command is a REVIEW line only: scancel (SLURM), qdel
- *       (PBS), pdel (PJM), qdel (SGE) - never a broad process-name kill and
- *       never a directory deletion (both are stated as FORBIDDEN lines);</li>
+ *   <li>the rendered command is a REVIEW line only, produced by the adapter
+ *       itself: scancel (SLURM), qdel (PBS), pjdel (PJM), qdel (SGE) - never
+ *       a broad process-name kill and never a directory deletion (both are
+ *       stated as FORBIDDEN lines);</li>
  *   <li>the plan declares the ONLY success signal: post-cancel verification
- *       via the scheduler query (squeue/qstat/pjobs) showing the job gone. A
- *       transport failure or an empty error message is NOT a successful
- *       cancellation and must never be displayed as one.</li>
+ *       via the adapter's own status query (squeue -j / qstat -f / pjstat -S
+ *       / qstat -j) showing the job gone. A transport failure or an empty
+ *       error message is NOT a successful cancellation and must never be
+ *       displayed as one.</li>
  * </ul>
+ *
+ * <p>Batch-126 correction (provenance, kept deliberately): this plan's PJM
+ * command was previously rendered as {@code pdel} and the verification note
+ * named {@code pjobs}; Fujitsu's PJM grammar is {@code pjdel} for cancel and
+ * {@code pjstat} for status (Fujitsu Technical Computing Suite manual and
+ * e.g. the Kyushu University Genkai job-usage documentation). Delegating the
+ * command text to the now-complete PJM adapter removes the textual copy that
+ * let that mistake exist.</p>
  *
  * <p>Runtime depth (stated by the kind): the actual SSH channel, the
  * scheduler query parse-back, and the #95 state-machine transition that a
@@ -43,17 +59,21 @@ public final class JobCancelPlan {
         private final String scheduler;
         private final String jobId;
         private final String command;
+        private final String statusCommand;
 
-        CancelPlan(String scheduler, String jobId, String command) {
+        CancelPlan(String scheduler, String jobId, String command, String statusCommand) {
             this.scheduler = scheduler;
             this.jobId = jobId;
             this.command = command;
+            this.statusCommand = statusCommand;
         }
 
         public String getScheduler() { return this.scheduler; }
         public String getJobId() { return this.jobId; }
-        /** The review-only command line (never executed from this build). */
+        /** The review-only cancel command line (never executed from this build). */
         public String getCommand() { return this.command; }
+        /** The adapter's own status query - the ONLY accepted success signal. */
+        public String getStatusCommand() { return this.statusCommand; }
 
         /** The review block spelling out every guarantee and the ONLY success signal. */
         public String render() {
@@ -66,13 +86,18 @@ public final class JobCancelPlan {
             text.append("job_id           = ").append(this.jobId).append('\n');
             text.append("cancel_command   = ").append(this.command)
                     .append("   # review line only - not executed\n");
+            text.append("status_command   = ").append(this.statusCommand)
+                    .append("   # the ONLY accepted success signal\n");
+            text.append("grammar_owner    = the hpc SchedulerAdapter itself - this plan "
+                    + "holds no\n");
+            text.append("                   regex copy, so review and runtime cannot drift\n");
             text.append("confirmation     = job id retyped EXACTLY (a button click is "
                     + "not identity confirmation)\n");
             text.append("forbidden        = kill by process NAME; delete the job's\n");
             text.append("                   working/remote directory 'to clean up'\n");
-            text.append("verify_after     = scheduler query (squeue/qstat/pjobs) MUST "
-                    + "show the job gone;\n");
-            text.append("                   that query is the ONLY success signal - a "
+            text.append("verify_after     = the status_command above MUST show the job "
+                    + "gone; that\n");
+            text.append("                   query is the ONLY success signal - a "
                     + "transport failure or an\n");
             text.append("                   empty stderr is NEVER a successful "
                     + "cancellation\n");
@@ -90,41 +115,26 @@ public final class JobCancelPlan {
      */
     public static OperationResult<CancelPlan> validate(String schedulerText, String jobId,
             String confirmation) {
-        String scheduler = schedulerText == null ? "" : schedulerText.trim()
-                .toLowerCase(Locale.ROOT);
-        String command;
-        boolean arraysAllowed;
-        switch (scheduler) {
-        case "slurm":
-            command = "scancel";
-            arraysAllowed = true;
-            break;
-        case "pbs":
-            command = "qdel";
-            arraysAllowed = false;
-            break;
-        case "pjm":
-            command = "pdel";
-            arraysAllowed = false;
-            break;
-        case "sge":
-            command = "qdel";
-            arraysAllowed = false;
-            break;
-        default:
+        Optional<SchedulerAdapter> resolved = SchedulerAdapters.forName(schedulerText);
+        if (resolved.isEmpty()) {
+            String got = schedulerText == null ? "" : schedulerText.trim();
             return OperationResult.failed("CANCEL_SCHEDULER",
-                    "scheduler is TYPED: slurm/pbs/pjm/sge (got '" + scheduler
-                            + "') - free-form schedulers never reach a cancel command.",
+                    "scheduler is TYPED: " + SchedulerAdapters.supportedNames()
+                            + " (got '" + got + "') - free-form schedulers never reach a"
+                            + " cancel command, and there is no default adapter.",
                     null);
         }
+        SchedulerAdapter adapter = resolved.get();
         String id = jobId == null ? "" : jobId.trim();
-        if (!id.matches(arraysAllowed ? "[0-9]{1,10}(_[0-9]{1,10})?"
-                : "[0-9]{1,10}(\\.[A-Za-z0-9.-]{1,63})?")) {
+        String[] cancelTokens;
+        String[] statusTokens;
+        try {
+            cancelTokens = adapter.cancelCommand(id);
+            statusTokens = adapter.statusCommand(id);
+        } catch (IllegalArgumentException refusal) {
             return OperationResult.failed("CANCEL_JOBID",
-                    "job id '" + id + "' violates the owned " + scheduler + " grammar ("
-                            + (arraysAllowed
-                                    ? "numeric, optionally array 'id_index', both numeric"
-                                    : "numeric, optional '.server' suffix")
+                    "job id '" + id + "' violates the ADAPTER-OWNED " + adapter.name()
+                            + " grammar (" + refusal.getMessage()
                             + ") - a free-form id can never become a command fragment.",
                     null);
         }
@@ -139,6 +149,7 @@ public final class JobCancelPlan {
                     null);
         }
         return OperationResult.success("CANCEL_OK", "Cancellation plan validated.",
-                new CancelPlan(scheduler, id, command + " " + id));
+                new CancelPlan(adapter.name(), id, String.join(" ", cancelTokens),
+                        String.join(" ", statusTokens)));
     }
 }

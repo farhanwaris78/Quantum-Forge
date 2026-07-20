@@ -116,8 +116,14 @@ public final class SlurmSchedulerAdapter implements SchedulerAdapter {
     }
 
     private static void requireJobId(String schedulerJobId) {
-        if (schedulerJobId == null || !schedulerJobId.trim().matches("\\d+")) {
-            throw new IllegalArgumentException("invalid SLURM job id: " + schedulerJobId);
+        // scancel/squeue genuinely accept a single array task as 'jobid_index'
+        // (both numeric); accepting it here keeps this adapter the single
+        // grammar owner the cancel plan delegates to.
+        if (schedulerJobId == null
+                || !schedulerJobId.trim().matches("\\d+(?:_\\d+)?")) {
+            throw new IllegalArgumentException(
+                    "invalid SLURM job id (decimal digits, optionally one array"
+                            + " task as 'id_index', both numeric): " + schedulerJobId);
         }
     }
 }

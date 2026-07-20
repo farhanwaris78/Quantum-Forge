@@ -403,6 +403,7 @@ def main() -> int:
                   "WorkflowAudit", "WORKFLOW_EXPORT_AUDIT",
                   "NebPathAudit", "NEB_PATH_AUDIT",
                   "FinalGeometryTransaction", "FINAL_GEOMETRY_APPLY",
+                  "SchedulerAdapters", "SCHEDULER_ADAPTER_AUDIT",
                   "JournalReplayMath", "replay_combined_det"]:
         if token not in service:
             error(f"ResultAnalysisService is not bound to {token}")
@@ -472,6 +473,8 @@ def main() -> int:
                 "quantumforge/run/WorkflowAudit.java",
                 "quantumforge/input/NebPathAudit.java",
                 "quantumforge/run/parser/FinalGeometryTransaction.java",
+                "quantumforge/hpc/PjmSchedulerAdapter.java",
+                "quantumforge/hpc/SchedulerAdapters.java",
                 "quantumforge/builder/JournalReplayMath.java"]:
         text = (SRC / rel).read_text(encoding="utf-8")
         if "class " not in text:

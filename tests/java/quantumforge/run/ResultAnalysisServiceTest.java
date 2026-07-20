@@ -5709,4 +5709,84 @@ class ResultAnalysisServiceTest {
                 ".quantumforge/geometry.pre-final-geometry"));
         assertFalse(pre.contains("0.250000"), "pre artifact pins the ORIGINAL deck");
     }
+
+    @Test
+    void schedulerAdapterAuditCensusCoversTheFourTypedSchedulers() throws IOException {
+        AnalysisReport report = ResultAnalysisService.analyze(
+                AnalysisKind.SCHEDULER_ADAPTER_AUDIT, stubProject(this.tempDir),
+                new AnalysisParameters().withSchedulerAudit("", ""));
+        assertTrue(report.isSuccess(), report.getText());
+        String text = report.getText();
+        assertTrue(text.contains("registry census"), text);
+        assertTrue(text.contains("submit=sbatch"), text);
+        assertTrue(text.contains("submit=qsub"), text);
+        assertTrue(text.contains("submit=pjsub"), text);
+        assertTrue(text.contains("cancel=pjdel"), text,
+                "the corrected Fujitsu PJM cancel command renders in the census");
+        assertTrue(text.contains("status=pjstat"), text);
+        assertTrue(text.contains("NO default"), text);
+        assertTrue(text.contains("REVIEW line"), text);
+        assertTrue(text.contains("batch-126 correction"), text,
+                "the pdel->pjdel provenance is stated to the user");
+        String csv = String.join("\n", report.getCsvLines());
+        assertTrue(csv.startsWith("section,scheduler,verdict,detail"), csv);
+        assertTrue(csv.contains("census,pjm,registered,"), csv);
+        assertTrue(report.getProvenanceLines().size() >= 2,
+                "the registry and the PJM grammar both carry provenance");
+        assertTrue(report.getGeneratedInput() == null,
+                "an audit writes no draft artifact");
+    }
+
+    @Test
+    void schedulerAdapterAuditPerIdVerdictsAreAdapterOwned() throws IOException {
+        AnalysisReport ok = ResultAnalysisService.analyze(
+                AnalysisKind.SCHEDULER_ADAPTER_AUDIT, stubProject(this.tempDir),
+                new AnalysisParameters().withSchedulerAudit("PJM", "7712"));
+        assertTrue(ok.isSuccess(), ok.getText());
+        assertTrue(ok.getText().contains("GRAMMAR-OK"), ok.getText());
+        assertTrue(ok.getText().contains("cancel (review only): pjdel 7712"),
+                ok.getText());
+        assertTrue(ok.getText().contains("status (review only): pjstat -S 7712"),
+                ok.getText());
+
+        AnalysisReport slurmArray = ResultAnalysisService.analyze(
+                AnalysisKind.SCHEDULER_ADAPTER_AUDIT, stubProject(this.tempDir),
+                new AnalysisParameters().withSchedulerAudit("slurm", "4521_3"));
+        assertTrue(slurmArray.isSuccess(), slurmArray.getText());
+        assertTrue(slurmArray.getText().contains("GRAMMAR-OK"), slurmArray.getText(),
+                "array syntax is SLURM grammar, owned by the slurm adapter");
+        assertTrue(slurmArray.getText().contains("scancel 4521_3"), slurmArray.getText());
+
+        AnalysisReport refused = ResultAnalysisService.analyze(
+                AnalysisKind.SCHEDULER_ADAPTER_AUDIT, stubProject(this.tempDir),
+                new AnalysisParameters().withSchedulerAudit("pjm", "4521_3"));
+        assertTrue(refused.isSuccess(),
+                "a REFUSED verdict is the audit's FINDING, not a run failure");
+        assertTrue(refused.getText().contains("REFUSED by the pjm adapter"),
+                refused.getText());
+        assertTrue(refused.getText().contains("id_index"), refused.getText(),
+                "the adapter's verbatim refusal names the foreign grammar");
+        String csv = String.join("\n", refused.getCsvLines());
+        assertTrue(csv.contains("focus,pjm,REFUSED,"), csv);
+
+        AnalysisReport censusOnly = ResultAnalysisService.analyze(
+                AnalysisKind.SCHEDULER_ADAPTER_AUDIT, stubProject(this.tempDir),
+                new AnalysisParameters().withSchedulerAudit("sge", "  "));
+        assertTrue(censusOnly.isSuccess(), censusOnly.getText());
+        assertTrue(censusOnly.getText().contains("no per-id verdict requested"),
+                censusOnly.getText(),
+                "a blank job id is an explicit census-only choice, never defaulted");
+    }
+
+    @Test
+    void schedulerAdapterAuditUnknownSchedulerRefusesWithoutDefault() throws IOException {
+        AnalysisReport report = ResultAnalysisService.analyze(
+                AnalysisKind.SCHEDULER_ADAPTER_AUDIT, stubProject(this.tempDir),
+                new AnalysisParameters().withSchedulerAudit("torque", "123"));
+        assertFalse(report.isSuccess(),
+                "an unknown scheduler must refuse - a silent default would aim a cancel"
+                        + " command at the wrong cluster");
+        assertTrue(report.getText().contains("[SCHEDULER_NAME]"), report.getText());
+        assertTrue(report.getText().contains("no default adapter"), report.getText());
+    }
 }

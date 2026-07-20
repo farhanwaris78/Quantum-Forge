@@ -43,4 +43,20 @@ class SlurmSchedulerAdapterTest {
         assertEquals("squeue", adapter.statusCommand("42")[0]);
         assertEquals("sbatch", adapter.submitCommand("/tmp/job.sh")[0]);
     }
+
+    @Test
+    void singleArrayTaskGrammarIsSlurmsOwn() {
+        SlurmSchedulerAdapter adapter = new SlurmSchedulerAdapter();
+        // scancel genuinely accepts one array task as 'jobid_index' (batch 126:
+        // the adapter became the single grammar owner the cancel plan delegates
+        // to, so the plan's long-standing acceptance of 4521_3 had to land here).
+        assertEquals("4521_3", adapter.cancelCommand("4521_3")[1]);
+        assertEquals("4521_3", adapter.statusCommand("4521_3")[2]);
+        try {
+            adapter.cancelCommand("4521_3_1");
+            org.junit.jupiter.api.Assertions.fail("double array index is not grammar");
+        } catch (IllegalArgumentException expected) {
+            assertTrue(expected.getMessage().contains("array"), expected.getMessage());
+        }
+    }
 }

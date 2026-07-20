@@ -78,6 +78,8 @@ import quantumforge.hpc.PoolDivisorMath;
 import quantumforge.hpc.JobDbSchema;
 import quantumforge.hpc.JobQueueAudit;
 import quantumforge.hpc.JobState;
+import quantumforge.hpc.SchedulerAdapter;
+import quantumforge.hpc.SchedulerAdapters;
 import quantumforge.remote.OptimadeQueryBuilder;
 import quantumforge.remote.OptimadeStructuresParser;
 import quantumforge.remote.MpApiQueryBuilder;
@@ -307,6 +309,7 @@ public final class ResultAnalysisService {
         SITE_PROFILE_DRAFT("HPC site-profile draft (typed scheduler/launcher, owned grammar)"),
         NEB_INPUT_DRAFT("neb.x &PATH namelist draft (typed, image-checklisted)"),
         JOB_CANCEL_PLAN("Scheduler job-cancellation review plan (typed id, retype-confirm)"),
+        SCHEDULER_ADAPTER_AUDIT("Scheduler adapter registry audit (adapter-owned grammar census, per-id verdicts)"),
         MONITOR_POLL_PLAN("Remote-monitoring poll plan (bounded backoff, offline semantics)"),
         SYNC_MANIFEST_DRAFT("Selective result-sync manifest draft (role-per-name, intent not facts)"),
         SMEARING_LADDER_PLAN("Smearing down-ladder plan (degauss Ry/eV, never declares convergence)"),
@@ -377,6 +380,7 @@ public final class ResultAnalysisService {
                     || this == SLURM_SCRIPT_DRAFT || this == KMESH_CONVERGENCE_PLAN
                     || this == SITE_PROFILE_DRAFT || this == NEB_INPUT_DRAFT
                     || this == JOB_CANCEL_PLAN || this == MONITOR_POLL_PLAN
+                    || this == SCHEDULER_ADAPTER_AUDIT
                     || this == SYNC_MANIFEST_DRAFT || this == SMEARING_LADDER_PLAN
                     || this == CUTOFF_LADDER_PLAN || this == ARRAY_JOB_PLAN
                     || this == CONTAINER_PROFILE_DRAFT || this == JOB_STATE_GUARD
@@ -514,6 +518,8 @@ public final class ResultAnalysisService {
         private String cancelScheduler = "";   // JOB_CANCEL_PLAN typed scheduler
         private String cancelJobId = "";       // owned per-scheduler grammar
         private String cancelConfirm = "";     // must retype the id EXACTLY (untrimmed)
+        private String schedulerAuditName = "";   // SCHEDULER_ADAPTER_AUDIT; blank = census of all
+        private String schedulerAuditJobId = "";  // blank = census only, no per-id verdict
         private double monitorInitialSec = 30.0;  // MONITOR_POLL_PLAN policy
         private double monitorMaxSec = 300.0;
         private double monitorFactor = 2.0;    // 1.0 = honest constant polling
@@ -1015,6 +1021,16 @@ public final class ResultAnalysisService {
             this.cancelScheduler = scheduler == null ? "" : scheduler;
             this.cancelJobId = jobId == null ? "" : jobId;
             this.cancelConfirm = confirmation == null ? "" : confirmation;
+            return this;
+        }
+
+        public String getSchedulerAuditName() { return this.schedulerAuditName; }
+        public String getSchedulerAuditJobId() { return this.schedulerAuditJobId; }
+
+        /** Blank scheduler = census of every registered adapter (explicit, not a default). */
+        public AnalysisParameters withSchedulerAudit(String scheduler, String jobId) {
+            this.schedulerAuditName = scheduler == null ? "" : scheduler;
+            this.schedulerAuditJobId = jobId == null ? "" : jobId;
             return this;
         }
 
@@ -1755,6 +1771,8 @@ public final class ResultAnalysisService {
                 return analyzeNebInputDraft(params);
             case JOB_CANCEL_PLAN:
                 return analyzeJobCancelPlan(params);
+            case SCHEDULER_ADAPTER_AUDIT:
+                return analyzeSchedulerAdapterAudit(params);
             case MONITOR_POLL_PLAN:
                 return analyzeMonitorPollPlan(params);
             case SYNC_MANIFEST_DRAFT:
@@ -8255,6 +8273,100 @@ public final class ResultAnalysisService {
         csv.add("confirmation,retyped-exactly,compared untrimmed");
         csv.add("success_signal,scheduler-query-shows-absent,only signal accepted");
         return new AnalysisReport(label, true, text.toString(), csv, block);
+    }
+
+    /**
+     * Roadmap #97 (runtime slice): census + per-id grammar audit of the typed
+     * scheduler-adapter registry. The registry is the ONLY name resolution
+     * path (blank/unknown refuse - there is deliberately no default adapter),
+     * and a per-id verdict is produced by the ADAPTER itself with its refusal
+     * quoted verbatim, so the review channel can never drift from the runtime
+     * channel. Every command rendered is a REVIEW line: nothing is submitted,
+     * cancelled or queried from this build.
+     */
+    private static AnalysisReport analyzeSchedulerAdapterAudit(AnalysisParameters params) {
+        String label = AnalysisKind.SCHEDULER_ADAPTER_AUDIT.getLabel();
+        String requested = params.getSchedulerAuditName().trim();
+        String jobId = params.getSchedulerAuditJobId().trim();
+        SchedulerAdapter focus = null;
+        if (!requested.isEmpty()) {
+            Optional<SchedulerAdapter> resolved = SchedulerAdapters.forName(requested);
+            if (resolved.isEmpty()) {
+                return failure(label, "scheduler '" + requested
+                        + "' is not in the typed registry ("
+                        + SchedulerAdapters.supportedNames()
+                        + ") - there is deliberately no default adapter."
+                        + "\n[SCHEDULER_NAME]");
+            }
+            focus = resolved.get();
+        }
+        StringBuilder text = new StringBuilder();
+        text.append("Scheduler-adapter registry census (blank/unknown scheduler names"
+                + " refuse - NO default):\n\n");
+        List<String> csv = new ArrayList<>();
+        csv.add("section,scheduler,verdict,detail");
+        for (SchedulerAdapter adapter : SchedulerAdapters.all()) {
+            // "0" is decimal and passes every owned grammar; only command HEADS
+            // are rendered in the census so no fake full command exists.
+            String submitHead = adapter.submitCommand("<remote-script>")[0];
+            String cancelHead = adapter.cancelCommand("0")[0];
+            String statusHead = adapter.statusCommand("0")[0];
+            text.append(String.format(Locale.ROOT,
+                    "  %-6s submit=%s  cancel=%s  status=%s%n",
+                    adapter.name(), submitHead, cancelHead, statusHead));
+            text.append(String.format(Locale.ROOT,
+                    "         grammar owner: the %s adapter itself (shared by the cancel"
+                            + " plan)%n", adapter.name()));
+            csv.add(String.format(Locale.ROOT, "census,%s,registered,submit=%s|cancel=%s|status=%s",
+                    adapter.name(), submitHead, cancelHead, statusHead));
+        }
+        if (focus != null) {
+            text.append(String.format(Locale.ROOT, "%nFocus scheduler: %s%n", focus.name()));
+            if (jobId.isEmpty()) {
+                text.append("  job id = BLANK (explicit) -> census only; no per-id"
+                        + " verdict requested\n");
+                csv.add(String.format(Locale.ROOT, "focus,%s,census-only,blank job id is explicit, no verdict",
+                        focus.name()));
+            } else {
+                try {
+                    String cancel = String.join(" ", focus.cancelCommand(jobId));
+                    String status = String.join(" ", focus.statusCommand(jobId));
+                    text.append(String.format(Locale.ROOT,
+                            "  verdict for job id '%s': GRAMMAR-OK - verdict owned by the"
+                                    + " %s adapter%n", jobId, focus.name()));
+                    text.append("  cancel (review only): ").append(cancel).append('\n');
+                    text.append("  status (review only): ").append(status).append('\n');
+                    csv.add(String.format(Locale.ROOT, "focus,%s,GRAMMAR-OK,%s",
+                            focus.name(), csvCell(jobId)));
+                } catch (IllegalArgumentException refusal) {
+                    text.append(String.format(Locale.ROOT,
+                            "  verdict for job id '%s': REFUSED by the %s adapter - %s%n",
+                            jobId, focus.name(), refusal.getMessage()));
+                    csv.add(String.format(Locale.ROOT, "focus,%s,REFUSED,%s",
+                            focus.name(), csvCell(jobId + " -> " + refusal.getMessage())));
+                }
+            }
+        }
+        text.append("\nHonesty block: every command above is a REVIEW line - nothing is"
+                + " submitted,\ncancelled or queried from this build. Execution requires the"
+                + " runtime SSH\nchannel AND your re-review, and a cancellation is only ever"
+                + " proven by the\nstatus query showing the job gone (never by a clean exit code"
+                + " alone).\n");
+        text.append("\nProvenance (batch-126 correction): the Fujitsu PJM cancel command is"
+                + " 'pjdel'\nand the per-job status query is 'pjstat -S' - an earlier cancel-plan"
+                + " draft\nrendered 'pdel' and named 'pjobs'. The plan now takes both command"
+                + " lines\nfrom the adapter itself (see JOB_CANCEL_PLAN), so one owner holds the"
+                + " grammar.\n");
+        List<String> provenance = new ArrayList<>();
+        provenance.add("Fujitsu PJM command grammar (pjsub / pjdel / pjstat -S): FUJITSU"
+                + " Software Technical Computing Suite manual J2UL-2544 and the Kyushu"
+                + " University Genkai 'Job Usage' documentation.");
+        provenance.add("Grammar ownership: quantumforge.hpc.SchedulerAdapters registry plus"
+                + " each adapter's owned job-id grammar; remote.JobCancelPlan holds no regex"
+                + " copy (no-drift architecture, batch 126).");
+        provenance.add("Nothing in this audit contacted any scheduler; all verdicts are local"
+                + " grammar checks.");
+        return new AnalysisReport(label, true, text.toString(), csv, null, provenance);
     }
 
     /**
