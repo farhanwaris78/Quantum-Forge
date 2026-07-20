@@ -3758,4 +3758,89 @@ class ResultAnalysisServiceTest {
         assertTrue(refused.getText().contains("[CIF_MULTIBLOCK]"), refused.getText());
         assertFalse(refused.getText().contains("data_two-reviewed"), refused.getText());
     }
+
+    @Test
+    void testMolSdfReviewKindSubsetMetricsAndRefusals() throws IOException {
+        File methane = write("methane.mol",
+                "methane test\n"
+                + "  QuantumForge\n"
+                + "\n"
+                + "  5  4  0  0  0  0  0  0  0  0  0  0    V2000\n"
+                + "    0.0000    0.0000    0.0000 C   0  0  0  0  0  0\n"
+                + "    0.6291    0.6291    0.6291 H   0  0  0  0  0  0\n"
+                + "   -0.6291   -0.6291    0.6291 H   0  0  0  0  0  0\n"
+                + "   -0.6291    0.6291   -0.6291 H   0  0  0  0  0  0\n"
+                + "    0.6291   -0.6291   -0.6291 H   0  0  0  0  0  0\n"
+                + "  1  2  1  0  0  0  0\n"
+                + "  1  3  1  0  0  0  0\n"
+                + "  1  4  1  0  0  0  0\n"
+                + "  1  5  1  0  0  0  0\n"
+                + "M  END\n");
+        AnalysisReport report = ResultAnalysisService.analyze(
+                AnalysisKind.MOL_SDF_REVIEW, new ProjectProperty(),
+                this.tempDir.toFile(), "methane", "run.log", methane,
+                new AnalysisParameters());
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains("Record title (verbatim line 1): "
+                + "methane test"), report.getText());
+        assertTrue(report.getText().contains(
+                "Counts: 5 atom(s), 4 bond(s);  version marker 'V2000' present"),
+                report.getText());
+        assertTrue(report.getText().contains(
+                "Composition (from the atom-block element column ONLY): C=1,H=4"),
+                report.getText());
+        assertTrue(report.getText().contains("type 1=4"), report.getText());
+        assertTrue(report.getText().contains("NEVER guessed): 0"), report.getText());
+        assertTrue(report.getText().contains("sum = +0"), report.getText());
+        assertTrue(report.getText().contains("REVIEW only"), report.getText());
+        assertTrue(report.getCsvLines().contains(
+                "1,C,0.0000,0.0000,0.0000,false"),
+                String.join("\n", report.getCsvLines()));
+        assertTrue(report.getCsvLines().contains(
+                "2,H,0.6291,0.6291,0.6291,false"),
+                String.join("\n", report.getCsvLines()));
+
+        File query = write("query.sdf",
+                "query record\n"
+                + "  QF\n"
+                + "\n"
+                + "  3  0  0  0  0  0  0  0  0  0  0  0    V2000\n"
+                + "    0.0000    0.0000    0.0000 Q   0  0  0  0  0  0\n"
+                + "    1.0000    0.0000    0.0000 Na  0  0  0  0  0  0\n"
+                + "    2.0000    0.0000    0.0000 Cl  0  0  0  0  0  0\n"
+                + "M  CHG  2  2  1  3 -1\n"
+                + "M  END\n");
+        AnalysisReport pseudo = ResultAnalysisService.analyze(
+                AnalysisKind.MOL_SDF_REVIEW, new ProjectProperty(),
+                this.tempDir.toFile(), "query", "run.log", query,
+                new AnalysisParameters());
+        assertTrue(pseudo.isSuccess(), pseudo.getText());
+        assertTrue(pseudo.getText().contains("NEVER guessed): 1"), pseudo.getText());
+        assertTrue(pseudo.getText().contains("Composition (from the atom-block "
+                + "element column ONLY): Cl=1,Na=1"), pseudo.getText());
+        assertTrue(pseudo.getText().contains("sum = +0"), pseudo.getText());
+        assertTrue(pseudo.getCsvLines().contains("1,,0.0000,0.0000,0.0000,true"),
+                String.join("\n", pseudo.getCsvLines()));
+
+        File bundle = write("bundle.sdf", "mol one\n A\n\n"
+                + "  1  0  0  0  0  0  0  0  0  0  0  0    V2000\n"
+                + "    0.0000    0.0000    0.0000 C   0  0  0  0  0  0\n"
+                + "M  END\n$$$$\nmol two\n");
+        AnalysisReport refused = ResultAnalysisService.analyze(
+                AnalysisKind.MOL_SDF_REVIEW, new ProjectProperty(),
+                this.tempDir.toFile(), "bundle", "run.log", bundle,
+                new AnalysisParameters());
+        assertFalse(refused.isSuccess(), "multi-record bundles must fail closed");
+        assertTrue(refused.getText().contains("[SDF_MULTIRECORD]"),
+                refused.getText());
+
+        File v3000 = write("extended.mol", "mol\n A\n\n"
+                + "  1  0  0  0  0  0  0  0  0  0  0  0    V3000\n");
+        AnalysisReport v3 = ResultAnalysisService.analyze(
+                AnalysisKind.MOL_SDF_REVIEW, new ProjectProperty(),
+                this.tempDir.toFile(), "extended", "run.log", v3000,
+                new AnalysisParameters());
+        assertFalse(v3.isSuccess(), "V3000 must fail closed");
+        assertTrue(v3.getText().contains("[SDF_V3000]"), v3.getText());
+    }
 }

@@ -31,6 +31,7 @@ import quantumforge.com.math.SymmetricEigen3;
 import quantumforge.atoms.model.Atom;
 import quantumforge.atoms.model.Cell;
 import quantumforge.builder.CifStructureReader;
+import quantumforge.builder.SdfStructureReader;
 import quantumforge.builder.CslSigmaMath;
 import quantumforge.builder.SlabMillerMath;
 import quantumforge.builder.MoireTwistMath;
@@ -257,7 +258,8 @@ public final class ResultAnalysisService {
         XSPECTRA_INPUT_DRAFT("xspectra.x XANES input draft (required-edit guarded)"),
         GIPAW_INPUT_DRAFT("gipaw.x NMR/EFG input draft (required-edit guarded)"),
         SLAB_MILLER_PREVIEW("Surface Miller plane geometry (d-spacing, normal, ESM gate)"),
-        CIF_REVIEW("CIF structure review (fail-closed subset, no element guessing)");
+        CIF_REVIEW("CIF structure review (fail-closed subset, no element guessing)"),
+        MOL_SDF_REVIEW("MOL/SDF molecule review (V2000 single-record subset)");
 
         private final String label;
 
@@ -953,6 +955,8 @@ public final class ResultAnalysisService {
                     || name.endsWith(".out");
         case CIF_REVIEW:
             return name.endsWith(".cif");
+        case MOL_SDF_REVIEW:
+            return name.endsWith(".mol") || name.endsWith(".sdf");
         default:
             return false;
         }
@@ -1102,6 +1106,8 @@ public final class ResultAnalysisService {
                 return analyzeLogErrorDiagnosis(source);
             case CIF_REVIEW:
                 return analyzeCifReview(source);
+            case MOL_SDF_REVIEW:
+                return analyzeMolSdfReview(source);
             default:
                 return failure(kind.getLabel(), "This analysis kind is not implemented.");
             }
@@ -6574,6 +6580,87 @@ public final class ResultAnalysisService {
                     csvCell(atom.getElement() == null ? "" : atom.getElement()),
                     atom.getFx(), atom.getFy(), atom.getFz(), atom.getOccupancy(),
                     atom.isUncertaintyStripped()));
+            shown += 1;
+        }
+        if (structure.getAtoms().size() > cap) {
+            csv.add("# truncated at 20000 atom rows (cap)");
+        }
+        return new AnalysisReport(label, true, text.toString(), csv, null);
+    }
+
+    /**
+     * Roadmap #78 (partial): MOL/SDF V2000 single-record review. Nothing is
+     * imported into the project; pseudo atoms are never element-guessed and no
+     * aromaticity/stereo chemistry is perceived.
+     */
+    private static AnalysisReport analyzeMolSdfReview(File source) {
+        String label = AnalysisKind.MOL_SDF_REVIEW.getLabel();
+        OperationResult<SdfStructureReader.SdfStructure> parsed =
+                SdfStructureReader.parse(source.toPath());
+        if (!parsed.isSuccess() || parsed.getValue().isEmpty()) {
+            return failure(label, "MOL/SDF review refused the file " + source.getName()
+                    + ":\n[" + parsed.getCode() + "] " + parsed.getMessage());
+        }
+        SdfStructureReader.SdfStructure structure = parsed.getValue().get();
+        StringBuilder text = new StringBuilder();
+        text.append("File: ").append(source.getName()).append('\n');
+        text.append(String.format(Locale.ROOT,
+                "Record title (verbatim line 1): %s%n",
+                structure.getTitle().isEmpty() ? "(blank)" : structure.getTitle()));
+        text.append(String.format(Locale.ROOT,
+                "Counts: %d atom(s), %d bond(s);  version marker 'V2000' %s%n",
+                structure.getAtoms().size(), structure.getBonds().size(),
+                structure.hasVersionMarker() ? "present"
+                        : "ABSENT - parsed by the fixed-width/token layout only"));
+        StringBuilder composition = new StringBuilder();
+        for (Map.Entry<String, Integer> entry : structure.elementCounts().entrySet()) {
+            if (composition.length() > 0) {
+                composition.append(',');
+            }
+            composition.append(entry.getKey()).append('=').append(entry.getValue());
+        }
+        text.append(String.format(Locale.ROOT,
+                "Composition (from the atom-block element column ONLY): %s%n",
+                composition.length() == 0 ? "(no true-element atoms present)"
+                        : composition.toString()));
+        text.append(String.format(Locale.ROOT,
+                "Pseudo/query atoms (A, Q, L, LP, *, R, R#; NOT elements, NEVER "
+                        + "guessed): %d%n",
+                structure.getPseudoAtomCount()));
+        StringBuilder bonds = new StringBuilder();
+        for (Map.Entry<Integer, Integer> entry : structure.bondTypeCounts().entrySet()) {
+            if (bonds.length() > 0) {
+                bonds.append(',');
+            }
+            bonds.append("type ").append(entry.getKey()).append('=')
+                    .append(entry.getValue());
+        }
+        text.append(String.format(Locale.ROOT,
+                "Bond types ECHOED (1/2/3/4 as written; NO aromaticity, stereo or "
+                        + "valence chemistry perceived): %s%n",
+                bonds.length() == 0 ? "(no bonds)" : bonds.toString()));
+        text.append(String.format(Locale.ROOT,
+                "M  CHG declared charges: %d atom(s), sum = %+d (declared, NOT "
+                        + "validated against any chemistry model)%n",
+                structure.getChargedAtoms(), structure.getChargeSum()));
+        text.append(String.format(Locale.ROOT,
+                "Property-block lines: %d; SDF data fields after M  END: %d%n",
+                structure.getPropertyLines(), structure.getDataFieldCount()));
+        text.append("\nREVIEW only: nothing is imported into the project; V3000, "
+                + "multi-record bundles, aromaticity/stereo perception and an "
+                + "independent-parser corpus comparison remain the #78 depth.\n");
+        List<String> csv = new ArrayList<>();
+        csv.add("index,element,x,y,z,pseudo_atom");
+        int cap = 20000;
+        int shown = 0;
+        for (SdfStructureReader.SdfAtom atom : structure.getAtoms()) {
+            if (shown >= cap) {
+                break;
+            }
+            csv.add(String.format(Locale.ROOT, "%d,%s,%.4f,%.4f,%.4f,%s",
+                    atom.getIndex(),
+                    csvCell(atom.getElement() == null ? "" : atom.getElement()),
+                    atom.getX(), atom.getY(), atom.getZ(), atom.isPseudoAtom()));
             shown += 1;
         }
         if (structure.getAtoms().size() > cap) {

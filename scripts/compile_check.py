@@ -369,7 +369,8 @@ def main() -> int:
                   "XspectraInputPlanner", "XSPECTRA_INPUT_DRAFT",
                   "GipawInputPlanner", "GIPAW_INPUT_DRAFT",
                   "SlabMillerMath", "SLAB_MILLER_PREVIEW",
-                  "CifStructureReader", "CIF_REVIEW"]:
+                  "CifStructureReader", "CIF_REVIEW",
+                  "SdfStructureReader", "MOL_SDF_REVIEW"]:
         if token not in service:
             error(f"ResultAnalysisService is not bound to {token}")
     for rel in ["quantumforge/com/math/SymmetricEigen3.java",
@@ -404,7 +405,8 @@ def main() -> int:
                 "quantumforge/input/XspectraInputPlanner.java",
                 "quantumforge/input/GipawInputPlanner.java",
                 "quantumforge/builder/SlabMillerMath.java",
-                "quantumforge/builder/CifStructureReader.java"]:
+                "quantumforge/builder/CifStructureReader.java",
+                "quantumforge/builder/SdfStructureReader.java"]:
         text = (SRC / rel).read_text(encoding="utf-8")
         if "class " not in text:
             error(f"{rel} does not declare a type")
