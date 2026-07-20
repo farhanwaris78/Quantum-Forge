@@ -6113,6 +6113,10 @@ class ResultAnalysisServiceTest {
                 text);
         assertTrue(text.contains("SSH_BULK_DOWNLOAD_UNAVAILABLE"), text,
                 "the frozen boundary is stated on every report");
+        assertTrue(text.contains("SSHFileTransfer.downloadVerifiedResult"), text,
+                "the verified-download runtime is surfaced on the boundary line");
+        assertTrue(text.contains("NOTHING transfers from this plan channel"), text,
+                "the new runtime does not loosen the plan channel's no-transfer rule");
 
         AnalysisReport feasibility = ResultAnalysisService.analyze(
                 AnalysisKind.SFTP_TRANSFER_PLAN, stubProject(this.tempDir),

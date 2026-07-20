@@ -8075,15 +8075,23 @@ public final class ResultAnalysisService {
             }
         }
         text.append("Boundary: bulk download and remote deletion stay disabled by design "
-                + "(SSH_BULK_DOWNLOAD_UNAVAILABLE / SSH_DELETE_UNAVAILABLE).\n");
+                + "(SSH_BULK_DOWNLOAD_UNAVAILABLE / SSH_DELETE_UNAVAILABLE). A single-file"
+                + " VERIFIED download now exists as a connection-gated runtime"
+                + " (SSHFileTransfer.downloadVerifiedResult: remote sha256 source"
+                + " pre-check refuses a wrong/missing/absent-hash source BEFORE any byte"
+                + " moves, bytes sink only to <local>.qftmp, local sha256 post-verify"
+                + " catches corruption in flight - mismatch removes only our temp, then"
+                + " an atomic-or-stated-plain rename), but NOTHING transfers from this"
+                + " plan channel.\n");
         text.append("\nHonesty block: NOTHING transfers from this build. The "
                 + "plan pins the integrity target (sha256 + size) NOW, and the "
                 + "declared verify-after-transfer step is MANDATORY for any "
                 + "future runtime. Execution must ride the host-key-checked "
                 + "SSH channel from the SSH_CONFIG_DRAFT; SFTP session "
-                + "plumbing, download direction, and resumable transfers are "
-                + "the remaining #92 runtime depth. The draft saves only via "
-                + "the explicit save action.\n");
+                + "plumbing and resumable transfers are the remaining #92 "
+                + "runtime depth (the verified download direction landed as a "
+                + "runtime in the same batch series as this plan kind). The "
+                + "draft saves only via the explicit save action.\n");
         List<String> csv = new ArrayList<>();
         csv.add("item,value,note");
         csv.add(String.format(Locale.ROOT, "local_file,%s,project-relative",
