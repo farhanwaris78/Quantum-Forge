@@ -87,4 +87,47 @@ class SyncManifestBuilderTest {
                 "  ", "", "", "");
         assertEquals("SYNC_REQUIRED", blank.getCode());
     }
+
+    @Test
+    void literalDraftCompilesToTheTypedRuntimeManifest() {
+        OperationResult<SyncManifest> validated = SyncManifestBuilder.validate(
+                "pw.log, pw.save/data-file-schema.xml", "pw.err", "density.dat",
+                "core.dump");
+        assertTrue(validated.isSuccess(), validated.toString());
+        OperationResult<quantumforge.hpc.ResultSyncManifest> bridge =
+                validated.getValue().orElseThrow().toRuntimeManifest();
+        assertTrue(bridge.isSuccess(), bridge.toString());
+        assertEquals("SYNC_BRIDGE_OK", bridge.getCode());
+        quantumforge.hpc.ResultSyncManifest runtime = bridge.getValue().orElseThrow();
+        assertEquals(4, runtime.getEntries().size(),
+                "2 required + 1 optional + 1 large - the excluded name never compiles");
+        assertEquals(java.util.List.of("pw.log", "pw.save/data-file-schema.xml"),
+                runtime.requiredPaths());
+        assertEquals(quantumforge.hpc.ResultSyncManifest.Priority.LARGE_OPTIONAL,
+                runtime.getEntries().get(3).getPriority());
+        assertEquals(quantumforge.hpc.ResultSyncManifest.Priority.OPTIONAL,
+                runtime.getEntries().get(2).getPriority());
+        for (quantumforge.hpc.ResultSyncManifest.Entry entry : runtime.getEntries()) {
+            assertFalse(entry.getRelativePath().contains("core.dump"),
+                    "excluded names are NEVER transferred - they never appear at all");
+        }
+        assertTrue(bridge.getMessage().contains("NEVER transferred"), bridge.getMessage());
+    }
+
+    @Test
+    void wildcardIntentRefusesToCompileToAFetchablePath() {
+        OperationResult<SyncManifest> validated = SyncManifestBuilder.validate(
+                "pw.log", "*.dat", "", "");
+        assertTrue(validated.isSuccess(),
+                "the wildcard is legal draft INTENT - the DRAFT validates");
+        OperationResult<quantumforge.hpc.ResultSyncManifest> bridge =
+                validated.getValue().orElseThrow().toRuntimeManifest();
+        assertFalse(bridge.isSuccess(),
+                "a compiled '*.dat' would make the runtime try to download a file"
+                        + " literally named '*.dat' - the silent-miss trap, refused");
+        assertEquals("SYNC_MANIFEST_PATH", bridge.getCode());
+        assertTrue(bridge.getMessage().contains("draft INTENT"), bridge.getMessage());
+        assertTrue(bridge.getMessage().contains("resolve it to literal names"),
+                bridge.getMessage());
+    }
 }

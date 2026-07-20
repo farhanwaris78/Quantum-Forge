@@ -81,6 +81,54 @@ public final class SyncManifestBuilder {
                         .append('\n');
             }
         }
+
+        /**
+         * Compiles this validated draft to the typed runtime manifest used by
+         * {@code SelectiveResultSync} (Roadmap #98, bridge slice). Role
+         * mapping: required-&gt;REQUIRED, optional-&gt;OPTIONAL,
+         * large_on_demand-&gt;LARGE_OPTIONAL. 'excluded' names are NEVER
+         * transferred, so they never appear in a runtime manifest at all.
+         * A wildcard entry (the owned top-level '*.ext' shape) is draft
+         * INTENT and refuses to compile to a fetchable path
+         * (SYNC_MANIFEST_PATH): the runtime sync treats every entry as a
+         * literal name, so a compiled '*.log' would be a silent-miss trap
+         * moved across channels - resolve wildcards to literal names at the
+         * site first.
+         */
+        public OperationResult<quantumforge.hpc.ResultSyncManifest> toRuntimeManifest() {
+            List<quantumforge.hpc.ResultSyncManifest.Entry> entries = new ArrayList<>();
+            try {
+                addAll(entries, this.required,
+                        quantumforge.hpc.ResultSyncManifest.Priority.REQUIRED);
+                addAll(entries, this.optional,
+                        quantumforge.hpc.ResultSyncManifest.Priority.OPTIONAL);
+                addAll(entries, this.largeOnDemand,
+                        quantumforge.hpc.ResultSyncManifest.Priority.LARGE_OPTIONAL);
+            } catch (IllegalArgumentException refused) {
+                return OperationResult.failed("SYNC_MANIFEST_PATH",
+                        "draft entry refused: " + refused.getMessage(), null);
+            }
+            return OperationResult.success("SYNC_BRIDGE_OK",
+                    "Draft compiles to " + entries.size() + " typed entries ("
+                            + this.required.size() + " required, " + this.optional.size()
+                            + " optional, " + this.largeOnDemand.size()
+                            + " large-on-demand); " + this.excluded.size()
+                            + " excluded name(s) are NEVER transferred.",
+                    new quantumforge.hpc.ResultSyncManifest(entries));
+        }
+
+        private static void addAll(List<quantumforge.hpc.ResultSyncManifest.Entry> entries,
+                List<String> paths, quantumforge.hpc.ResultSyncManifest.Priority priority) {
+            for (String path : paths) {
+                if (path.contains("*")) {
+                    throw new IllegalArgumentException("wildcard entry '" + path
+                            + "' is draft INTENT (top-level '*.ext') - it never compiles"
+                            + " to a fetchable literal path; resolve it to literal names"
+                            + " at the site first");
+                }
+                entries.add(new quantumforge.hpc.ResultSyncManifest.Entry(path, priority));
+            }
+        }
     }
 
     /** Validates one manifest. Codes: SYNC_ENTRY/SYNC_DUPLICATE/SYNC_REQUIRED. */

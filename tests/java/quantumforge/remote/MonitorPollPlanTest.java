@@ -80,4 +80,18 @@ class MonitorPollPlanTest {
         assertTrue(text.contains("never\n                     'job finished'"), text);
         assertTrue(text.contains("RESUMES the same plan/counters"), text);
     }
+
+    @Test
+    void renderStatesItsRelationshipToTheRuntimeLoop() {
+        OperationResult<MonitorPollPlan.PollPlan> result =
+                MonitorPollPlan.validate(30.0, 300.0, 2.0, 60);
+        assertTrue(result.isSuccess(), result.toString());
+        String text = result.getValue().orElseThrow().render();
+        assertTrue(text.contains("runtime_relationship"), text);
+        assertTrue(text.contains("USER POLICY preview"), text);
+        assertTrue(text.contains("NOT the runtime loop"), text,
+                "the draft arithmetic can never be mistaken for the runtime's"
+                        + " owned growth shape");
+        assertTrue(text.contains("JOB_MONITOR_AUDIT"), text);
+    }
 }

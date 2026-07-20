@@ -8790,6 +8790,27 @@ public final class ResultAnalysisService {
                 manifest.getRequired().size(), manifest.getOptional().size(),
                 manifest.getLargeOnDemand().size(), manifest.getExcluded().size()));
         text.append("\nManifest block (also in the draft channel):\n\n").append(block);
+        // Batch-129 bridge: the draft now compiles to the SAME typed manifest
+        // the runtime sync walks - the review channel and the runtime channel
+        // share one payload. A wildcard entry stays draft INTENT and refuses
+        // honestly; that refusal is a FINDING about the draft, not its failure.
+        OperationResult<ResultSyncManifest> bridge = manifest.toRuntimeManifest();
+        text.append('\n');
+        if (bridge.isSuccess() && bridge.getValue().isPresent()) {
+            ResultSyncManifest runtime = bridge.getValue().get();
+            text.append(String.format(Locale.ROOT,
+                    "Runtime bridge: this draft COMPILES to the typed runtime manifest "
+                            + "(%d entries, %d REQUIRED) [SYNC_BRIDGE_OK] - the names "
+                            + "above are exactly what a future sync walks; the excluded "
+                            + "names never appear there.",
+                    runtime.getEntries().size(), runtime.requiredPaths().size())).append('\n');
+        } else {
+            text.append(String.format(Locale.ROOT,
+                    "Runtime bridge: the draft does NOT compile to a fetchable manifest "
+                            + "- [%s] %s (a FINDING about the draft, not its failure - "
+                            + "the intent above is still recorded).%n",
+                    bridge.getCode(), bridge.getMessage()));
+        }
         text.append("\nHonesty block: NOTHING downloads from this build. The manifest "
                 + "records INTENT for the #98 runtime: bandwidth is saved by role, "
                 + "sizes and checksums are UNKNOWN until the first fetch (never "
@@ -8811,6 +8832,9 @@ public final class ResultAnalysisService {
         csv.add(String.format(Locale.ROOT, "excluded,%s,%d",
                 csvCell(String.join(" ", manifest.getExcluded())),
                 manifest.getExcluded().size()));
+        csv.add(String.format(Locale.ROOT, "runtime_bridge,%s,%s",
+                bridge.isSuccess() ? "SYNC_BRIDGE_OK" : "refused-as-intent",
+                bridge.getCode()));
         return new AnalysisReport(label, true, text.toString(), csv, block);
     }
 

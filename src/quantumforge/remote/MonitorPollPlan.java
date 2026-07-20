@@ -98,6 +98,16 @@ public final class MonitorPollPlan {
                     + "unknown, never\n");
             text.append("                     'job finished'; reconnect RESUMES the same "
                     + "plan/counters\n");
+            text.append("runtime_relationship = this plan's pure min(max, initial*factor^k) "
+                    + "arithmetic is a\n");
+            text.append("                     USER POLICY preview, NOT the runtime loop's"
+                    + " internal growth:\n");
+            text.append("                     RemoteJobMonitor grows +initial on unchanged"
+                    + " polls, RESETS to\n");
+            text.append("                     initial on a state change, and doubles on"
+                    + " transport error - see\n");
+            text.append("                     the JOB_MONITOR_AUDIT kind (batch 127) for"
+                    + " the owned runtime semantics\n");
             return text.toString();
         }
     }

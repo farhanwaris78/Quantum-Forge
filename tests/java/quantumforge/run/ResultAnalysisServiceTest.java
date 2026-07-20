@@ -5924,4 +5924,36 @@ class ResultAnalysisServiceTest {
                 "a free-form workflow name never reaches a transfer plan");
         assertTrue(report.getText().contains("[SYNC_WORKFLOW]"), report.getText());
     }
+
+    @Test
+    void syncManifestDraftSurfacesTheRuntimeBridgeFinding() throws IOException {
+        AnalysisReport literal = ResultAnalysisService.analyze(
+                AnalysisKind.SYNC_MANIFEST_DRAFT, stubProject(this.tempDir),
+                new AnalysisParameters().withSyncManifest(
+                        "pw.out, xml/data-file-schema.xml", "pw.err", "wfc1.dat",
+                        "core.dump"));
+        assertTrue(literal.isSuccess(), literal.getText());
+        assertTrue(literal.getText().contains(
+                "Runtime bridge: this draft COMPILES to the typed runtime manifest"
+                        + " (4 entries, 2 REQUIRED) [SYNC_BRIDGE_OK]"),
+                literal.getText());
+        assertTrue(literal.getText().contains("excluded names never appear there"),
+                literal.getText());
+        String csv = String.join("\n", literal.getCsvLines());
+        assertTrue(csv.contains("runtime_bridge,SYNC_BRIDGE_OK,SYNC_BRIDGE_OK"), csv);
+
+        AnalysisReport wildcard = ResultAnalysisService.analyze(
+                AnalysisKind.SYNC_MANIFEST_DRAFT, stubProject(this.tempDir),
+                new AnalysisParameters().withSyncManifest(
+                        "pw.out", "*.dat", "", ""));
+        assertTrue(wildcard.isSuccess(),
+                "a wildcard draft is legal INTENT - the finding must not fail it");
+        assertTrue(wildcard.getText().contains("does NOT compile to a fetchable"
+                + " manifest - [SYNC_MANIFEST_PATH]"), wildcard.getText());
+        assertTrue(wildcard.getText().contains("a FINDING about the draft, not its"
+                + " failure"), wildcard.getText());
+        String csv2 = String.join("\n", wildcard.getCsvLines());
+        assertTrue(csv2.contains("runtime_bridge,refused-as-intent,SYNC_MANIFEST_PATH"),
+                csv2);
+    }
 }
