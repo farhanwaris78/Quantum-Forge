@@ -345,7 +345,15 @@ public final class AnalysisAction {
             if (identity == null) {
                 return null;
             }
+            String knownHosts = askText("known_hosts path to exercise the runtime"
+                    + " bridge (BLANK = feasibility statement only; a compiled config"
+                    + " refuses blank known_hosts BY DESIGN - no connection is"
+                    + " attempted either way)", "");
+            if (knownHosts == null) {
+                return null;
+            }
             parameters.withSshTarget(alias, host, user, port, identity);
+            parameters.withSshKnownHosts(knownHosts);
             break;
         }
         case SFTP_TRANSFER_PLAN: {

@@ -5956,4 +5956,46 @@ class ResultAnalysisServiceTest {
         assertTrue(csv2.contains("runtime_bridge,refused-as-intent,SYNC_MANIFEST_PATH"),
                 csv2);
     }
+
+    @Test
+    void sshConfigDraftSurfacesTheRuntimeBridgeTrail() throws IOException {
+        AnalysisReport compiled = ResultAnalysisService.analyze(
+                AnalysisKind.SSH_CONFIG_DRAFT, stubProject(this.tempDir),
+                new AnalysisParameters()
+                        .withSshTarget("hpc-cluster", "login.hpc.edu", "farhan", 22,
+                                "~/.ssh/id_ed25519")
+                        .withSshKnownHosts("~/.ssh/known_hosts"));
+        assertTrue(compiled.isSuccess(), compiled.getText());
+        assertTrue(compiled.getText().contains(
+                "Runtime bridge: compiled [SSH_BRIDGE_OK]"), compiled.getText());
+        assertTrue(compiled.getText().contains("acceptNewHostKeys=false"),
+                compiled.getText());
+        assertTrue(compiled.getText().contains("NO connection"), compiled.getText());
+        assertFalse(compiled.getText().contains("JSch/sshj"),
+                "the archived undecided-library phrasing is corrected - the JSch"
+                        + " transport exists and the honesty block says so");
+
+        AnalysisReport feasibility = ResultAnalysisService.analyze(
+                AnalysisKind.SSH_CONFIG_DRAFT, stubProject(this.tempDir),
+                new AnalysisParameters()
+                        .withSshTarget("hpc-cluster", "login.hpc.edu", "farhan", 22, "")
+                        .withSshKnownHosts("  "));
+        assertTrue(feasibility.isSuccess(), feasibility.getText());
+        assertTrue(feasibility.getText().contains(
+                "Runtime bridge: NOT exercised (blank known_hosts input)"),
+                feasibility.getText());
+        assertTrue(feasibility.getText().contains("SSH_IDENTITY_MISSING"),
+                feasibility.getText(),
+                "agent-key reliance is named as the compile-time blocker honestly");
+
+        AnalysisReport refused = ResultAnalysisService.analyze(
+                AnalysisKind.SSH_CONFIG_DRAFT, stubProject(this.tempDir),
+                new AnalysisParameters()
+                        .withSshTarget("hpc-cluster", "login.hpc.edu", "farhan", 22, "")
+                        .withSshKnownHosts("~/.ssh/known_hosts"));
+        assertTrue(refused.isSuccess(),
+                "a bridge refusal is a finding on the draft, not a draft failure");
+        assertTrue(refused.getText().contains(
+                "Runtime bridge: refused [SSH_IDENTITY_MISSING]"), refused.getText());
+    }
 }

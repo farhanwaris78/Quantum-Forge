@@ -23,10 +23,11 @@ import quantumforge.operation.OperationResult;
  *       the identity-file path rejects whitespace, quotes, {@code $} and
  *       backticks outright (expansion/injection guard) rather than trying
  *       to out-quoting a config parser;</li>
- *   <li>the stanza is a DRAFT for review: key-agent setup, host-key
- *       verification (known_hosts pinning), proxy/bastion chains and the
- *       actual SSH session library (JSch/sshj decision) are the remaining
- *       #91 depth - stated in the emitted comments.</li>
+ *   <li>the stanza is a DRAFT for review: key-agent setup, proxy/bastion
+ *       chains and multi-hop are the remaining #91 depth. The session
+ *       transport now exists (JschSshTransport); {@code toConnectionConfig}
+ *       bridges this draft to its typed config with known_hosts mandatory
+ *       and accept-on-first-use structurally off.</li>
  * </ul>
  *
  * <p>Refusal codes: SSH_HOST, SSH_PORT, SSH_USER, SSH_ALIAS, SSH_KEY_PATH.</p>
@@ -64,13 +65,61 @@ public final class SshTargetSpec {
         /** Empty when no explicit identity file was supplied. */
         public String getIdentityFile() { return this.identityFile; }
 
+        /**
+         * Compiles this validated target to the runtime connection config used
+         * by {@code JschSshTransport} (Roadmap #91, bridge slice). Rules, all
+         * fail-closed: an identity file is REQUIRED (this build's transport has
+         * no agent support - SSH_IDENTITY_MISSING); a known_hosts path is
+         * REQUIRED (fail-closed host keys - SSH_KNOWN_HOSTS); acceptNewHostKeys
+         * is ALWAYS false in the compiled config (unknown-host acceptance is
+         * never enabled silently); a null timeout takes the builder's
+         * documented 15 s default. NO connection is attempted from this build.
+         */
+        public OperationResult<quantumforge.ssh.SshConnectionConfig> toConnectionConfig(
+                String knownHostsPathText, java.time.Duration connectTimeout) {
+            if (this.identityFile.isEmpty()) {
+                return OperationResult.failed("SSH_IDENTITY_MISSING",
+                        "this draft relies on agent/default keys, which this build's"
+                                + " runtime transport does not offer - set an explicit"
+                                + " identity file before compiling to a live config.",
+                        null);
+            }
+            String knownHosts = knownHostsPathText == null ? ""
+                    : knownHostsPathText.trim();
+            if (knownHosts.isEmpty()) {
+                return OperationResult.failed("SSH_KNOWN_HOSTS",
+                        "fail-closed host keys require a known_hosts path at compile"
+                                + " time - there is no accept-on-first-use in a compiled"
+                                + " config.", null);
+            }
+            quantumforge.ssh.SshConnectionConfig.Builder builder =
+                    quantumforge.ssh.SshConnectionConfig.builder()
+                            .host(this.hostName).port(this.port).user(this.user)
+                            .privateKeyPath(java.nio.file.Path.of(this.identityFile))
+                            .knownHostsPath(java.nio.file.Path.of(knownHosts))
+                            .acceptNewHostKeys(false);
+            if (connectTimeout != null) {
+                builder.connectTimeout(connectTimeout);
+            }
+            return OperationResult.success("SSH_BRIDGE_OK",
+                    "Compiled for review: " + this.user + "@" + this.hostName + ":"
+                            + this.port + " with identity " + this.identityFile
+                            + "; acceptNewHostKeys=false"
+                            + (connectTimeout == null
+                                    ? "; timeout = builder default 15 s"
+                                    : ("; timeout = " + connectTimeout.toMillis() + " ms"))
+                            + ". NO connection is attempted from this build.",
+                    builder.build());
+        }
+
         /** Renders the ssh_config stanza with the honesty comments inline. */
         public String stanza() {
             StringBuilder text = new StringBuilder();
             text.append("# QuantumForge SSH draft (Roadmap #91) - REVIEW before use;\n");
-            text.append("# password auth is disabled BY DESIGN, host-key pinning\n");
-            text.append("# (known_hosts), bastion/proxy chains and the session\n");
-            text.append("# library are runtime depth.\n");
+            text.append("# password auth is disabled BY DESIGN; host-key pinning\n");
+            text.append("# (known_hosts) is mandatory in any compiled config and\n");
+            text.append("# bastion/proxy chains remain runtime depth. NO connection\n");
+            text.append("# is attempted from this build.\n");
             text.append("Host ").append(this.alias).append('\n');
             text.append("    HostName ").append(this.hostName).append('\n');
             text.append("    User ").append(this.user).append('\n');

@@ -492,6 +492,7 @@ public final class ResultAnalysisService {
         private String sshUser = "";
         private int sshPort = 22;
         private String sshIdentityFile = "";  // empty = agent/default keys noted
+        private String sshKnownHosts = "";    // SSH bridge; blank = feasibility trail only
         private String sftpLocalName = "";     // SFTP_TRANSFER_PLAN project-relative file
         private String sftpRemotePath = "";    // absolute POSIX remote FILE path
         private boolean sftpOverwriteAllowed = false;  // default posture: refuse clobber
@@ -932,6 +933,14 @@ public final class ResultAnalysisService {
             this.sshUser = user == null ? "" : user;
             this.sshPort = port;
             this.sshIdentityFile = identityFile == null ? "" : identityFile;
+            return this;
+        }
+
+        public String getSshKnownHosts() { return this.sshKnownHosts; }
+
+        /** Blank known_hosts = feasibility trail only (the bridge is not exercised). */
+        public AnalysisParameters withSshKnownHosts(String knownHosts) {
+            this.sshKnownHosts = knownHosts == null ? "" : knownHosts;
             return this;
         }
 
@@ -7914,14 +7923,37 @@ public final class ResultAnalysisService {
                         : target.getIdentityFile() + " (quoted fields never "
                                 + "needed: unsafe characters were refused)"));
         text.append("\nRendered stanza (also in the draft channel):\n\n").append(stanza);
+        // Batch-130 bridge: the draft compiles to the SAME typed config the
+        // runtime transport honors - one payload from review to runtime.
+        String knownHosts = params.getSshKnownHosts().trim();
+        text.append('\n');
+        if (knownHosts.isEmpty()) {
+            text.append("Runtime bridge: NOT exercised (blank known_hosts input). "
+                    + "Feasibility -> identity file: "
+                    + (target.getIdentityFile().isEmpty()
+                            ? "MISSING (a compile would refuse SSH_IDENTITY_MISSING - "
+                                    + "this build's transport has no agent support)"
+                            : "present")
+                    + "; any compile forces acceptNewHostKeys=false and refuses a blank "
+                    + "known_hosts path by design.\n");
+        } else {
+            quantumforge.operation.OperationResult<quantumforge.ssh.SshConnectionConfig>
+                    bridge = target.toConnectionConfig(knownHosts, null);
+            if (bridge.isSuccess()) {
+                text.append("Runtime bridge: compiled [SSH_BRIDGE_OK] - "
+                        + bridge.getMessage()).append('\n');
+            } else {
+                text.append("Runtime bridge: refused [" + bridge.getCode() + "] "
+                        + bridge.getMessage() + "\n");
+            }
+        }
         text.append("\nHonesty block: password auth is STRUCTURALLY ABSENT - "
                 + "no password field exists, and the stanza pins "
-                + "PasswordAuthentication no + BatchMode yes. Host-key "
-                + "pinning (known_hosts), bastion/proxy chains, key-agent "
-                + "setup and the actual SSH session library (JSch/sshj "
-                + "decision) remain the #91 runtime depth; nothing connects "
-                + "from this build, and the stanza saves only via the explicit "
-                + "save action.\n");
+                + "PasswordAuthentication no + BatchMode yes. Key-agent setup "
+                + "and bastion/proxy chains remain the #91 runtime depth; the "
+                + "session transport itself exists (JschSshTransport, bridged "
+                + "above); nothing connects from this build, and the stanza "
+                + "saves only via the explicit save action.\n");
         List<String> csv = new ArrayList<>();
         csv.add("item,value,note");
         csv.add(String.format(Locale.ROOT, "alias,%s,validated", csvCell(target.getAlias())));
