@@ -59,6 +59,7 @@ import quantumforge.input.QEExxPlanner;
 import quantumforge.neural.MlModelManifest;
 import quantumforge.input.CpInputPlanner;
 import quantumforge.input.GipawInputPlanner;
+import quantumforge.input.TurboLanczosInputPlanner;
 import quantumforge.input.Wannier90WinPlanner;
 import quantumforge.input.XspectraInputPlanner;
 import quantumforge.input.QEEsmAuditor;
@@ -257,6 +258,7 @@ public final class ResultAnalysisService {
         LOG_ERROR_DIAGNOSIS("QE log error diagnosis (curated signature KB, 7.x window)"),
         XSPECTRA_INPUT_DRAFT("xspectra.x XANES input draft (required-edit guarded)"),
         GIPAW_INPUT_DRAFT("gipaw.x NMR/EFG input draft (required-edit guarded)"),
+        TDDFPT_INPUT_DRAFT("turbo_lanczos.x LR-TDDFT input draft (required-edit guarded)"),
         SLAB_MILLER_PREVIEW("Surface Miller plane geometry (d-spacing, normal, ESM gate)"),
         CIF_REVIEW("CIF structure review (fail-closed subset, no element guessing)"),
         MOL_SDF_REVIEW("MOL/SDF molecule review (V2000 single-record subset)");
@@ -310,7 +312,8 @@ public final class ResultAnalysisService {
                     || this == W90_WIN_DRAFT || this == QE_VERSION_CHECK
                     || this == MPI_POOLS_ADVISOR || this == GB_CSL_PREVIEW
                     || this == UNIT_CONVERT || this == XSPECTRA_INPUT_DRAFT
-                    || this == GIPAW_INPUT_DRAFT || this == SLAB_MILLER_PREVIEW;
+                    || this == GIPAW_INPUT_DRAFT || this == SLAB_MILLER_PREVIEW
+                    || this == TDDFPT_INPUT_DRAFT;
         }
 
         /** True for project-bound kinds that additionally parse a user data file. */
@@ -1271,6 +1274,8 @@ public final class ResultAnalysisService {
                 return analyzeXspectraInputDraft(project);
             case GIPAW_INPUT_DRAFT:
                 return analyzeGipawInputDraft(project);
+            case TDDFPT_INPUT_DRAFT:
+                return analyzeTddfptInputDraft(project);
             case SLAB_MILLER_PREVIEW:
                 return analyzeSlabMillerPreview(project, params);
             default:
@@ -6419,6 +6424,67 @@ public final class ResultAnalysisService {
         csv.add(String.format(Locale.ROOT, "required_edit_placeholders,%d,draft-guard",
                 requiredEdits));
         csv.add("job_default,'gipaw',pre-filled");
+        return new AnalysisReport(label, true, text.toString(), csv, draft);
+    }
+
+    /**
+     * Roadmap #64 (first slice): turbo_lanczos.x LR-TDDFT draft from the live
+     * input context. The draft is deliberately NON-RUNNABLE (num_init, num_eign,
+     * ipol and charge_response are REQUIRED-EDIT) and is explicitly
+     * linear-response - never labelled RT-TDDFT.
+     */
+    private static AnalysisReport analyzeTddfptInputDraft(Project project) {
+        String label = AnalysisKind.TDDFPT_INPUT_DRAFT.getLabel();
+        QEInput input;
+        try {
+            project.resolveQEInputs();
+            input = project.getQEInputCurrent();
+        } catch (RuntimeException ex) {
+            return failure(label, "Resolving the current QE input failed: "
+                    + ex.getMessage());
+        }
+        OperationResult<TurboLanczosInputPlanner.LrContext> extracted =
+                TurboLanczosInputPlanner.extractContext(input);
+        if (!extracted.isSuccess() || extracted.getValue().isEmpty()) {
+            return failure(label, "turbo_lanczos.x draft refused: ["
+                    + extracted.getCode() + "] " + extracted.getMessage());
+        }
+        TurboLanczosInputPlanner.LrContext context = extracted.getValue().get();
+        String draft = TurboLanczosInputPlanner.draft(context);
+        int requiredEdits = TurboLanczosInputPlanner.countRequiredEdits(draft);
+        StringBuilder text = new StringBuilder();
+        text.append("Save context echoed from the live input:\n");
+        text.append(String.format(Locale.ROOT,
+                "  prefix = '%s'; outdir = '%s'%n", context.getPrefix(),
+                context.getOutdir()));
+        text.append(String.format(Locale.ROOT,
+                "%nThe draft is a NON-RUNNABLE two-namelist skeleton (&lr_input + "
+                        + "&lr_control): the save context pre-filled verbatim, %d "
+                        + "REQUIRED-EDIT marker(s) guarding the physics that defines "
+                        + "the experiment (num_init Lanczos steps, num_eign T-matrix "
+                        + "eigenvalues, ipol polarization - 1/2/3 one axis or 4 = "
+                        + "three components, charge_response 0 transition vs 1 "
+                        + "charge).%n",
+                requiredEdits));
+        text.append("\nPrerequisites named by #64: this is LINEAR-RESPONSE TDDFT "
+                + "of the charge susceptibility - never labelled RT-TDDFT; a "
+                + "CONVERGED pw.x SCF save must exist in the echoed prefix/outdir "
+                + "(stated, not checkable offline); iteration/restart convergence "
+                + "is documented-experiment territory via the version-matched "
+                + "INPUT_turbo_lanczos documentation. The draft is written ONLY "
+                + "via the explicit save action; the post-run turbo_spectrum.x "
+                + "output is already parsed by the TDDFT_SPECTRUM kind. The "
+                + "explicit turbo_lanczos/turbo_spectrum adapters and "
+                + "version-matched schemas remain the #64 depth.");
+        List<String> csv = new ArrayList<>();
+        csv.add("item,value,note");
+        csv.add(String.format(Locale.ROOT, "prefix,%s,verbatim",
+                csvCell(context.getPrefix())));
+        csv.add(String.format(Locale.ROOT, "outdir,%s,verbatim",
+                csvCell(context.getOutdir())));
+        csv.add(String.format(Locale.ROOT, "required_edit_placeholders,%d,draft-guard",
+                requiredEdits));
+        csv.add("namelists,lr_input+lr_control,skeleton");
         return new AnalysisReport(label, true, text.toString(), csv, draft);
     }
 

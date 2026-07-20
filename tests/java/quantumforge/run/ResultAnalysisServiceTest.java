@@ -3843,4 +3843,56 @@ class ResultAnalysisServiceTest {
         assertFalse(v3.isSuccess(), "V3000 must fail closed");
         assertTrue(v3.getText().contains("[SDF_V3000]"), v3.getText());
     }
+
+    @Test
+    void testTddfptDraftKindContextAndGuards() {
+        Cell cell = new Cell(quantumforge.com.math.Matrix3D.unit(10.0));
+        cell.addAtom("C", 0.0, 0.0, 0.0);
+        QESCFInput input = new QESCFInput();
+        input.getNamelist(QEInput.NAMELIST_CONTROL).setValue(
+                QEValueBase.getInstance("prefix", "'bnz_lrtddft'"));
+        input.getNamelist(QEInput.NAMELIST_CONTROL).setValue(
+                QEValueBase.getInstance("outdir", "'./lr_work'"));
+
+        AnalysisReport report = ResultAnalysisService.analyze(
+                AnalysisKind.TDDFPT_INPUT_DRAFT, stubProjectWithInput(this.tempDir,
+                        input, cell), new AnalysisParameters());
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains("prefix = 'bnz_lrtddft'"),
+                report.getText());
+        assertTrue(report.getText().contains("outdir = './lr_work'"),
+                report.getText());
+        assertTrue(report.getText().contains("NON-RUNNABLE"), report.getText());
+        assertTrue(report.getText().contains("LINEAR-RESPONSE"), report.getText());
+        assertTrue(report.getText().contains("never labelled RT-TDDFT"),
+                report.getText());
+        assertTrue(report.getText().contains("CONVERGED pw.x SCF save"),
+                report.getText());
+        assertTrue(report.getText().contains("TDDFT_SPECTRUM"), report.getText());
+        assertTrue(report.getGeneratedInput() != null
+                        && report.getGeneratedInput().contains("&lr_input"),
+                "the draft travels the generated-input channel");
+        assertTrue(report.getGeneratedInput().contains("&lr_control"),
+                report.getGeneratedInput());
+        assertTrue(report.getGeneratedInput().contains("prefix   = 'bnz_lrtddft'"),
+                report.getGeneratedInput());
+        assertTrue(report.getGeneratedInput().contains("num_init  = ..."),
+                report.getGeneratedInput());
+        assertTrue(report.getGeneratedInput().contains("charge_response  = ..."),
+                report.getGeneratedInput());
+        assertTrue(report.getCsvLines().contains(
+                "required_edit_placeholders,5,draft-guard"),
+                String.join("\n", report.getCsvLines()));
+        assertTrue(report.getCsvLines().contains("prefix,bnz_lrtddft,verbatim"),
+                String.join("\n", report.getCsvLines()));
+        assertTrue(report.getCsvLines().contains(
+                "namelists,lr_input+lr_control,skeleton"),
+                String.join("\n", report.getCsvLines()));
+
+        AnalysisReport missing = ResultAnalysisService.analyze(
+                AnalysisKind.TDDFPT_INPUT_DRAFT, stubProject(this.tempDir),
+                new AnalysisParameters());
+        assertFalse(missing.isSuccess(), "no current input must fail closed");
+        assertTrue(missing.getText().contains("[TDDFPT_INPUT]"), missing.getText());
+    }
 }
