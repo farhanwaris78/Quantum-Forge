@@ -5289,4 +5289,68 @@ class ResultAnalysisServiceTest {
                 new AnalysisParameters().withJobState("guess", "", "", "", ""));
         assertFalse(badMode.isSuccess(), "modes are typed - neither duck applies");
     }
+
+
+    @Test
+    void phononGridPlanVerdictsAgainstTheLiveDeck() throws IOException {
+        Cell cubic = new Cell(quantumforge.com.math.Matrix3D.unit(5.43));
+        QESCFInput automatic = new QESCFInput();
+        QEKPoints points = automatic.getCard(QEKPoints.class);
+        points.setAutomatic();
+        points.setKGrid(new int[] {8, 8, 8});
+        points.setKOffset(new int[] {0, 0, 0});
+        AnalysisReport report = ResultAnalysisService.analyze(
+                AnalysisKind.PHONON_GRID_PLAN,
+                stubProjectWithInput(this.tempDir, automatic, cubic),
+                new AnalysisParameters().withPhononPlan("2 2 2; 4 4 4; 3 3 3"));
+        assertFalse(report.isSuccess(),
+                "ladder must never coarsen: 3 3 3 after 4 4 4 refuses, not re-sorted");
+        assertTrue(report.getText().contains("[PHONON_LADDER]"), report.getText());
+
+        AnalysisReport good = ResultAnalysisService.analyze(
+                AnalysisKind.PHONON_GRID_PLAN,
+                stubProjectWithInput(this.tempDir, automatic, cubic),
+                new AnalysisParameters().withPhononPlan("2 2 2; 3 3 3"));
+        assertTrue(good.isSuccess(), good.getText());
+        assertTrue(good.getText().contains(
+                "Deck K_POINTS automatic k-grid: 8 8 8"), good.getText());
+        String csv = String.join("\n", good.getCsvLines());
+        assertTrue(csv.contains("1,2,2,2,COMMENSURATE,"), csv,
+                "8%2==0 in every direction - exact divisibility pinned");
+        assertTrue(csv.contains("2,3,3,3,NOT_COMMENSURATE,1 2 3"), csv,
+                "8%3!=0 in ALL directions - failing directions are NAMED");
+        assertTrue(good.getText().contains("fresh SCFs follow"), good.getText(),
+                "the cost of non-commensurate q is stated, not hidden");
+    }
+
+    @Test
+    void phononGridPlanUnverifiableBannerAndRefusals() throws IOException {
+        Cell cubic = new Cell(quantumforge.com.math.Matrix3D.unit(5.43));
+        QESCFInput gamma = new QESCFInput();  // no automatic k-grid set
+        AnalysisReport report = ResultAnalysisService.analyze(
+                AnalysisKind.PHONON_GRID_PLAN,
+                stubProjectWithInput(this.tempDir, gamma, cubic),
+                new AnalysisParameters().withPhononPlan("2 2 2; 4 4 4"));
+        assertTrue(report.isSuccess(), report.getText());
+        String csv = String.join("\n", report.getCsvLines());
+        assertTrue(csv.contains("1,2,2,2,UNVERIFIABLE,"), csv,
+                "absent k-grid renders an HONEST UNVERIFIABLE, never a silent pass");
+        assertTrue(csv.contains("2,4,4,4,UNVERIFIABLE,"), csv);
+        assertTrue(report.getText().contains("UNVERIFIABLE - no automatic deck k-grid"),
+                report.getText());
+
+        AnalysisReport flat = ResultAnalysisService.analyze(
+                AnalysisKind.PHONON_GRID_PLAN,
+                stubProjectWithInput(this.tempDir, gamma, cubic),
+                new AnalysisParameters().withPhononPlan("4 4 4; 4 4 4"));
+        assertFalse(flat.isSuccess(), "flat ladders carry no information");
+        assertTrue(flat.getText().contains("[PHONON_LADDER]"), flat.getText());
+
+        AnalysisReport bound = ResultAnalysisService.analyze(
+                AnalysisKind.PHONON_GRID_PLAN,
+                stubProjectWithInput(this.tempDir, gamma, cubic),
+                new AnalysisParameters().withPhononPlan("2 2 33; 4 4 4"));
+        assertFalse(bound.isSuccess());
+        assertTrue(bound.getText().contains("[PHONON_GRID]"), bound.getText());
+    }
 }

@@ -683,6 +683,17 @@ public final class AnalysisAction {
             }
             break;
         }
+        case PHONON_GRID_PLAN: {
+            String ladder = askText("phonon q-grid ladder, rungs ';'-separated "
+                    + "(e.g. '2 2 2; 4 4 4'; 2..6 rungs, owned 1..32 band, never "
+                    + "coarsening; commensurability with the deck k-grid is "
+                    + "VERDICTED, not assumed)", "");
+            if (ladder == null) {
+                return null;
+            }
+            parameters.withPhononPlan(ladder);
+            break;
+        }
         case SLAB_MILLER_PREVIEW: {
             Integer h = askInteger("Miller index h (-16..16)", 1);
             if (h == null) {

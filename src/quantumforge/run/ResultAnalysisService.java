@@ -309,7 +309,8 @@ public final class ResultAnalysisService {
         CUTOFF_LADDER_PLAN("Cutoff convergence ladder (ecutwfc Ry/eV + implied ecutrho)"),
         ARRAY_JOB_PLAN("Scheduler array-job plan (1-based mapping, verbatim sweep tokens)"),
         CONTAINER_PROFILE_DRAFT("Apptainer/Singularity profile draft (digest-pinned, MPI declared)"),
-        JOB_STATE_GUARD("Job state transition/signal guard (typed edges, unknown-honest)");
+        JOB_STATE_GUARD("Job state transition/signal guard (typed edges, unknown-honest)"),
+        PHONON_GRID_PLAN("Phonon q-grid ladder plan (k/q commensurability verdicts, named)");
 
         private final String label;
 
@@ -369,7 +370,8 @@ public final class ResultAnalysisService {
                     || this == JOB_CANCEL_PLAN || this == MONITOR_POLL_PLAN
                     || this == SYNC_MANIFEST_DRAFT || this == SMEARING_LADDER_PLAN
                     || this == CUTOFF_LADDER_PLAN || this == ARRAY_JOB_PLAN
-                    || this == CONTAINER_PROFILE_DRAFT || this == JOB_STATE_GUARD;
+                    || this == CONTAINER_PROFILE_DRAFT || this == JOB_STATE_GUARD
+                    || this == PHONON_GRID_PLAN;
         }
 
         /** True for project-bound kinds that additionally parse a user data file. */
@@ -526,6 +528,7 @@ public final class ResultAnalysisService {
         private String jobStateTo = "";
         private String jobStateScheduler = "";
         private String jobStateSignal = "";
+        private String phononLadder = "";       // PHONON_GRID_PLAN "2 2 2; 4 4 4" rungs
 
         public double getFermiEv() { return this.fermiEv; }
         public int getKpointIndex() { return this.kpointIndex; }
@@ -1089,6 +1092,13 @@ public final class ResultAnalysisService {
             this.jobStateTo = to == null ? "" : to;
             this.jobStateScheduler = scheduler == null ? "" : scheduler;
             this.jobStateSignal = signal == null ? "" : signal;
+            return this;
+        }
+
+        public String getPhononLadder() { return this.phononLadder; }
+
+        public AnalysisParameters withPhononPlan(String ladder) {
+            this.phononLadder = ladder == null ? "" : ladder;
             return this;
         }
     }
@@ -1733,6 +1743,8 @@ public final class ResultAnalysisService {
                 return analyzeContainerProfileDraft(params);
             case JOB_STATE_GUARD:
                 return analyzeJobStateGuard(params);
+            case PHONON_GRID_PLAN:
+                return analyzePhononGridPlan(project, params);
             case SLAB_MILLER_PREVIEW:
                 return analyzeSlabMillerPreview(project, params);
             default:
@@ -8586,6 +8598,100 @@ public final class ResultAnalysisService {
                 + "query to have shown the job gone; alternate GUI restart paths must "
                 + "reconstruct accurately FROM the scheduler and manifests, never from "
                 + "wishful last state.\n");
+        return new AnalysisReport(label, true, text.toString(), csv, null);
+    }
+
+    /**
+     * Roadmap #51 (plan slice): the phonon q-grid ladder with per-rung k/q
+     * COMMENSURABILITY verdicts against the live deck k-grid. QE permits
+     * non-commensurate q (fresh SCFs follow), so non-commensurate rungs are
+     * NAMED per direction rather than refused - but they are never silently
+     * passed. An absent/non-automatic deck k-grid makes EVERY verdict an
+     * explicit UNVERIFIABLE banner, in caps - not a quiet green.
+     */
+    private static AnalysisReport analyzePhononGridPlan(Project project,
+            AnalysisParameters params) {
+        String label = AnalysisKind.PHONON_GRID_PLAN.getLabel();
+        OperationResult<List<int[]>> parsed =
+                PhononGridLadderPlan.parse(params.getPhononLadder());
+        if (!parsed.isSuccess() || parsed.getValue().isEmpty()) {
+            return failure(label, "The q-grid ladder was refused:\n[" + parsed.getCode()
+                    + "] " + parsed.getMessage());
+        }
+        List<int[]> rungs = parsed.getValue().get();
+        int[] kGrid = null;
+        String kNote;
+        try {
+            project.resolveQEInputs();
+            QEInput input = project.getQEInputCurrent();
+            QEKPoints kpoints = input == null ? null
+                    : input.getCard(QEKPoints.class);
+            if (kpoints != null && kpoints.isAutomatic() && kpoints.getKGrid() != null
+                    && kpoints.getKGrid().length == 3) {
+                kGrid = kpoints.getKGrid();
+                kNote = String.format(Locale.ROOT,
+                        "Deck K_POINTS automatic k-grid: %d %d %d (divisibility below is "
+                                + "k_i %% q_i == 0 arithmetic).",
+                        kGrid[0], kGrid[1], kGrid[2]);
+            } else {
+                kNote = "Deck k-grid is absent, gamma or explicit - commensurability is "
+                        + "UNVERIFIABLE for every rung (stated in caps, not passed).";
+            }
+        } catch (RuntimeException ex) {
+            return failure(label, "Resolving the current QE input failed: "
+                    + ex.getMessage());
+        }
+        StringBuilder text = new StringBuilder();
+        text.append(kNote).append("\n\n");
+        text.append(String.format(Locale.ROOT, "%-4s %-12s %-44s%n", "#", "q-grid",
+                "commensurability verdict"));
+        List<String> csv = new ArrayList<>();
+        csv.add("rung,q1,q2,q3,verdict,bad_directions");
+        int rungIndex = 0;
+        for (int[] rung : rungs) {
+            rungIndex += 1;
+            String verdictText;
+            String csvVerdict;
+            String badDirs;
+            if (kGrid == null) {
+                verdictText = "UNVERIFIABLE - no automatic deck k-grid (never a "
+                        + "silent pass)";
+                csvVerdict = "UNVERIFIABLE";
+                badDirs = "";
+            } else {
+                List<Integer> bad = PhononGridLadderPlan.nonCommensurateDirections(
+                        kGrid, rung);
+                if (bad.isEmpty()) {
+                    verdictText = "COMMENSURATE on the deck k-grid";
+                    csvVerdict = "COMMENSURATE";
+                    badDirs = "";
+                } else {
+                    StringBuilder dirs = new StringBuilder();
+                    for (int d = 0; d < bad.size(); d++) {
+                        if (d > 0) {
+                            dirs.append(' ');
+                        }
+                        dirs.append(bad.get(d));
+                    }
+                    verdictText = "NOT-COMMENSURATE at direction(s) " + dirs
+                            + " (QE permits it - fresh SCFs follow - but this plan "
+                            + "never hides it)";
+                    csvVerdict = "NOT_COMMENSURATE";
+                    badDirs = dirs.toString();
+                }
+            }
+            text.append(String.format(Locale.ROOT, "%-4d %2d %2d %2d   %s%n", rungIndex,
+                    rung[0], rung[1], rung[2], verdictText));
+            csv.add(String.format(Locale.ROOT, "%d,%d,%d,%d,%s,%s", rungIndex, rung[0],
+                    rung[1], rung[2], csvVerdict, badDirs));
+        }
+        text.append("\nHonesty block: this slice schedules q-grids ONLY. Why "
+                + "commensurability matters: a q point outside the SCF k-grid set costs "
+                + "its own SCF - the classic wasted-queue mistake - so the verdict is "
+                + "arithmetic you can audit, with failing directions NAMED. Downstream "
+                + "#51 depth (not judged here): ph.x run itself, q2r/matdyn conversion, "
+                + "the acoustic sum rule diagnostics, non-analytic corrections for "
+                + "polars, and honest imaginary-mode reporting.\n");
         return new AnalysisReport(label, true, text.toString(), csv, null);
     }
 
