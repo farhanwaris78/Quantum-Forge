@@ -41,6 +41,16 @@ public final class OperationResult<T> {
         return new OperationResult<>(OperationStatus.FAILED, code, message, null, cause);
     }
 
+    /**
+     * Failure carrying a partial-truth payload. Batch 128: a partial sync or
+     * an unverified cancellation must ATTACH the evidence it gathered (the
+     * SyncReport, ...) - a failure with no payload would hide what DID happen.
+     */
+    public static <T> OperationResult<T> failed(String code, String message, T value,
+            Throwable cause) {
+        return new OperationResult<>(OperationStatus.FAILED, code, message, value, cause);
+    }
+
     public static <T> OperationResult<T> unsupported(String code, String message) {
         return new OperationResult<>(OperationStatus.UNSUPPORTED, code, message, null, null);
     }

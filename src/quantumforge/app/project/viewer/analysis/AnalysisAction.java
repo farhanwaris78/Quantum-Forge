@@ -557,6 +557,29 @@ public final class AnalysisAction {
             parameters.withMonitorAudit(scheduler, jobId);
             break;
         }
+        case SYNC_RUNTIME_AUDIT: {
+            String workflow = askText("sync audit workflow - TYPED: scf | optimiz | md |"
+                    + " dos | band | neb | phonon (BLANK = census of all seven;"
+                    + " free-form names refuse)", "");
+            if (workflow == null) {
+                return null;
+            }
+            String prefix = askText("QE prefix (BLANK = 'espresso', the default;"
+                    + " used only to render the manifest rows)", "");
+            if (prefix == null) {
+                return null;
+            }
+            String large = askText("include LARGE_OPTIONAL payloads in the census?"
+                    + " (yes/no; BLANK = no - large files are opt-in; nothing is"
+                    + " transferred either way)", "no");
+            if (large == null) {
+                return null;
+            }
+            boolean includeLarge = large.trim().equalsIgnoreCase("yes")
+                    || large.trim().equalsIgnoreCase("y");
+            parameters.withSyncRuntimeAudit(workflow, prefix, includeLarge);
+            break;
+        }
         case MONITOR_POLL_PLAN: {
             Double initial = askDouble("initial poll interval [s] (1..3600)", "30");
             if (initial == null) {

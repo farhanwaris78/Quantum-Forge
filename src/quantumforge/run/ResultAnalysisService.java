@@ -81,6 +81,7 @@ import quantumforge.hpc.JobState;
 import quantumforge.hpc.SchedulerAdapter;
 import quantumforge.hpc.SchedulerAdapters;
 import quantumforge.hpc.RemoteJobMonitor;
+import quantumforge.hpc.ResultSyncManifest;
 import quantumforge.remote.OptimadeQueryBuilder;
 import quantumforge.remote.OptimadeStructuresParser;
 import quantumforge.remote.MpApiQueryBuilder;
@@ -312,6 +313,7 @@ public final class ResultAnalysisService {
         JOB_CANCEL_PLAN("Scheduler job-cancellation review plan (typed id, retype-confirm)"),
         SCHEDULER_ADAPTER_AUDIT("Scheduler adapter registry audit (adapter-owned grammar census, per-id verdicts)"),
         JOB_MONITOR_AUDIT("Remote monitor runtime audit (stated backoff/absence/signal semantics, no contact)"),
+        SYNC_RUNTIME_AUDIT("Result-sync runtime audit (probed per-workflow manifests, verdict boundary, no transfer)"),
         MONITOR_POLL_PLAN("Remote-monitoring poll plan (bounded backoff, offline semantics)"),
         SYNC_MANIFEST_DRAFT("Selective result-sync manifest draft (role-per-name, intent not facts)"),
         SMEARING_LADDER_PLAN("Smearing down-ladder plan (degauss Ry/eV, never declares convergence)"),
@@ -383,6 +385,7 @@ public final class ResultAnalysisService {
                     || this == SITE_PROFILE_DRAFT || this == NEB_INPUT_DRAFT
                     || this == JOB_CANCEL_PLAN || this == MONITOR_POLL_PLAN
                     || this == SCHEDULER_ADAPTER_AUDIT || this == JOB_MONITOR_AUDIT
+                    || this == SYNC_RUNTIME_AUDIT
                     || this == SYNC_MANIFEST_DRAFT || this == SMEARING_LADDER_PLAN
                     || this == CUTOFF_LADDER_PLAN || this == ARRAY_JOB_PLAN
                     || this == CONTAINER_PROFILE_DRAFT || this == JOB_STATE_GUARD
@@ -524,6 +527,9 @@ public final class ResultAnalysisService {
         private String schedulerAuditJobId = "";  // blank = census only, no per-id verdict
         private String monitorScheduler = "";     // JOB_MONITOR_AUDIT; blank = census of all four
         private String monitorJobId = "";         // blank = no status-command review line
+        private String syncWorkflow = "";         // SYNC_RUNTIME_AUDIT; blank = census of all seven
+        private String syncPrefix = "";           // blank = 'espresso' (the QE default, stated)
+        private boolean syncIncludeLarge = false; // explicit opt-in; large files are skipped by default
         private double monitorInitialSec = 30.0;  // MONITOR_POLL_PLAN policy
         private double monitorMaxSec = 300.0;
         private double monitorFactor = 2.0;    // 1.0 = honest constant polling
@@ -1045,6 +1051,23 @@ public final class ResultAnalysisService {
         public AnalysisParameters withMonitorAudit(String scheduler, String jobId) {
             this.monitorScheduler = scheduler == null ? "" : scheduler;
             this.monitorJobId = jobId == null ? "" : jobId;
+            return this;
+        }
+
+        public String getSyncWorkflow() { return this.syncWorkflow; }
+        public String getSyncPrefix() { return this.syncPrefix; }
+        public boolean isSyncIncludeLarge() { return this.syncIncludeLarge; }
+
+        /**
+         * Blank workflow = census of all seven typed workflows (explicit, not a
+         * default); blank prefix = 'espresso' (the QE default, stated);
+         * includeLarge defaults FALSE - large payloads are opt-in by design.
+         */
+        public AnalysisParameters withSyncRuntimeAudit(String workflow, String prefix,
+                boolean includeLarge) {
+            this.syncWorkflow = workflow == null ? "" : workflow;
+            this.syncPrefix = prefix == null ? "" : prefix;
+            this.syncIncludeLarge = includeLarge;
             return this;
         }
 
@@ -1789,6 +1812,8 @@ public final class ResultAnalysisService {
                 return analyzeSchedulerAdapterAudit(params);
             case JOB_MONITOR_AUDIT:
                 return analyzeJobMonitorAudit(params);
+            case SYNC_RUNTIME_AUDIT:
+                return analyzeSyncRuntimeAudit(params);
             case MONITOR_POLL_PLAN:
                 return analyzeMonitorPollPlan(params);
             case SYNC_MANIFEST_DRAFT:
@@ -8564,6 +8589,119 @@ public final class ResultAnalysisService {
                 + " id specified' (SLURM), qstat 'Unknown Job Id' (PBS/Torque), qstat -j"
                 + " 'Following jobs do not exist' (Grid Engine). PJM ships no pinned"
                 + " needle because none is confidently documented - fail-closed.");
+        return new AnalysisReport(label, true, text.toString(), csv, null, provenance);
+    }
+
+    /**
+     * Roadmap #98 (runtime slice): states the selective result-sync contract
+     * with the per-workflow file manifests PROBED from their single owner
+     * ({@code ResultSyncManifest.forWorkflow}), never re-typed here. The audit
+     * names the verdict boundary (a partial sync always ATTACHES its report;
+     * security-grade path failures are named in the message; a mid-walk
+     * transport death stops as SYNC_TRANSPORT and never fabricates 'missing';
+     * the checksum cache is an optimization that degrades to warnings). No
+     * file is transferred, uploaded, or deleted from this build.
+     */
+    private static AnalysisReport analyzeSyncRuntimeAudit(AnalysisParameters params) {
+        String label = AnalysisKind.SYNC_RUNTIME_AUDIT.getLabel();
+        String requested = params.getSyncWorkflow().trim();
+        String prefix = params.getSyncPrefix().trim().isEmpty()
+                ? "espresso" : params.getSyncPrefix().trim();
+        List<RunningType> census = new ArrayList<>();
+        if (requested.isEmpty()) {
+            census.addAll(List.of(RunningType.SCF, RunningType.OPTIMIZ, RunningType.MD,
+                    RunningType.DOS, RunningType.BAND, RunningType.NEB,
+                    RunningType.PHONON));
+        } else {
+            RunningType parsed = null;
+            for (RunningType type : List.of(RunningType.SCF, RunningType.OPTIMIZ,
+                    RunningType.MD, RunningType.DOS, RunningType.BAND, RunningType.NEB,
+                    RunningType.PHONON)) {
+                if (type.name().equalsIgnoreCase(requested)) {
+                    parsed = type;
+                    break;
+                }
+            }
+            if (parsed == null) {
+                return failure(label, "workflow is TYPED: scf | optimiz | md | dos | band"
+                        + " | neb | phonon (got '" + requested + "') - a free-form"
+                        + " workflow name never reaches a transfer plan."
+                        + "\n[SYNC_WORKFLOW]");
+            }
+            census.add(parsed);
+        }
+        StringBuilder text = new StringBuilder();
+        List<String> csv = new ArrayList<>();
+        csv.add("workflow,priority,relative_path");
+        text.append("Result-sync runtime audit - the contract the sync enforces, stated"
+                + "\nwith ZERO transfers (no file is downloaded, uploaded or deleted from"
+                + "\nthis build; manifest rows are probed from ResultSyncManifest.forWorkflow,"
+                + "\nthe single owner of the per-workflow file lists):\n\n");
+        text.append(String.format(Locale.ROOT,
+                "Prefix = '%s' %s; LARGE_OPTIONAL payloads are %s.%n%n",
+                prefix,
+                params.getSyncPrefix().trim().isEmpty()
+                        ? "(blank input -> the QE default, stated)" : "(explicit)",
+                params.isSyncIncludeLarge()
+                        ? "INCLUDED (explicit opt-in)" : "skipped but NAMED in the report"));
+        for (RunningType type : census) {
+            ResultSyncManifest manifest = ResultSyncManifest.forWorkflow(type, prefix);
+            List<String> required = new ArrayList<>();
+            List<String> optional = new ArrayList<>();
+            List<String> large = new ArrayList<>();
+            for (ResultSyncManifest.Entry entry : manifest.getEntries()) {
+                String path = entry.getRelativePath();
+                (entry.getPriority() == ResultSyncManifest.Priority.REQUIRED ? required
+                        : entry.getPriority() == ResultSyncManifest.Priority.LARGE_OPTIONAL
+                            ? large : optional).add(path);
+                csv.add(String.format(Locale.ROOT, "%s,%s,%s", type.name(),
+                        entry.getPriority().name(), csvCell(path)));
+            }
+            text.append(String.format(Locale.ROOT, "  %-7s REQUIRED(%d): %s%n",
+                    type.name(), required.size(), String.join(", ", required)));
+            text.append(String.format(Locale.ROOT, "          OPTIONAL(%d): %s%n",
+                    optional.size(), optional.isEmpty() ? "(none)" : String.join(", ", optional)));
+            if (!large.isEmpty()) {
+                text.append(String.format(Locale.ROOT,
+                        "          LARGE_OPTIONAL(%d): %s %s%n", large.size(),
+                        String.join(", ", large),
+                        params.isSyncIncludeLarge() ? "(will be fetched - explicit opt-in)"
+                                : "(skipped; each named in the report's skippedLarge list)"));
+            }
+        }
+        text.append('\n');
+        text.append("Verdict boundary (owned by SelectiveResultSync):\n");
+        text.append("  entry gates: SSH_NOT_CONNECTED (unsupported; nothing transferred),"
+                + " MANIFEST_EMPTY,\n    LOCAL_DIR_MISSING - all refuse before any"
+                + " transfer exists\n");
+        text.append("  path safety: manifest entries refuse absolute paths and '..'"
+                + " segments at\n    construction; the sync ALSO rejects '..'-shaped"
+                + " remote paths and local escapes\n    - both are SECURITY events"
+                + " recorded in 'failed' and NAMED in the verdict message\n");
+        text.append("  SYNC_OK / SYNC_INCOMPLETE: a partial sync ATTACHES its report;"
+                + " the message\n    names every required miss AND every security-grade"
+                + " failure (never a bare count)\n");
+        text.append("  SYNC_TRANSPORT: if the channel dies mid-walk the sync STOPS at the"
+                + " named\n    file and attaches the partial report - remaining entries"
+                + " are NOT probed and\n    NOT declared missing (a dead channel"
+                + " fabricates no absence evidence)\n");
+        text.append("  checksum cache: an OPTIMIZATION only - load/probe/record/save"
+                + " failures\n    degrade to warnings, never to a failed verdict;"
+                + " cache hits count as kept\n");
+        text.append("  scope: manifest entries are DOWNLOADED only - nothing is uploaded,"
+                + " nothing\n    is deleted remotely, and bulk 'download everything'"
+                + " stays forbidden by design\n");
+        text.append("\nHonesty block: NOTHING was transferred - there is no SFTP channel"
+                + " from this\nbuild. The census above is probed from the owning classes.\n");
+        List<String> provenance = new ArrayList<>();
+        provenance.add("Manifest ownership: hpc.ResultSyncManifest.forWorkflow is the"
+                + " single owner of the per-workflow required/optional/large file lists;"
+                + " this audit adds no rows of its own.");
+        provenance.add("Path safety: entry-level refusal of absolute/'..' paths plus"
+                + " RemotePathGuard staging confinement; local-escape re-check happens"
+                + " per file before any write.");
+        provenance.add("Nothing in this audit contacted any scheduler or storage; all"
+                + " verdicts are the stated runtime contract.");
         return new AnalysisReport(label, true, text.toString(), csv, null, provenance);
     }
 

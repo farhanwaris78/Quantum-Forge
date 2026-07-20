@@ -15,6 +15,21 @@ import quantumforge.operation.OperationResult;
 
 /**
  * Manifest-driven selective SFTP download of required/optional result files.
+ *
+ * <p>Batch-128 honesty hardening (Roadmap #98 runtime slice):</p>
+ * <ul>
+ *   <li>a partial sync ATTACHES its report on every verdict - the caller can
+ *       always see what DID download, what is missing, and what failed;</li>
+ *   <li>path-rejection / local-escape events land in {@code failed} and are
+ *       NAMED in the verdict message - a security refusal is never silent;</li>
+ *   <li>skipped LARGE_OPTIONAL entries are NAMED in the report (declared but
+ *       deliberately not fetched is information, not noise);</li>
+ *   <li>a mid-loop transport death stops the walk as SYNC_TRANSPORT with the
+ *       partial report - a dead channel must not flood every remaining entry
+ *       into "missing";</li>
+ *   <li>the checksum cache is an OPTIMIZATION: load/save/probe failures
+ *       degrade to warnings, never to a failed sync verdict.</li>
+ * </ul>
  */
 public final class SelectiveResultSync {
 
@@ -23,11 +38,14 @@ public final class SelectiveResultSync {
         private final List<String> missingRequired = new ArrayList<>();
         private final List<String> missingOptional = new ArrayList<>();
         private final List<String> failed = new ArrayList<>();
+        private final List<String> skippedLarge = new ArrayList<>();
 
         public List<String> getDownloaded() { return List.copyOf(this.downloaded); }
         public List<String> getMissingRequired() { return List.copyOf(this.missingRequired); }
         public List<String> getMissingOptional() { return List.copyOf(this.missingOptional); }
         public List<String> getFailed() { return List.copyOf(this.failed); }
+        /** LARGE_OPTIONAL entries declared in the manifest but intentionally not fetched. */
+        public List<String> getSkippedLarge() { return List.copyOf(this.skippedLarge); }
 
         public boolean isComplete() {
             return this.missingRequired.isEmpty() && this.failed.isEmpty();
@@ -62,13 +80,20 @@ public final class SelectiveResultSync {
         try {
             Files.createDirectories(localDir);
             if (this.checksumCache != null) {
-                this.checksumCache.load();
+                try {
+                    this.checksumCache.load();
+                } catch (Exception cacheEx) {
+                    // A cache is an optimization - never let it sink a sync.
+                    AppLog.warn("sync", "checksum cache load degraded to warn-only: "
+                            + cacheEx.getMessage());
+                }
             }
             String remoteBase = RemotePathGuard.resolveUnderRoot(this.stagingRoot, remoteJobRelativeDir);
             SyncReport report = new SyncReport();
-            int skipped = 0;
             for (ResultSyncManifest.Entry entry : manifest.getEntries()) {
                 if (entry.getPriority() == ResultSyncManifest.Priority.LARGE_OPTIONAL && !includeLarge) {
+                    // Declared but deliberately not fetched - named, not hidden.
+                    report.skippedLarge.add(entry.getRelativePath());
                     continue;
                 }
                 String remotePath = remoteBase + "/" + entry.getRelativePath();
@@ -81,11 +106,16 @@ public final class SelectiveResultSync {
                     report.failed.add(entry.getRelativePath() + " (local escape)");
                     continue;
                 }
-                if (this.checksumCache != null
-                        && this.checksumCache.isUpToDate(localFile, entry.getRelativePath())) {
-                    skipped++;
-                    report.downloaded.add(entry.getRelativePath() + " (cache-hit)");
-                    continue;
+                if (this.checksumCache != null) {
+                    try {
+                        if (this.checksumCache.isUpToDate(localFile, entry.getRelativePath())) {
+                            report.downloaded.add(entry.getRelativePath() + " (cache-hit)");
+                            continue;
+                        }
+                    } catch (Exception cacheEx) {
+                        AppLog.warn("sync", "checksum probe degraded to warn-only for "
+                                + entry.getRelativePath() + ": " + cacheEx.getMessage());
+                    }
                 }
                 Path parent = localFile.getParent();
                 if (parent != null) {
@@ -95,9 +125,27 @@ public final class SelectiveResultSync {
                 if (dl.isSuccess()) {
                     report.downloaded.add(entry.getRelativePath());
                     if (this.checksumCache != null) {
-                        this.checksumCache.record(localFile, entry.getRelativePath());
+                        try {
+                            this.checksumCache.record(localFile, entry.getRelativePath());
+                        } catch (Exception cacheEx) {
+                            AppLog.warn("sync", "checksum record degraded to warn-only for "
+                                    + entry.getRelativePath() + ": " + cacheEx.getMessage());
+                        }
                     }
                 } else {
+                    if (!this.transport.isConnected()) {
+                        // The channel died mid-walk: STOP. Flooding every
+                        // remaining entry into "missing" would fabricate
+                        // absence evidence that does not exist.
+                        AppLog.warn("sync", "transport died at " + entry.getRelativePath());
+                        return OperationResult.failed("SYNC_TRANSPORT",
+                                "Transport disconnected mid-sync at '"
+                                        + entry.getRelativePath() + "' after "
+                                        + report.getDownloaded().size()
+                                        + " download(s) - remaining entries were NOT"
+                                        + " probed and are NOT declared missing.",
+                                report, null);
+                    }
                     if (entry.getPriority() == ResultSyncManifest.Priority.REQUIRED) {
                         report.missingRequired.add(entry.getRelativePath());
                     } else {
@@ -108,15 +156,29 @@ public final class SelectiveResultSync {
                 }
             }
             if (this.checksumCache != null) {
-                this.checksumCache.save();
+                try {
+                    this.checksumCache.save();
+                } catch (Exception cacheEx) {
+                    AppLog.warn("sync", "checksum cache save degraded to warn-only: "
+                            + cacheEx.getMessage());
+                }
             }
             if (!report.isComplete()) {
-                return OperationResult.failed("SYNC_INCOMPLETE",
-                        "Required files missing: " + report.getMissingRequired(), null);
+                // Attach the report: the whole truth of the partial sync. The
+                // message names every REQUIRED miss AND every security-grade
+                // failure - a path rejection must never hide behind the count.
+                StringBuilder detail = new StringBuilder("Required files missing: "
+                        + report.getMissingRequired());
+                if (!report.getFailed().isEmpty()) {
+                    detail.append("; SECURITY/failed entries: ").append(report.getFailed());
+                }
+                return OperationResult.failed("SYNC_INCOMPLETE", detail.toString(),
+                        report, null);
             }
             return OperationResult.success("SYNC_OK",
                     "Downloaded/kept " + report.getDownloaded().size()
-                            + " file(s) (cache hits ≈ " + skipped + ").", report);
+                            + " file(s), skipped " + report.getSkippedLarge().size()
+                            + " declared large file(s).", report);
         } catch (Exception ex) {
             return OperationResult.failed("SYNC_ERROR", "Selective sync failed: " + ex.getMessage(), ex);
         }

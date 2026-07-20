@@ -5862,4 +5862,66 @@ class ResultAnalysisServiceTest {
         assertTrue(report.getText().contains("[MONITOR_SCHEDULER]"), report.getText());
         assertTrue(report.getText().contains("no default adapter"), report.getText());
     }
+
+    @Test
+    void syncRuntimeAuditCensusIsProbedNotDuplicated() throws IOException {
+        AnalysisReport report = ResultAnalysisService.analyze(
+                AnalysisKind.SYNC_RUNTIME_AUDIT, stubProject(this.tempDir),
+                new AnalysisParameters().withSyncRuntimeAudit("", "", false));
+        assertTrue(report.isSuccess(), report.getText());
+        String text = report.getText();
+        assertTrue(text.contains("probed from ResultSyncManifest.forWorkflow"), text);
+        assertTrue(text.contains("Prefix = 'espresso' (blank input"), text);
+        assertTrue(text.contains("REQUIRED(2)"), text, "SCF log + log.scf");
+        assertTrue(text.contains("REQUIRED(4)"), text, "DOS scf/nscf/dos + .dos");
+        assertTrue(text.contains("LARGE_OPTIONAL(1)"), text,
+                "charge-density.dat is named even when skipped");
+        assertTrue(text.contains("named in the report's skippedLarge list"), text);
+        assertTrue(text.contains("SYNC_TRANSPORT"), text);
+        assertTrue(text.contains("NOT declared missing"), text);
+        assertTrue(text.contains("SECURITY events"), text);
+        assertTrue(text.contains("degrade to warnings"), text);
+        assertTrue(text.contains("is deleted remotely"), text);
+        assertTrue(text.contains("NOTHING was transferred"), text);
+        String csv = String.join("\n", report.getCsvLines());
+        assertTrue(csv.startsWith("workflow,priority,relative_path"), csv);
+        assertTrue(csv.contains("SCF,REQUIRED,espresso.log"), csv);
+        assertTrue(csv.contains("SCF,LARGE_OPTIONAL,espresso.save/charge-density.dat"),
+                csv);
+        assertTrue(report.getProvenanceLines().size() >= 3);
+        assertTrue(report.getGeneratedInput() == null, "an audit writes no draft");
+    }
+
+    @Test
+    void syncRuntimeAuditFocusWorkflowAndLargeOptIn() throws IOException {
+        AnalysisReport dos = ResultAnalysisService.analyze(
+                AnalysisKind.SYNC_RUNTIME_AUDIT, stubProject(this.tempDir),
+                new AnalysisParameters().withSyncRuntimeAudit("dos", "proj", false));
+        assertTrue(dos.isSuccess(), dos.getText());
+        assertTrue(dos.getText().contains("proj.log.nscf"), dos.getText());
+        assertTrue(dos.getText().contains("proj.dos"), dos.getText());
+        assertFalse(dos.getText().contains("charge-density"),
+                "a focus workflow narrows the census - SCF's large payload is absent");
+        assertTrue(dos.getText().contains("'proj' (explicit)"), dos.getText());
+
+        AnalysisReport large = ResultAnalysisService.analyze(
+                AnalysisKind.SYNC_RUNTIME_AUDIT, stubProject(this.tempDir),
+                new AnalysisParameters().withSyncRuntimeAudit("scf", "", true));
+        assertTrue(large.isSuccess(), large.getText());
+        assertTrue(large.getText().contains("will be fetched - explicit opt-in"),
+                large.getText(),
+                "the opt-in renders as an explicit choice, never a default");
+        String csv = String.join("\n", large.getCsvLines());
+        assertFalse(csv.contains("DOS,REQUIRED"), csv);
+    }
+
+    @Test
+    void syncRuntimeAuditFreeFormWorkflowRefuses() throws IOException {
+        AnalysisReport report = ResultAnalysisService.analyze(
+                AnalysisKind.SYNC_RUNTIME_AUDIT, stubProject(this.tempDir),
+                new AnalysisParameters().withSyncRuntimeAudit("everything", "", false));
+        assertFalse(report.isSuccess(),
+                "a free-form workflow name never reaches a transfer plan");
+        assertTrue(report.getText().contains("[SYNC_WORKFLOW]"), report.getText());
+    }
 }

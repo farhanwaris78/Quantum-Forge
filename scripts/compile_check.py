@@ -405,6 +405,7 @@ def main() -> int:
                   "FinalGeometryTransaction", "FINAL_GEOMETRY_APPLY",
                   "SchedulerAdapters", "SCHEDULER_ADAPTER_AUDIT",
                   "RemoteJobMonitor", "JOB_MONITOR_AUDIT",
+                  "SelectiveResultSync", "SYNC_RUNTIME_AUDIT",
                   "JournalReplayMath", "replay_combined_det"]:
         if token not in service:
             error(f"ResultAnalysisService is not bound to {token}")
