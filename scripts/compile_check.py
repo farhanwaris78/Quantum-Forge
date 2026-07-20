@@ -389,6 +389,7 @@ def main() -> int:
                   "KMeshConvergenceLadder", "KMESH_CONVERGENCE_PLAN",
                   "SiteProfileSpec", "SITE_PROFILE_DRAFT",
                   "NebInputPlanner", "NEB_INPUT_DRAFT",
+                  "JobCancelPlan", "JOB_CANCEL_PLAN",
                   "JournalReplayMath", "replay_combined_det"]:
         if token not in service:
             error(f"ResultAnalysisService is not bound to {token}")
@@ -444,6 +445,7 @@ def main() -> int:
                 "quantumforge/run/KMeshConvergenceLadder.java",
                 "quantumforge/remote/SiteProfileSpec.java",
                 "quantumforge/input/NebInputPlanner.java",
+                "quantumforge/remote/JobCancelPlan.java",
                 "quantumforge/builder/JournalReplayMath.java"]:
         text = (SRC / rel).read_text(encoding="utf-8")
         if "class " not in text:

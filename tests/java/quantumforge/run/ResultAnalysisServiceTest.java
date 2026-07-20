@@ -4855,4 +4855,59 @@ class ResultAnalysisServiceTest {
         assertTrue(inverted.getText().contains("inverts the spring ladder"),
                 inverted.getText());
     }
+
+
+    @Test
+    void jobCancelPlanRendersTheReviewBlock() throws IOException {
+        AnalysisReport report = ResultAnalysisService.analyze(
+                AnalysisKind.JOB_CANCEL_PLAN, stubProject(this.tempDir),
+                new AnalysisParameters().withJobCancel("SLURM", "4521_3", "4521_3"));
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains(
+                "Cancelling (review-only) job 4521_3 on slurm via 'scancel 4521_3'."),
+                report.getText());
+        assertTrue(report.getText().contains("NOTHING was cancelled"), report.getText());
+        String block = report.getGeneratedInput().orElseThrow();
+        assertTrue(block.contains("cancel_command   = scancel 4521_3"), block);
+        assertTrue(block.contains("ONLY success signal"), block);
+        assertTrue(block.contains("NEVER a successful cancellation"), block);
+        assertTrue(block.contains("record CANCELLED"), block);
+        String csv = String.join("\n", report.getCsvLines());
+        assertTrue(csv.contains("confirmation,retyped-exactly,compared untrimmed"), csv);
+        assertTrue(csv.contains("success_signal,scheduler-query-shows-absent,"
+                + "only signal accepted"), csv);
+    }
+
+    @Test
+    void jobCancelPlanFailClosedPaths() throws IOException {
+        AnalysisReport looseConfirm = ResultAnalysisService.analyze(
+                AnalysisKind.JOB_CANCEL_PLAN, stubProject(this.tempDir),
+                new AnalysisParameters().withJobCancel("slurm", "4521", "4521 "));
+        assertFalse(looseConfirm.isSuccess(),
+                "the confirmation is compared UNTRIMMED - whitespace must show");
+        assertTrue(looseConfirm.getText().contains("[CANCEL_CONFIRM]"),
+                looseConfirm.getText());
+
+        AnalysisReport injected = ResultAnalysisService.analyze(
+                AnalysisKind.JOB_CANCEL_PLAN, stubProject(this.tempDir),
+                new AnalysisParameters().withJobCancel("slurm", "4521; rm -rf /",
+                        "4521; rm -rf /"));
+        assertFalse(injected.isSuccess(),
+                "a free-form id can never become a command fragment");
+        assertTrue(injected.getText().contains("[CANCEL_JOBID]"), injected.getText());
+
+        AnalysisReport pbsArray = ResultAnalysisService.analyze(
+                AnalysisKind.JOB_CANCEL_PLAN, stubProject(this.tempDir),
+                new AnalysisParameters().withJobCancel("pbs", "4521_3", "4521_3"));
+        assertFalse(pbsArray.isSuccess(),
+                "array syntax is SLURM-only - per-scheduler grammar honored");
+        assertTrue(pbsArray.getText().contains("[CANCEL_JOBID]"), pbsArray.getText());
+
+        AnalysisReport freeScheduler = ResultAnalysisService.analyze(
+                AnalysisKind.JOB_CANCEL_PLAN, stubProject(this.tempDir),
+                new AnalysisParameters().withJobCancel("torque", "123", "123"));
+        assertFalse(freeScheduler.isSuccess());
+        assertTrue(freeScheduler.getText().contains("[CANCEL_SCHEDULER]"),
+                freeScheduler.getText());
+    }
 }

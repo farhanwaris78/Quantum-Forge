@@ -80,6 +80,7 @@ import quantumforge.remote.OptimadeStructuresParser;
 import quantumforge.remote.MpApiQueryBuilder;
 import quantumforge.remote.MpSummaryParser;
 import quantumforge.input.NebInputPlanner;
+import quantumforge.remote.JobCancelPlan;
 import quantumforge.remote.SftpTransferPlan;
 import quantumforge.remote.SiteProfileSpec;
 import quantumforge.remote.SlurmScriptBuilder;
@@ -295,7 +296,8 @@ public final class ResultAnalysisService {
         SLURM_SCRIPT_DRAFT("SLURM submit-script draft (typed directives, reviewed payload)"),
         KMESH_CONVERGENCE_PLAN("k-mesh convergence ladder plan (spacing arithmetic, energies unaudited)"),
         SITE_PROFILE_DRAFT("HPC site-profile draft (typed scheduler/launcher, owned grammar)"),
-        NEB_INPUT_DRAFT("neb.x &PATH namelist draft (typed, image-checklisted)");
+        NEB_INPUT_DRAFT("neb.x &PATH namelist draft (typed, image-checklisted)"),
+        JOB_CANCEL_PLAN("Scheduler job-cancellation review plan (typed id, retype-confirm)");
 
         private final String label;
 
@@ -351,7 +353,8 @@ public final class ResultAnalysisService {
                     || this == OPTIMADE_QUERY_DRAFT || this == MP_QUERY_DRAFT
                     || this == SSH_CONFIG_DRAFT || this == SFTP_TRANSFER_PLAN
                     || this == SLURM_SCRIPT_DRAFT || this == KMESH_CONVERGENCE_PLAN
-                    || this == SITE_PROFILE_DRAFT || this == NEB_INPUT_DRAFT;
+                    || this == SITE_PROFILE_DRAFT || this == NEB_INPUT_DRAFT
+                    || this == JOB_CANCEL_PLAN;
         }
 
         /** True for project-bound kinds that additionally parse a user data file. */
@@ -481,6 +484,9 @@ public final class ResultAnalysisService {
         private double nebKMax = Double.NaN;
         private double nebDs = Double.NaN;
         private double nebPathThr = Double.NaN;
+        private String cancelScheduler = "";   // JOB_CANCEL_PLAN typed scheduler
+        private String cancelJobId = "";       // owned per-scheduler grammar
+        private String cancelConfirm = "";     // must retype the id EXACTLY (untrimmed)
 
         public double getFermiEv() { return this.fermiEv; }
         public int getKpointIndex() { return this.kpointIndex; }
@@ -944,6 +950,18 @@ public final class ResultAnalysisService {
             this.nebKMax = kMax;
             this.nebDs = ds;
             this.nebPathThr = pathThr;
+            return this;
+        }
+
+        public String getCancelScheduler() { return this.cancelScheduler; }
+        public String getCancelJobId() { return this.cancelJobId; }
+        public String getCancelConfirm() { return this.cancelConfirm; }
+
+        public AnalysisParameters withJobCancel(String scheduler, String jobId,
+                String confirmation) {
+            this.cancelScheduler = scheduler == null ? "" : scheduler;
+            this.cancelJobId = jobId == null ? "" : jobId;
+            this.cancelConfirm = confirmation == null ? "" : confirmation;
             return this;
         }
     }
@@ -1572,6 +1590,8 @@ public final class ResultAnalysisService {
                 return analyzeSiteProfileDraft(params);
             case NEB_INPUT_DRAFT:
                 return analyzeNebInputDraft(params);
+            case JOB_CANCEL_PLAN:
+                return analyzeJobCancelPlan(params);
             case SLAB_MILLER_PREVIEW:
                 return analyzeSlabMillerPreview(project, params);
             default:
@@ -8004,6 +8024,52 @@ public final class ResultAnalysisService {
         csv.add("intermediate_images,not-generated,editor-slice depth");
         return new AnalysisReport(label, true, text.toString(), csv,
                 namelist + "\n# " + checklist.replace("\n", "\n# "));
+    }
+
+    /**
+     * Roadmap #97 (plan slice): review plan for cancelling ONE scheduler job.
+     * The scheduler is typed, the job id follows an owned per-scheduler
+     * grammar (array syntax SLURM-only), and the confirmation must retype the
+     * id EXACTLY - compared untrimmed, because silently forgiving whitespace
+     * inside a destructive action is worse than refusing. The render pins
+     * the ONLY success signal (post-cancel scheduler query shows the job
+     * gone) and states the forbidden alternatives (kill-by-name, directory
+     * deletion). NOTHING is cancelled from this build.
+     */
+    private static AnalysisReport analyzeJobCancelPlan(AnalysisParameters params) {
+        String label = AnalysisKind.JOB_CANCEL_PLAN.getLabel();
+        OperationResult<JobCancelPlan.CancelPlan> validated = JobCancelPlan.validate(
+                params.getCancelScheduler(), params.getCancelJobId(),
+                params.getCancelConfirm());
+        if (!validated.isSuccess() || validated.getValue().isEmpty()) {
+            return failure(label, "The cancellation plan was refused:\n["
+                    + validated.getCode() + "] " + validated.getMessage());
+        }
+        JobCancelPlan.CancelPlan plan = validated.getValue().get();
+        String block = plan.render();
+        StringBuilder text = new StringBuilder();
+        text.append(String.format(Locale.ROOT,
+                "Cancelling (review-only) job %s on %s via '%s'.%n",
+                plan.getJobId(), plan.getScheduler(), plan.getCommand()));
+        text.append("\nReview block (also in the draft channel):\n\n").append(block);
+        text.append("\nHonesty block: NOTHING was cancelled - there is no SSH channel "
+                + "from this build. The command above is a review line; execution "
+                + "requires the runtime channel AND your re-review. The classic cancel "
+                + "errors are stated as forbidden lines (kill by process name; delete "
+                + "the job's directory 'to clean up'). After any execution, the "
+                + "scheduler query is the ONLY success signal, and the #95 state "
+                + "machine must then record CANCELLED - never carpet-FAILED - citing "
+                + "the verifying query.\n");
+        List<String> csv = new ArrayList<>();
+        csv.add("item,value,note");
+        csv.add(String.format(Locale.ROOT, "scheduler,%s,typed enum", plan.getScheduler()));
+        csv.add(String.format(Locale.ROOT, "job_id,%s,owned per-scheduler grammar",
+                csvCell(plan.getJobId())));
+        csv.add(String.format(Locale.ROOT, "cancel_command,%s,review line only",
+                csvCell(plan.getCommand())));
+        csv.add("confirmation,retyped-exactly,compared untrimmed");
+        csv.add("success_signal,scheduler-query-shows-absent,only signal accepted");
+        return new AnalysisReport(label, true, text.toString(), csv, block);
     }
 
     /**

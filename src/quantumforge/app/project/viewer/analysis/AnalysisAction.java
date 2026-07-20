@@ -506,6 +506,25 @@ public final class AnalysisAction {
                     pathThr.doubleValue());
             break;
         }
+        case JOB_CANCEL_PLAN: {
+            String scheduler = askText("scheduler - TYPED: slurm | pbs | pjm | sge",
+                    "slurm");
+            if (scheduler == null) {
+                return null;
+            }
+            String jobId = askText("job id (numeric; SLURM array 'id_index' allowed; "
+                    + "PBS '.server' suffix allowed)", "");
+            if (jobId == null) {
+                return null;
+            }
+            String confirm = askText("RETYPE the job id EXACTLY to confirm "
+                    + "(compared untrimmed; a button click is not identity)", "");
+            if (confirm == null) {
+                return null;
+            }
+            parameters.withJobCancel(scheduler, jobId, confirm);
+            break;
+        }
         case SLAB_MILLER_PREVIEW: {
             Integer h = askInteger("Miller index h (-16..16)", 1);
             if (h == null) {
