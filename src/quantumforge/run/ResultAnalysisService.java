@@ -290,7 +290,8 @@ public final class ResultAnalysisService {
         MP_QUERY_DRAFT("Materials Project summary query draft (validated, unfetched, key-safe)"),
         SSH_CONFIG_DRAFT("SSH target ssh_config draft (publickey-only, validated)"),
         SFTP_TRANSFER_PLAN("SFTP staging plan (upload, hash-pinned, explicit overwrite)"),
-        SLURM_SCRIPT_DRAFT("SLURM submit-script draft (typed directives, reviewed payload)");
+        SLURM_SCRIPT_DRAFT("SLURM submit-script draft (typed directives, reviewed payload)"),
+        KMESH_CONVERGENCE_PLAN("k-mesh convergence ladder plan (spacing arithmetic, energies unaudited)");
 
         private final String label;
 
@@ -345,7 +346,7 @@ public final class ResultAnalysisService {
                     || this == TDDFPT_INPUT_DRAFT || this == JOB_DB_SCHEMA_PLAN
                     || this == OPTIMADE_QUERY_DRAFT || this == MP_QUERY_DRAFT
                     || this == SSH_CONFIG_DRAFT || this == SFTP_TRANSFER_PLAN
-                    || this == SLURM_SCRIPT_DRAFT;
+                    || this == SLURM_SCRIPT_DRAFT || this == KMESH_CONVERGENCE_PLAN;
         }
 
         /** True for project-bound kinds that additionally parse a user data file. */
@@ -457,6 +458,8 @@ public final class ResultAnalysisService {
         private String slurmWalltime = "";
         private String slurmModules = "";      // csv, blank = no-module comment
         private String slurmCommand = "";      // one analyst-reviewed payload line
+        private String kmeshLadder = "";       // "4 4 4; 8 8 8; ..." rungs, order kept
+        private String kmeshOffset = "";       // exactly three 0/1 shifts, never defaulted
 
         public double getFermiEv() { return this.fermiEv; }
         public int getKpointIndex() { return this.kpointIndex; }
@@ -865,6 +868,15 @@ public final class ResultAnalysisService {
             this.slurmWalltime = walltime == null ? "" : walltime;
             this.slurmModules = modules == null ? "" : modules;
             this.slurmCommand = command == null ? "" : command;
+            return this;
+        }
+
+        public String getKmeshLadder() { return this.kmeshLadder; }
+        public String getKmeshOffset() { return this.kmeshOffset; }
+
+        public AnalysisParameters withKmeshPlan(String ladder, String offset) {
+            this.kmeshLadder = ladder == null ? "" : ladder;
+            this.kmeshOffset = offset == null ? "" : offset;
             return this;
         }
     }
@@ -1487,6 +1499,8 @@ public final class ResultAnalysisService {
                 return analyzeSftpTransferPlan(project, params);
             case SLURM_SCRIPT_DRAFT:
                 return analyzeSlurmScriptDraft(params);
+            case KMESH_CONVERGENCE_PLAN:
+                return analyzeKmeshConvergencePlan(project, params);
             case SLAB_MILLER_PREVIEW:
                 return analyzeSlabMillerPreview(project, params);
             default:
@@ -7708,6 +7722,85 @@ public final class ResultAnalysisService {
                         : "each token grammar-checked"));
         csv.add(String.format(Locale.ROOT, "payload_lines,1,verbatim analyst content"));
         return new AnalysisReport(label, true, text.toString(), csv, script);
+    }
+
+    /**
+     * Roadmap #37 (plan slice): schedules a k-mesh CONVERGENCE LADDER for the
+     * live project cell. Rungs are validated (2..8, never coarsening, order
+     * preserved, explicit 0/1 shift - never defaulted); every rung is priced
+     * with the already-tested QEKpointMeshAdvisor (2pi convention, Angstrom^-1),
+     * and the refinement factor vs the previous rung is reported. The honesty
+     * boundary is hard: energies/forces are NOT evaluated, the delta-E
+     * stopping criterion is user-set runtime work, and this plan NEVER
+     * declares convergence.
+     */
+    private static AnalysisReport analyzeKmeshConvergencePlan(Project project,
+            AnalysisParameters params) {
+        String label = AnalysisKind.KMESH_CONVERGENCE_PLAN.getLabel();
+        Cell cell = project.getCell();
+        double[][] lattice = cell == null ? null : cell.copyLattice();
+        if (lattice == null) {
+            return failure(label, "The project has no atomic cell - k-mesh spacing "
+                    + "arithmetic needs the live lattice and is not estimated from a "
+                    + "placeholder geometry.");
+        }
+        OperationResult<KMeshConvergenceLadder.Ladder> parsed =
+                KMeshConvergenceLadder.parse(params.getKmeshLadder(), params.getKmeshOffset());
+        if (!parsed.isSuccess() || parsed.getValue().isEmpty()) {
+            return failure(label, "The k-mesh ladder was refused:\n[" + parsed.getCode()
+                    + "] " + parsed.getMessage());
+        }
+        KMeshConvergenceLadder.Ladder ladder = parsed.getValue().get();
+        int[] offset = ladder.getOffset();
+        StringBuilder text = new StringBuilder();
+        text.append(String.format(Locale.ROOT,
+                "Shift %d %d %d (prompted explicitly - 1 = half-step shift, 0 = "
+                        + "Gamma-inclusive per direction; semantics are never "
+                        + "defaulted).%n%n",
+                offset[0], offset[1], offset[2]));
+        text.append(String.format(Locale.ROOT,
+                "%-4s %-12s %-18s %-13s %-16s%n", "#", "mesh n1 n2 n3",
+                "worst spacing (A^-1)", "grid points", "refinement vs prev"));
+        List<String> csv = new ArrayList<>();
+        csv.add("rung,n1,n2,n3,worst_spacing_inv_ang,total_grid_points,"
+                + "refinement_factor_vs_prev");
+        double previousWorst = Double.NaN;
+        int rungIndex = 0;
+        for (int[] rung : ladder.getRungs()) {
+            rungIndex += 1;
+            OperationResult<QEKpointMeshAdvisor.MeshReport> assessed =
+                    QEKpointMeshAdvisor.assess(lattice, rung, offset);
+            if (!assessed.isSuccess() || assessed.getValue().isEmpty()) {
+                return failure(label, "Rung " + rungIndex + " mesh assessment failed "
+                        + "closed: [" + assessed.getCode() + "] " + assessed.getMessage());
+            }
+            QEKpointMeshAdvisor.MeshReport report = assessed.getValue().get();
+            double worst = 0.0;
+            for (QEKpointMeshAdvisor.DirectionReport direction : report.getDirections()) {
+                worst = Math.max(worst, direction.getSpacingInvAng());
+            }
+            int points = report.getTotalGridPoints();
+            boolean hasPrev = rungIndex > 1;
+            double refinement = hasPrev ? previousWorst / worst : Double.NaN;
+            text.append(String.format(Locale.ROOT,
+                    "%-4d %3d %3d %3d     %-18.6f %-13d %-16s%n", rungIndex,
+                    rung[0], rung[1], rung[2], worst, points,
+                    hasPrev ? String.format(Locale.ROOT, "x%.6f", refinement) : "-"));
+            csv.add(String.format(Locale.ROOT, "%d,%d,%d,%d,%.6f,%d,%s", rungIndex,
+                    rung[0], rung[1], rung[2], worst, points,
+                    hasPrev ? String.format(Locale.ROOT, "%.6f", refinement) : ""));
+            previousWorst = worst;
+        }
+        text.append("\nHonesty block: this plan schedules rungs and prices their "
+                + "sampling - it NEVER declares convergence. Total energies, forces and "
+                + "the delta-E/delta-F stopping threshold are runtime results (run every "
+                + "rung, then compare consecutive values against YOUR criterion; the "
+                + "workflow stops honestly ONLY when the observed change meets it). "
+                + "Spacings use the 2pi convention in Angstrom^-1 (the same arithmetic "
+                + "the KMESH_QUALITY advisor cross-checks against the BZ facet "
+                + "distance); rung order is exactly as prompted - nothing is re-sorted, "
+                + "and a coarsening ladder refuses rather than inverting the study.\n");
+        return new AnalysisReport(label, true, text.toString(), csv, null);
     }
 
     /**

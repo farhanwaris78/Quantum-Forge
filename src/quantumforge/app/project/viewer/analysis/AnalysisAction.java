@@ -410,6 +410,22 @@ public final class AnalysisAction {
                     modules, command);
             break;
         }
+        case KMESH_CONVERGENCE_PLAN: {
+            String ladder = askText("k-mesh ladder, rungs separated by ';' "
+                    + "(e.g. '4 4 4; 8 8 8; 12 12 12'; 2..8 rungs, never coarsening, "
+                    + "order kept exactly)", "");
+            if (ladder == null) {
+                return null;
+            }
+            String offset = askText("shift triple, exactly three 0/1 values "
+                    + "(e.g. '0 0 0' Gamma-inclusive, '1 1 1' half-step shifted; "
+                    + "blank REFUSES - no default is invented)", "0 0 0");
+            if (offset == null) {
+                return null;
+            }
+            parameters.withKmeshPlan(ladder, offset);
+            break;
+        }
         case SLAB_MILLER_PREVIEW: {
             Integer h = askInteger("Miller index h (-16..16)", 1);
             if (h == null) {

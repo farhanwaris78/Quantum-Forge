@@ -4661,4 +4661,55 @@ class ResultAnalysisServiceTest {
         assertTrue(omitted.getGeneratedInput().orElseThrow()
                 .contains("# no modules declared"), "no assumption about module environment");
     }
+
+
+    @Test
+    void kmeshConvergencePlanPricesEveryRungAgainstTheLiveCell() throws IOException {
+        Cell cubic = new Cell(quantumforge.com.math.Matrix3D.unit(5.43));
+        AnalysisReport report = ResultAnalysisService.analyze(
+                AnalysisKind.KMESH_CONVERGENCE_PLAN,
+                stubProjectWithInput(this.tempDir, null, cubic),
+                new AnalysisParameters().withKmeshPlan("4 4 4; 8 8 8; 12 12 12", "0 0 0"));
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains("Shift 0 0 0"), report.getText());
+        assertTrue(report.getText().contains("NEVER declares convergence"),
+                report.getText());
+        String csv = String.join("\n", report.getCsvLines());
+        assertTrue(csv.contains(
+                "rung,n1,n2,n3,worst_spacing_inv_ang,total_grid_points,"
+                        + "refinement_factor_vs_prev"),
+                csv);
+        assertTrue(csv.contains("1,4,4,4,0.289281,64,"), csv,
+                "2pi/5.43 / 4 = 0.289281 A^-1 - advisor arithmetic pinned");
+        assertTrue(csv.contains("2,8,8,8,0.144641,512,2.000000"), csv);
+        assertTrue(csv.contains("3,12,12,12,0.096427,1728,1.500000"), csv,
+                "refinement vs previous rung is spacing arithmetic, not a promise");
+    }
+
+    @Test
+    void kmeshConvergencePlanFailClosedPaths() throws IOException {
+        Cell cubic = new Cell(quantumforge.com.math.Matrix3D.unit(5.43));
+        AnalysisReport coarsening = ResultAnalysisService.analyze(
+                AnalysisKind.KMESH_CONVERGENCE_PLAN,
+                stubProjectWithInput(this.tempDir, null, cubic),
+                new AnalysisParameters().withKmeshPlan("8 8 8; 4 8 8", "0 0 0"));
+        assertFalse(coarsening.isSuccess(),
+                "a coarsening ladder inverts the stopping logic - refused, not re-sorted");
+        assertTrue(coarsening.getText().contains("[KMESH_LADDER]"), coarsening.getText());
+
+        AnalysisReport noShift = ResultAnalysisService.analyze(
+                AnalysisKind.KMESH_CONVERGENCE_PLAN,
+                stubProjectWithInput(this.tempDir, null, cubic),
+                new AnalysisParameters().withKmeshPlan("4 4 4; 8 8 8", ""));
+        assertFalse(noShift.isSuccess(), "shift semantics are never defaulted");
+        assertTrue(noShift.getText().contains("[KMESH_OFFSET]"), noShift.getText());
+
+        AnalysisReport noCell = ResultAnalysisService.analyze(
+                AnalysisKind.KMESH_CONVERGENCE_PLAN,
+                stubProjectWithInput(this.tempDir, null, null),
+                new AnalysisParameters().withKmeshPlan("4 4 4; 8 8 8", "0 0 0"));
+        assertFalse(noCell.isSuccess(),
+                "spacing arithmetic needs the live lattice - no placeholder geometry");
+        assertTrue(noCell.getText().contains("no atomic cell"), noCell.getText());
+    }
 }
