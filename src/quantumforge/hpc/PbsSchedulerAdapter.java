@@ -97,6 +97,15 @@ public final class PbsSchedulerAdapter implements SchedulerAdapter {
         return new String[] {"qstat", "-f", schedulerJobId.trim()};
     }
 
+    /**
+     * PBS/Torque documents the absence shape: qstat against an unknown job id
+     * prints "qstat: Unknown Job Id ..." on stderr and exits non-zero.
+     */
+    @Override
+    public boolean isJobAbsent(String stderrText) {
+        return stderrText != null && stderrText.contains("Unknown Job Id");
+    }
+
     @Override
     public String[] submitCommand(String remoteScriptPath) {
         if (remoteScriptPath == null || remoteScriptPath.isBlank() || remoteScriptPath.contains("..")) {

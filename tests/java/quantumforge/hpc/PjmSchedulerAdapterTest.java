@@ -88,4 +88,13 @@ class PjmSchedulerAdapterTest {
         assertThrows(IllegalArgumentException.class,
                 () -> adapter.submitCommand("../escape.sh"));
     }
+
+    @Test
+    void absenceStaysFailClosedWithoutAPinnedNeedle() {
+        assertFalse(adapter.isJobAbsent("pjstat: ERR. job not found"),
+                "no confidently documented PJM absence needle is pinned, so every"
+                        + " pjstat failure is unreadable - NEVER gone");
+        assertFalse(adapter.isJobAbsent(""));
+        assertFalse(adapter.isJobAbsent(null));
+    }
 }

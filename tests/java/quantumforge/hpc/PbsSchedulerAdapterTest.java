@@ -1,6 +1,7 @@
 package quantumforge.hpc;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
@@ -31,5 +32,15 @@ class PbsSchedulerAdapterTest {
     void parsesJobIdWithHostSuffix() {
         PbsSchedulerAdapter adapter = new PbsSchedulerAdapter();
         assertEquals("98765", adapter.parseJobId("98765.cluster.local\n").orElseThrow());
+    }
+
+    @Test
+    void documentedAbsenceNeedleIsOwned() {
+        PbsSchedulerAdapter adapter = new PbsSchedulerAdapter();
+        assertTrue(adapter.isJobAbsent("qstat: Unknown Job Id 9156.hpc02"));
+        assertFalse(adapter.isJobAbsent(""));
+        assertFalse(adapter.isJobAbsent(null));
+        assertFalse(adapter.isJobAbsent("qstat: cannot connect to server"),
+                "a server-communication failure is never absence");
     }
 }

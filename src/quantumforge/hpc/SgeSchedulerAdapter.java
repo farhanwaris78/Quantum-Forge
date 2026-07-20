@@ -95,6 +95,15 @@ public final class SgeSchedulerAdapter implements SchedulerAdapter {
         return new String[] {"qstat", "-j", schedulerJobId.trim()};
     }
 
+    /**
+     * Grid Engine documents the absence shape: qstat -j against an unknown job
+     * prints "Following jobs do not exist:" on stderr and exits non-zero.
+     */
+    @Override
+    public boolean isJobAbsent(String stderrText) {
+        return stderrText != null && stderrText.contains("do not exist");
+    }
+
     @Override
     public String[] submitCommand(String remoteScriptPath) {
         if (remoteScriptPath == null || remoteScriptPath.isBlank() || remoteScriptPath.contains("..")) {

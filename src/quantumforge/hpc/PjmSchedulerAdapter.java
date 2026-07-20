@@ -115,6 +115,12 @@ public final class PjmSchedulerAdapter implements SchedulerAdapter {
         return new String[] {"pjstat", "-S", schedulerJobId.trim()};
     }
 
+    /**
+     * PJM stays FAIL-CLOSED: no confidently documented pjstat absence needle
+     * exists in the sources pinned for this adapter, so this override is
+     * deliberately absent - the interface default (never absent) stands and an
+     * unexplained pjstat failure is reported as unreadable, never as "gone".
+     */
     @Override
     public String[] submitCommand(String remoteScriptPath) {
         if (remoteScriptPath == null || remoteScriptPath.isBlank()

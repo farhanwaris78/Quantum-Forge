@@ -37,4 +37,20 @@ public interface SchedulerAdapter {
      * Submit command tokens given a local script path that will be staged.
      */
     String[] submitCommand(String remoteScriptPath);
+
+    /**
+     * Absence verdict: true ONLY when the status query's stderr carries this
+     * scheduler's DOCUMENTED "job not found" needle. The default is
+     * deliberately FALSE: without documented knowledge, a non-zero status exit
+     * or an empty output is NEVER a verdict that the job is gone (a transport
+     * failure, a missing scheduler binary or a permission error all print the
+     * same nothing). Only adapters that override with a pinned, documented
+     * needle may declare absence.
+     *
+     * @param stderrText the status command's stderr (trimmed, maybe empty)
+     * @return true only on the documented absence needle
+     */
+    default boolean isJobAbsent(String stderrText) {
+        return false;
+    }
 }

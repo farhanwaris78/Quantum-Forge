@@ -5789,4 +5789,77 @@ class ResultAnalysisServiceTest {
         assertTrue(report.getText().contains("[SCHEDULER_NAME]"), report.getText());
         assertTrue(report.getText().contains("no default adapter"), report.getText());
     }
+
+    @Test
+    void jobMonitorAuditStatesTheRuntimeContractWithoutContact() throws IOException {
+        AnalysisReport report = ResultAnalysisService.analyze(
+                AnalysisKind.JOB_MONITOR_AUDIT, stubProject(this.tempDir),
+                new AnalysisParameters().withMonitorAudit("", ""));
+        assertTrue(report.isSuccess(), report.getText());
+        String text = report.getText();
+        assertTrue(text.contains("first interval 5.000 s and cap"), text);
+        assertTrue(text.contains("120.000 s by default"), text);
+        assertTrue(text.contains("floored at 1000 ms"), text);
+        assertTrue(text.contains("resets the interval to initial"), text);
+        assertTrue(text.contains("UNKNOWN is deliberately NOT terminal for monitoring"),
+                text);
+        assertTrue(text.contains("MONITOR_QUERY_UNREADABLE"), text);
+        assertTrue(text.contains("a TRANSPORT failure is never a status verdict"), text);
+        assertTrue(text.contains(
+                "CANCEL_UNVERIFIED and the job is NOT declared cancelled"), text);
+        // The censuses are PROBED from the owning classes (no duplicated tables):
+        assertTrue(text.contains("slurm PD=PENDING, R=RUNNING"), text);
+        assertTrue(text.contains("CD=COMPLETED"), text);
+        assertTrue(text.contains("Q=PENDING, H=PENDING"), text);
+        assertTrue(text.contains("F=COMPLETED"), text,
+                "the corrected PBS-F reading renders in the probed census");
+        assertTrue(text.contains("ACC=PENDING, QUE=PENDING, HLD=PENDING"), text);
+        assertTrue(text.contains("QW=PENDING, HQW=PENDING"), text);
+        assertTrue(text.contains("maps to UNKNOWN honestly, never guessed"), text);
+        assertTrue(text.contains("accepts ONLY stderr carrying:"
+                + " 'slurm_load_jobs error: Invalid job id specified'"), text);
+        assertTrue(text.contains("NO needle pinned - declared fail-closed"), text,
+                "PJM ships no pinned needle - rendered honestly");
+        assertFalse(text.contains("TRIPWIRE"),
+                "no adapter may accept a transport complaint as absence");
+        assertTrue(text.contains("NOTHING contacted any scheduler"), text);
+        String csv = String.join("\n", report.getCsvLines());
+        assertTrue(csv.startsWith("section,scheduler,item,verdict"), csv);
+        assertTrue(csv.contains("signal,pbs,F,COMPLETED"), csv);
+        assertTrue(csv.contains("needle,pjm,none,fail-closed"), csv);
+        assertTrue(report.getProvenanceLines().size() >= 3,
+                "transport boundary, signal ownership, and needle citations are provenanced");
+        assertTrue(report.getGeneratedInput() == null, "an audit writes no draft");
+    }
+
+    @Test
+    void jobMonitorAuditFocusVerdictsAreAdapterOwned() throws IOException {
+        AnalysisReport ok = ResultAnalysisService.analyze(
+                AnalysisKind.JOB_MONITOR_AUDIT, stubProject(this.tempDir),
+                new AnalysisParameters().withMonitorAudit("slurm", "4521_3"));
+        assertTrue(ok.isSuccess(), ok.getText());
+        assertTrue(ok.getText().contains("review line only - not run"), ok.getText());
+        assertTrue(ok.getText().contains("squeue -j 4521_3 -h -o %T"), ok.getText());
+        assertFalse(ok.getText().contains("ACC=PENDING"),
+                "a focus scheduler narrows the census to exactly that scheduler");
+
+        AnalysisReport refused = ResultAnalysisService.analyze(
+                AnalysisKind.JOB_MONITOR_AUDIT, stubProject(this.tempDir),
+                new AnalysisParameters().withMonitorAudit("pjm", "4521_3"));
+        assertTrue(refused.isSuccess(), "a REFUSED verdict is the audit's finding");
+        assertTrue(refused.getText().contains("was REFUSED by the pjm adapter"),
+                refused.getText());
+        String csv = String.join("\n", refused.getCsvLines());
+        assertTrue(csv.contains("focus,pjm,REFUSED,"), csv);
+    }
+
+    @Test
+    void jobMonitorAuditUnknownSchedulerRefusesWithoutDefault() throws IOException {
+        AnalysisReport report = ResultAnalysisService.analyze(
+                AnalysisKind.JOB_MONITOR_AUDIT, stubProject(this.tempDir),
+                new AnalysisParameters().withMonitorAudit("torque", ""));
+        assertFalse(report.isSuccess());
+        assertTrue(report.getText().contains("[MONITOR_SCHEDULER]"), report.getText());
+        assertTrue(report.getText().contains("no default adapter"), report.getText());
+    }
 }

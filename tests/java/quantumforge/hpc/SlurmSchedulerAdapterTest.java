@@ -59,4 +59,16 @@ class SlurmSchedulerAdapterTest {
             assertTrue(expected.getMessage().contains("array"), expected.getMessage());
         }
     }
+
+    @Test
+    void documentedAbsenceNeedleIsOwned() {
+        SlurmSchedulerAdapter adapter = new SlurmSchedulerAdapter();
+        assertTrue(adapter.isJobAbsent(
+                "slurm_load_jobs error: Invalid job id specified"),
+                "the documented squeue absence stderr is the needle");
+        assertFalse(adapter.isJobAbsent(""));
+        assertFalse(adapter.isJobAbsent(null));
+        assertFalse(adapter.isJobAbsent("connection reset by peer"),
+                "a transport complaint is never absence");
+    }
 }

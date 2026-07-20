@@ -102,6 +102,16 @@ public final class SlurmSchedulerAdapter implements SchedulerAdapter {
         return new String[] {"squeue", "-j", schedulerJobId.trim(), "-h", "-o", "%T"};
     }
 
+    /**
+     * SLURM documents the absence shape: squeue against a job that left the
+     * queue exits non-zero with "Invalid job id specified" on stderr. Nothing
+     * else - in particular not a transport failure - is absence.
+     */
+    @Override
+    public boolean isJobAbsent(String stderrText) {
+        return stderrText != null && stderrText.contains("Invalid job id");
+    }
+
     @Override
     public String[] submitCommand(String remoteScriptPath) {
         if (remoteScriptPath == null || remoteScriptPath.isBlank() || remoteScriptPath.contains("..")) {

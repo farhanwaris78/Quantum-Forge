@@ -541,6 +541,22 @@ public final class AnalysisAction {
             parameters.withSchedulerAudit(scheduler, jobId);
             break;
         }
+        case JOB_MONITOR_AUDIT: {
+            String scheduler = askText("monitor audit scheduler - TYPED: slurm | pbs |"
+                    + " pjm | sge (BLANK = census of all four signal/needle tables;"
+                    + " unknown names refuse - there is no default)", "");
+            if (scheduler == null) {
+                return null;
+            }
+            String jobId = askText("job id for the review status command (BLANK = skip;"
+                    + " the rendered line is a review line only - no scheduler is"
+                    + " contacted)", "");
+            if (jobId == null) {
+                return null;
+            }
+            parameters.withMonitorAudit(scheduler, jobId);
+            break;
+        }
         case MONITOR_POLL_PLAN: {
             Double initial = askDouble("initial poll interval [s] (1..3600)", "30");
             if (initial == null) {
