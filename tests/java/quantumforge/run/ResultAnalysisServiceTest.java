@@ -4391,4 +4391,79 @@ class ResultAnalysisServiceTest {
         assertFalse(badPort.isSuccess(), "ports outside 1..65535 fail closed");
         assertTrue(badPort.getText().contains("[SSH_PORT]"), badPort.getText());
     }
+
+
+    @Test
+    void sftpTransferPlanPinsTheIntegrityTargetAndStaysHonest() throws IOException {
+        Files.writeString(this.tempDir.resolve("deck.cube"), "cube payload bytes 123");
+        AnalysisReport report = ResultAnalysisService.analyze(
+                AnalysisKind.SFTP_TRANSFER_PLAN, stubProject(this.tempDir),
+                new AnalysisParameters().withSftpPlan(
+                        "deck.cube", "/home/farhan/qe/deck.cube", false));
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains("Local file: deck.cube (22 bytes)"),
+                report.getText());
+        assertTrue(report.getText().contains(
+                "4e866172d93737f62a50d277835dde013b32ea03401805d9896425fe78598152"),
+                "sha256 pinned at draft time is the verify-after-transfer target");
+        assertTrue(report.getText().contains("REFUSE-IF-EXISTS"), report.getText());
+        assertTrue(report.getText().contains("NOTHING transfers"), report.getText());
+        String draft = report.getGeneratedInput().orElseThrow();
+        assertTrue(draft.contains("local_file      = deck.cube\n"), draft);
+        assertTrue(draft.contains("remote_path     = /home/farhan/qe/deck.cube\n"), draft);
+        assertTrue(draft.contains("overwrite       = REFUSE-IF-EXISTS\n"), draft);
+        assertTrue(draft.contains("verify_after    = sha256 MUST match local_sha256 "
+                + "(mandatory)\n"), draft);
+        assertTrue(draft.contains("transfer_status = NOT STARTED - planning slice only\n"),
+                draft);
+        String csv = String.join("\n", report.getCsvLines());
+        assertTrue(csv.contains("local_file,deck.cube,project-relative"), csv);
+        assertTrue(csv.contains("local_bytes,22,pinned at draft time"), csv);
+        assertTrue(csv.contains("local_sha256,4e866172d93737f62a50d277835dde013b32ea03401"
+                + "805d9896425fe78598152,draft-time integrity target"), csv);
+        assertTrue(csv.contains("overwrite,REFUSE-IF-EXISTS,explicit"), csv);
+    }
+
+    @Test
+    void sftpTransferPlanFailClosedPaths() throws IOException {
+        Files.writeString(this.tempDir.resolve("deck.cube"), "cube payload bytes 123");
+        AnalysisReport escape = ResultAnalysisService.analyze(
+                AnalysisKind.SFTP_TRANSFER_PLAN, stubProject(this.tempDir),
+                new AnalysisParameters().withSftpPlan(
+                        "../secret", "/tmp/x.cube", false));
+        assertFalse(escape.isSuccess(), "project escapes fail closed");
+        assertTrue(escape.getText().contains("[SFTP_LOCAL_PATH]"), escape.getText());
+
+        AnalysisReport ghost = ResultAnalysisService.analyze(
+                AnalysisKind.SFTP_TRANSFER_PLAN, stubProject(this.tempDir),
+                new AnalysisParameters().withSftpPlan(
+                        "ghost.cube", "/tmp/x.cube", false));
+        assertFalse(ghost.isSuccess(), "missing payloads refuse - no silent staging");
+        assertTrue(ghost.getText().contains("[SFTP_LOCAL_IO]"), ghost.getText());
+
+        AnalysisReport dirMarker = ResultAnalysisService.analyze(
+                AnalysisKind.SFTP_TRANSFER_PLAN, stubProject(this.tempDir),
+                new AnalysisParameters().withSftpPlan(
+                        "deck.cube", "/home/farhan/qe/", false));
+        assertFalse(dirMarker.isSuccess(),
+                "a remote directory marker refuses - the file name is explicit");
+        assertTrue(dirMarker.getText().contains("[SFTP_REMOTE_PATH]"), dirMarker.getText());
+
+        AnalysisReport remoteClimb = ResultAnalysisService.analyze(
+                AnalysisKind.SFTP_TRANSFER_PLAN, stubProject(this.tempDir),
+                new AnalysisParameters().withSftpPlan(
+                        "deck.cube", "/home/../etc/x.cube", false));
+        assertFalse(remoteClimb.isSuccess(), "remote '..' climbs fail closed");
+        assertTrue(remoteClimb.getText().contains("[SFTP_REMOTE_PATH]"),
+                remoteClimb.getText());
+
+        AnalysisReport allowed = ResultAnalysisService.analyze(
+                AnalysisKind.SFTP_TRANSFER_PLAN, stubProject(this.tempDir),
+                new AnalysisParameters().withSftpPlan(
+                        "deck.cube", "/tmp/deck.cube", true));
+        assertTrue(allowed.isSuccess(), allowed.getText());
+        assertTrue(allowed.getText().contains("ALLOWED (explicit analyst choice"),
+                allowed.getText(),
+                "flipping clobber posture is a deliberate act, printed in uppercase");
+    }
 }

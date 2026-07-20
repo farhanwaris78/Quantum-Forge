@@ -77,6 +77,7 @@ import quantumforge.hpc.PoolDivisorMath;
 import quantumforge.hpc.JobDbSchema;
 import quantumforge.remote.OptimadeQueryBuilder;
 import quantumforge.remote.MpApiQueryBuilder;
+import quantumforge.remote.SftpTransferPlan;
 import quantumforge.remote.SshTargetSpec;
 import quantumforge.com.math.QEUnits;
 import quantumforge.input.QESCFInput;
@@ -282,7 +283,8 @@ public final class ResultAnalysisService {
         OPTIMADE_QUERY_DRAFT("OPTIMADE /structures query draft (validated, unfetched)"),
         OCCUPATION_LEVELS_REVIEW("HOMO/LUMO occupation-level review (line-provenanced)"),
         MP_QUERY_DRAFT("Materials Project summary query draft (validated, unfetched, key-safe)"),
-        SSH_CONFIG_DRAFT("SSH target ssh_config draft (publickey-only, validated)");
+        SSH_CONFIG_DRAFT("SSH target ssh_config draft (publickey-only, validated)"),
+        SFTP_TRANSFER_PLAN("SFTP staging plan (upload, hash-pinned, explicit overwrite)");
 
         private final String label;
 
@@ -336,7 +338,7 @@ public final class ResultAnalysisService {
                     || this == GIPAW_INPUT_DRAFT || this == SLAB_MILLER_PREVIEW
                     || this == TDDFPT_INPUT_DRAFT || this == JOB_DB_SCHEMA_PLAN
                     || this == OPTIMADE_QUERY_DRAFT || this == MP_QUERY_DRAFT
-                    || this == SSH_CONFIG_DRAFT;
+                    || this == SSH_CONFIG_DRAFT || this == SFTP_TRANSFER_PLAN;
         }
 
         /** True for project-bound kinds that additionally parse a user data file. */
@@ -438,6 +440,9 @@ public final class ResultAnalysisService {
         private String sshUser = "";
         private int sshPort = 22;
         private String sshIdentityFile = "";  // empty = agent/default keys noted
+        private String sftpLocalName = "";     // SFTP_TRANSFER_PLAN project-relative file
+        private String sftpRemotePath = "";    // absolute POSIX remote FILE path
+        private boolean sftpOverwriteAllowed = false;  // default posture: refuse clobber
 
         public double getFermiEv() { return this.fermiEv; }
         public int getKpointIndex() { return this.kpointIndex; }
@@ -814,6 +819,18 @@ public final class ResultAnalysisService {
             this.sshUser = user == null ? "" : user;
             this.sshPort = port;
             this.sshIdentityFile = identityFile == null ? "" : identityFile;
+            return this;
+        }
+
+        public String getSftpLocalName() { return this.sftpLocalName; }
+        public String getSftpRemotePath() { return this.sftpRemotePath; }
+        public boolean isSftpOverwriteAllowed() { return this.sftpOverwriteAllowed; }
+
+        public AnalysisParameters withSftpPlan(String localName, String remotePath,
+                boolean overwriteAllowed) {
+            this.sftpLocalName = localName == null ? "" : localName;
+            this.sftpRemotePath = remotePath == null ? "" : remotePath;
+            this.sftpOverwriteAllowed = overwriteAllowed;
             return this;
         }
     }
@@ -1422,6 +1439,8 @@ public final class ResultAnalysisService {
                 return analyzeMpQueryDraft(params);
             case SSH_CONFIG_DRAFT:
                 return analyzeSshConfigDraft(params);
+            case SFTP_TRANSFER_PLAN:
+                return analyzeSftpTransferPlan(project, params);
             case SLAB_MILLER_PREVIEW:
                 return analyzeSlabMillerPreview(project, params);
             default:
@@ -7522,6 +7541,70 @@ public final class ResultAnalysisService {
                         : "expansion-guard passed"));
         csv.add("password_field,absent,by design");
         return new AnalysisReport(label, true, text.toString(), csv, stanza);
+    }
+
+    /**
+     * Roadmap #92 (plan slice): one reviewed SFTP staging step, fail-closed.
+     * The local file must live inside THIS project (never absolute, never
+     * climbing), and its SHA-256 + byte size are pinned at draft time so the
+     * post-transfer verify has a checksum target that cannot drift. The
+     * remote side is a literal absolute POSIX FILE path - no shell, no
+     * expansion, no directory markers, no '..' climbs. Overwrite posture is
+     * explicit (REFUSE-IF-EXISTS unless the analyst deliberately flips it).
+     * Nothing transfers; the plan renders through the draft channel and saves
+     * only via the explicit save action.
+     */
+    private static AnalysisReport analyzeSftpTransferPlan(Project project,
+            AnalysisParameters params) {
+        String label = AnalysisKind.SFTP_TRANSFER_PLAN.getLabel();
+        File projectDir = project.getDirectory();
+        if (projectDir == null || !projectDir.isDirectory()) {
+            return failure(label, "The project directory is unavailable - a "
+                    + "staging plan is only ever drafted against a real, "
+                    + "on-disk project (nothing is staged from memory).");
+        }
+        OperationResult<SftpTransferPlan.TransferStep> prepared =
+                SftpTransferPlan.prepare(projectDir.toPath(), params.getSftpLocalName(),
+                        params.getSftpRemotePath(), params.isSftpOverwriteAllowed());
+        if (!prepared.isSuccess() || prepared.getValue().isEmpty()) {
+            return failure(label, "The staging plan was refused:\n["
+                    + prepared.getCode() + "] " + prepared.getMessage());
+        }
+        SftpTransferPlan.TransferStep step = prepared.getValue().get();
+        String plan = step.render();
+        StringBuilder text = new StringBuilder();
+        text.append("Project: ").append(projectDir.getAbsolutePath()).append('\n');
+        text.append(String.format(Locale.ROOT,
+                "Local file: %s (%d bytes), sha256 pinned at draft time:%n  %s%n",
+                step.getLocalName(), step.getLocalBytes(), step.getLocalSha256()));
+        text.append("Remote file: ").append(step.getRemotePath()).append('\n');
+        text.append("Overwrite posture: ").append(step.isOverwriteAllowed()
+                ? "ALLOWED (explicit analyst choice, printed in uppercase)"
+                : "REFUSE-IF-EXISTS (default - a remote hit aborts the step)")
+                .append('\n');
+        text.append("\nPlan draft (also in the draft channel):\n\n").append(plan);
+        text.append("\nHonesty block: NOTHING transfers from this build. The "
+                + "plan pins the integrity target (sha256 + size) NOW, and the "
+                + "declared verify-after-transfer step is MANDATORY for any "
+                + "future runtime. Execution must ride the host-key-checked "
+                + "SSH channel from the SSH_CONFIG_DRAFT; SFTP session "
+                + "plumbing, download direction, and resumable transfers are "
+                + "the remaining #92 runtime depth. The draft saves only via "
+                + "the explicit save action.\n");
+        List<String> csv = new ArrayList<>();
+        csv.add("item,value,note");
+        csv.add(String.format(Locale.ROOT, "local_file,%s,project-relative",
+                csvCell(step.getLocalName())));
+        csv.add(String.format(Locale.ROOT, "local_bytes,%d,pinned at draft time",
+                step.getLocalBytes()));
+        csv.add(String.format(Locale.ROOT, "local_sha256,%s,draft-time integrity target",
+                step.getLocalSha256()));
+        csv.add(String.format(Locale.ROOT, "remote_path,%s,literal absolute POSIX",
+                csvCell(step.getRemotePath())));
+        csv.add(String.format(Locale.ROOT, "overwrite,%s,explicit",
+                step.isOverwriteAllowed() ? "ALLOWED" : "REFUSE-IF-EXISTS"));
+        csv.add("verify_after,sha256-mandatory,no silent acceptance");
+        return new AnalysisReport(label, true, text.toString(), csv, plan);
     }
 
     /**

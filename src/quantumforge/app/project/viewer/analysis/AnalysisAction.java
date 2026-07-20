@@ -348,6 +348,29 @@ public final class AnalysisAction {
             parameters.withSshTarget(alias, host, user, port, identity);
             break;
         }
+        case SFTP_TRANSFER_PLAN: {
+            String local = askText("Project-relative local file to stage "
+                    + "(must already exist inside this project; no absolute "
+                    + "paths, no '..'); its sha256 is pinned at draft time", "");
+            if (local == null) {
+                return null;
+            }
+            String remote = askText("Remote absolute POSIX FILE path "
+                    + "(e.g. /home/you/qe/deck.cube; no trailing '/', no "
+                    + "whitespace/expansion characters, no '..' climbs)", "");
+            if (remote == null) {
+                return null;
+            }
+            String overwrite = askText("Overwrite the remote file if it "
+                    + "exists? Type exactly 'yes' to allow; anything else "
+                    + "keeps the safe REFUSE-IF-EXISTS posture", "no");
+            if (overwrite == null) {
+                return null;
+            }
+            parameters.withSftpPlan(local, remote,
+                    overwrite.trim().equalsIgnoreCase("yes"));
+            break;
+        }
         case SLAB_MILLER_PREVIEW: {
             Integer h = askInteger("Miller index h (-16..16)", 1);
             if (h == null) {
