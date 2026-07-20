@@ -29,6 +29,7 @@ import quantumforge.app.project.viewer.designer.DesignerAction;
 import quantumforge.app.project.viewer.inputfile.QEFXInputFile;
 import quantumforge.app.project.viewer.modeler.ModelerAction;
 import quantumforge.app.project.viewer.result.ResultAction;
+import quantumforge.app.project.viewer.run.ArraySubmitAction;
 import quantumforge.app.project.viewer.run.QEFXRunDialog;
 import quantumforge.app.project.viewer.run.RunAction;
 import quantumforge.app.project.viewer.run.RunEvent;
@@ -172,6 +173,9 @@ public class ViewerActions extends ProjectActions<Node> {
 
             } else if (item == this.itemSet.getRunItem()) {
                 this.actions.put(item, controller2 -> this.actionRun(controller2));
+
+            } else if (item == this.itemSet.getArraySweepItem()) {
+                this.actions.put(item, controller2 -> this.actionArraySweep(controller2));
 
             } else if (item == this.itemSet.getResultItem()) {
                 this.actions.put(item, controller2 -> this.actionResult(controller2));
@@ -337,6 +341,20 @@ public class ViewerActions extends ProjectActions<Node> {
                 this.startLiveMonitoring(runEvent);
             }
         }
+    }
+
+    /**
+     * Batch-144 (#93 GUI slice): the array-sweep submission dialogue. Every
+     * decision lives in the typed headless products (sweep planner, resolver,
+     * guarded draft, executors); this menu entry only opens their shell.
+     */
+    private void actionArraySweep(QEFXProjectController controller) {
+        if (controller == null) {
+            return;
+        }
+
+        ArraySubmitAction action = new ArraySubmitAction(this.project, controller);
+        action.submitInteractively();
     }
 
     /** Polling cadence for the read-only live-run monitor, in milliseconds. */

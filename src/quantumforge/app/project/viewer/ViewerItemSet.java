@@ -22,6 +22,7 @@ public class ViewerItemSet {
     private ViewerItem designerItem;
     private ViewerItem screenShotItem;
     private ViewerItem runItem;
+    private ViewerItem arraySweepItem;
     private ViewerItem resultItem;
     private ViewerItem exportItem;
     private ViewerItem recoverItem;
@@ -47,6 +48,7 @@ public class ViewerItemSet {
         this.designerItem = new ViewerItem(SVGData.COLORS, "Designer");
         this.screenShotItem = new ViewerItem(SVGData.CAMERA, "Screen-shot");
         this.runItem = new ViewerItem(SVGData.RUN, "Run");
+        this.arraySweepItem = new ViewerItem(SVGData.RUN, "Submit array sweep ...");
         this.resultItem = new ViewerItem(SVGData.RESULT, "Result");
         this.exportItem = new ViewerItem(SVGData.EXPORT, "Export structure");
         this.exportWorkflowItem = new ViewerItem(SVGData.FILE, "Export workflow script");
@@ -73,6 +75,7 @@ public class ViewerItemSet {
                 this.designerItem,
                 this.screenShotItem,
                 this.runItem,
+                this.arraySweepItem,
                 this.resultItem,
                 this.exportItem,
                 this.validateInputItem,
@@ -123,6 +126,10 @@ public ViewerItem getSaveAsFileItem() {
 
     public ViewerItem getRunItem() {
         return this.runItem;
+    }
+
+    public ViewerItem getArraySweepItem() {
+        return this.arraySweepItem;
     }
 
     public ViewerItem getResultItem() {

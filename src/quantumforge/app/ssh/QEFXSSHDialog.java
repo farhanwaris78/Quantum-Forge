@@ -78,6 +78,9 @@ public class QEFXSSHDialog extends Dialog<ButtonType> implements Initializable {
     private Button keyButton;
 
     @FXML
+    private ComboBox<String> schedulerCombo;
+
+    @FXML
     private TextField postField;
 
     @FXML
@@ -294,6 +297,32 @@ public class QEFXSSHDialog extends Dialog<ButtonType> implements Initializable {
             SSHServer sshServer_ = this.getSSHServer();
             this.keyButton.setOnAction(event -> this.actionKeyButton(sshServer_));
         }
+
+        // Batch 144 (#93/#96): the Job Scheduler chooser - until now NOTHING in
+        // the GUI ever set schedulerType, so every entry kept 'none' and the
+        // old private resolveAdapter silently submitted SLURM scripts anywhere.
+        // The chooser makes the declaration explicit; submissions refuse
+        // (typed, no default) until it names a real scheduler.
+        if (this.schedulerCombo != null) {
+            if (this.schedulerCombo.getItems().isEmpty()) {
+                this.schedulerCombo.getItems().addAll(
+                        SSHServer.SCHEDULER_NONE,
+                        SSHServer.SCHEDULER_SLURM,
+                        SSHServer.SCHEDULER_PBS,
+                        SSHServer.SCHEDULER_PJM,
+                        SSHServer.SCHEDULER_SGE);
+            }
+            this.schedulerCombo.setTooltip(new Tooltip(
+                    "The job scheduler this cluster actually runs. Submissions refuse "
+                            + "while this is 'none' - no default is ever picked."));
+            this.schedulerCombo.valueProperty().addListener(o -> {
+                SSHServer sshServer_ = this.getSSHServer();
+                String value = this.schedulerCombo.getValue();
+                if (sshServer_ != null && value != null) {
+                    sshServer_.setSchedulerType(value);
+                }
+            });
+        }
     }
 
     private void actionKeyButton(SSHServer sshServer) {
@@ -355,6 +384,13 @@ public class QEFXSSHDialog extends Dialog<ButtonType> implements Initializable {
             String keyPath = sshServer == null ? null : sshServer.getKeyPath();
             this.updateKeyButton(keyPath == null ? null : keyPath.trim());
             this.keyButton.setDisable(sshServer == null);
+        }
+
+        if (this.schedulerCombo != null) {
+            String type = sshServer == null ? null : sshServer.getSchedulerType();
+            this.schedulerCombo.setValue((type == null || type.isBlank())
+                    ? SSHServer.SCHEDULER_NONE : type.trim());
+            this.schedulerCombo.setDisable(sshServer == null);
         }
     }
 

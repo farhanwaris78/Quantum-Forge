@@ -426,6 +426,8 @@ def main() -> int:
                 "quantumforge/hpc/ArraySubmitSpec.java",
                 "quantumforge/ssh/ArraySubmitExecutor.java",
                 "quantumforge/ssh/ArrayLoopSubmitExecutor.java",
+                "quantumforge/ssh/SSHServerScheduler.java",
+                "quantumforge/app/project/viewer/run/ArraySubmitAction.java",
                 "quantumforge/builder/ExtXyzCellExporter.java",
                 "quantumforge/run/parser/TrajectoryWindowReader.java",
                 "quantumforge/builder/SupercellMatrixValidator.java",
@@ -539,6 +541,38 @@ def main() -> int:
             error("QEFXJobMonitorDialog lost its FX-thread/lifecycle discipline")
         if "MAX_LINES" not in monitorModel.read_text(encoding="utf-8"):
             error("MonitorLogModel lost its owned ring bound")
+    sshJob = (SRC / "quantumforge/ssh/SSHJob.java").read_text(encoding="utf-8")
+    if "SSHServerScheduler" not in sshJob:
+        error("SSHJob lost the batch-144 single-owner scheduler resolution fix")
+    resolver = SRC / "quantumforge/ssh/SSHServerScheduler.java"
+    if not resolver.is_file() or "SSH_SCHEDULER_UNSET" not in resolver.read_text(
+            encoding="utf-8"):
+        error("SSHServerScheduler (batch-144 resolver) missing its typed refusals")
+    loopExec = SRC / "quantumforge/ssh/ArrayLoopSubmitExecutor.java"
+    if not loopExec.is_file() or "SUBMIT_LOOP_WRONG_SHAPE" not in loopExec.read_text(
+            encoding="utf-8"):
+        error("ArrayLoopSubmitExecutor (batch 143) missing its loop-only shape guard")
+    arrayGui = SRC / "quantumforge/app/project/viewer/run/ArraySubmitAction.java"
+    if not arrayGui.is_file():
+        error("ArraySubmitAction (batch-144 GUI array-submit dialogue) missing")
+    else:
+        arrayRaw = arrayGui.read_text(encoding="utf-8")
+        if "qf-array-submit" not in arrayRaw or "SSHServerScheduler" not in arrayRaw:
+            error("ArraySubmitAction lost its daemon/resolver wiring (batch 144)")
+        if "ArrayLoopSubmitExecutor" not in arrayRaw or "ArraySubmitExecutor" not in arrayRaw:
+            error("ArraySubmitAction lost the shape-split executor wiring (batch 144)")
+        if "QEFXJobMonitorDialog" not in arrayRaw or "transport.close()" not in arrayRaw:
+            error("ArraySubmitAction lost the monitor offer / exactly-once closes (batch 144)")
+    viewerItems = (SRC / "quantumforge/app/project/viewer/ViewerItemSet.java").read_text(
+        encoding="utf-8")
+    viewerActs = (SRC / "quantumforge/app/project/viewer/ViewerActions.java").read_text(
+        encoding="utf-8")
+    if "Submit array sweep" not in viewerItems or "ArraySubmitAction" not in viewerActs:
+        error("viewer menu lost the batch-144 array-sweep submission entry")
+    sshDialog = (SRC / "quantumforge/app/ssh/QEFXSSHDialog.java").read_text(encoding="utf-8")
+    sshFxml = (SRC / "quantumforge/app/ssh/QEFXSSHDialog.fxml").read_text(encoding="utf-8")
+    if "schedulerCombo" not in sshDialog or "schedulerCombo" not in sshFxml:
+        error("SSH dialog lost the batch-144 Job Scheduler chooser")
     neb = (SRC / "quantumforge/builder/neb/NEBPathCreator.java").read_text(encoding="utf-8")
     if "for (int k = 0; k < 3; k++)" not in neb and "for (int k = 0; k < 3; k++)" not in neb:
         # accept either classic or enhanced form

@@ -15,9 +15,6 @@ import quantumforge.hpc.JobState;
 import quantumforge.hpc.SchedulerAdapter;
 import quantumforge.hpc.SchedulerResources;
 import quantumforge.hpc.SiteProfile;
-import quantumforge.hpc.SlurmSchedulerAdapter;
-import quantumforge.hpc.PbsSchedulerAdapter;
-import quantumforge.hpc.SgeSchedulerAdapter;
 import quantumforge.hpc.ResultSyncManifest;
 import quantumforge.operation.OperationResult;
 import quantumforge.project.Project;
@@ -223,18 +220,29 @@ public final class SSHJob {
         return resolveAdapter();
     }
 
+    /**
+     * Batch-144 single-owner fix: server-scheduler resolution now delegates
+     * to {@link SSHServerScheduler} (the one owner, itself delegating to the
+     * batch-126 registry). The private copy this replaced silently returned
+     * SLURM for every non-pbs/sge value - including the {@code pjm} constant
+     * and the out-of-the-box {@code none} every GUI-created server keeps, so
+     * real submissions could go out with the wrong scheduler's script. An
+     * unset/unknown declaration now fails typed ({@link IllegalArgumentException}
+     * carrying the resolver's code and message), and every caller surfaces it
+     * through its existing honest channel (script-prepare failure, submit
+     * error, or the monitor-offer refusal).
+     */
     private SchedulerAdapter resolveAdapter() {
         if (this.siteProfile != null) {
             return this.siteProfile.schedulerAdapter();
         }
-        String type = this.sshServer.getSchedulerType();
-        if (SSHServer.SCHEDULER_PBS.equalsIgnoreCase(type)) {
-            return new PbsSchedulerAdapter();
+        OperationResult<SchedulerAdapter> resolved =
+                SSHServerScheduler.resolveAdapter(this.sshServer);
+        if (resolved.isSuccess() && resolved.getValue().isPresent()) {
+            return resolved.getValue().get();
         }
-        if (SSHServer.SCHEDULER_SGE.equalsIgnoreCase(type)) {
-            return new SgeSchedulerAdapter();
-        }
-        return new SlurmSchedulerAdapter();
+        throw new IllegalArgumentException("[" + resolved.getCode() + "] "
+                + resolved.getMessage());
     }
 
     private SchedulerResources resolveResources() {
