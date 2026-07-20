@@ -13,9 +13,25 @@ import quantumforge.operation.OperationResult;
  * sweep (start/step/count) into a task list (JSON Lines) plus a SLURM array
  * script PREVIEW. The preview is deliberately not runnable as delivered - a
  * REQUIRED-EDIT guard (`exit 2`) forces the user to review and remove it, so a
- * generated script can never be submitted blind. Values are produced by exact
- * repeated addition and consecutive-duplicate detection, and every validation
- * failure carries a code.
+ * generated script can never be submitted blind. Every validation failure
+ * carries a code.
+ *
+ * <p>Batch-131 arithmetic truth: each task value is computed as
+ * {@code start + i*step} - ONE rounding per value, so rounding error never
+ * ACCUMULATES across the sweep. The 10th task of a 0.1-step sweep from 0 is
+ * exactly {@code 1.0}, where naive repeated addition would give
+ * 0.9999999999999999. An earlier version of this comment said "exact repeated
+ * addition"; the code always did single-rounding multiplication, the better
+ * arithmetic for a manifest that must name exact points.</p>
+ *
+ * <p>Sister surface (do not mix): {@code remote.ArrayJobPlan} is the
+ * verbatim-token REVIEW plan under the same roadmap item. Its directory
+ * mapping is {@code <base>/task_<i>} (this product uses {@code <base>-NNN},
+ * zero-padded), its name grammar requires a leading letter with 64 chars
+ * (this product allows leading digits, 32 chars), and its count bound is
+ * 1..1000 (this product: 2..50). Pick ONE per study - mixing artifacts of
+ * both breaks the per-task index mapping. The ARRAY_JOB_AUDIT kind renders
+ * both mappings side by side.</p>
  */
 public final class ArraySweepPlanner {
 

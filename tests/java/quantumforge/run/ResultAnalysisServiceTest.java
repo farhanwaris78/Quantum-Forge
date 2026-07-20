@@ -5998,4 +5998,67 @@ class ResultAnalysisServiceTest {
         assertTrue(refused.getText().contains(
                 "Runtime bridge: refused [SSH_IDENTITY_MISSING]"), refused.getText());
     }
+
+    @Test
+    void arrayJobAuditRendersBothMappingsSideBySide() throws IOException {
+        AnalysisReport report = ResultAnalysisService.analyze(
+                AnalysisKind.ARRAY_JOB_AUDIT, stubProject(this.tempDir),
+                new AnalysisParameters().withArrayAudit("", 3));
+        assertTrue(report.isSuccess(), report.getText());
+        String text = report.getText();
+        assertTrue(text.contains("base 'sweep', 3 display task(s)"), text);
+        assertTrue(text.contains("product 1 = hpc.ArraySweepPlanner"), text);
+        assertTrue(text.contains("product 2 = remote.ArrayJobPlan"), text);
+        assertTrue(text.contains("sweep-001"), text);
+        assertTrue(text.contains("sweep/task_1"), text);
+        assertTrue(text.contains("MAPPING MISMATCH IS PROVEN ABOVE"), text);
+        assertTrue(text.contains("Do NOT mix artifacts"), text);
+        assertTrue(text.contains("leading digit ALLOWED"), text);
+        assertTrue(text.contains("1-BASED like SLURM --array=1-N"), text);
+        assertTrue(text.contains("REQUIRED-EDIT exit-2 guard"), text);
+        assertTrue(text.contains("exactly 1.0, not the"
+                + " accumulated 0.9999999999999999"), text);
+        assertTrue(text.contains("nothing is submitted")
+                || text.contains("no submission"), text);
+        String csv = String.join("\n", report.getCsvLines());
+        assertTrue(csv.startsWith("surface,attribute,value"), csv);
+        assertTrue(csv.contains("mapping,task-1,sweep-001"), csv);
+        assertTrue(csv.contains("planner-value,task-1,30.0"), csv);
+        assertTrue(report.getProvenanceLines().size() >= 3);
+        assertTrue(report.getGeneratedInput() == null, "an audit writes no draft");
+    }
+
+    @Test
+    void arrayJobAuditRendersGrammarFindingsWhereTheProductsDisagree()
+            throws IOException {
+        // Leading digit: passes the planner, refused by the plan - FINDING.
+        AnalysisReport digit = ResultAnalysisService.analyze(
+                AnalysisKind.ARRAY_JOB_AUDIT, stubProject(this.tempDir),
+                new AnalysisParameters().withArrayAudit("1sweep", 2));
+        assertTrue(digit.isSuccess(), digit.getText());
+        assertTrue(digit.getText().contains("product 1 = hpc.ArraySweepPlanner"),
+                digit.getText());
+        assertTrue(digit.getText().contains(
+                "product 2 = remote.ArrayJobPlan REFUSES this probe: [ARRAY_NAME]"),
+                digit.getText());
+        assertTrue(digit.getText().contains("1sweep-001"), digit.getText());
+        assertTrue(digit.getText().contains("(refused)"), digit.getText());
+
+        // Single task: refused by the planner, fine for the plan - FINDING.
+        AnalysisReport single = ResultAnalysisService.analyze(
+                AnalysisKind.ARRAY_JOB_AUDIT, stubProject(this.tempDir),
+                new AnalysisParameters().withArrayAudit("sweep", 1));
+        assertTrue(single.isSuccess(), single.getText());
+        assertTrue(single.getText().contains("[SWEEP_COUNT]"), single.getText());
+        assertTrue(single.getText().contains("sweep/task_1"), single.getText());
+    }
+
+    @Test
+    void arrayJobAuditDisplayCountIsBounded() throws IOException {
+        AnalysisReport report = ResultAnalysisService.analyze(
+                AnalysisKind.ARRAY_JOB_AUDIT, stubProject(this.tempDir),
+                new AnalysisParameters().withArrayAudit("sweep", 0));
+        assertFalse(report.isSuccess());
+        assertTrue(report.getText().contains("[ARRAY_AUDIT_COUNT]"), report.getText());
+    }
 }

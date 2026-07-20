@@ -69,4 +69,37 @@ class ArraySweepPlannerTest {
                 ArraySweepPlanner.plan("ecutwfc", 1.0e300, 1.0e280, 3, "x").getCode(),
                 "A step that cannot change the value must be refused");
     }
+
+    @Test
+    void taskValuesUseSingleRoundingNeverAccumulatedError() {
+        // Batch-131 arithmetic truth: values are start + i*step (one rounding
+        // each). Repeated addition of 0.1 ten times yields 0.9999999999999999;
+        // the manifest MUST name exact sweep points, so the 10th value is 1.0.
+        OperationResult<ArraySweepPlanner.SweepPlan> result =
+                ArraySweepPlanner.plan("ecutwfc", 0.0, 0.1, 10, "k");
+        assertTrue(result.isSuccess(), result.getMessage());
+        ArraySweepPlanner.SweepPlan plan = result.getValue().orElseThrow();
+        assertEquals("1.0", Double.toString(plan.getValues().get(9)),
+                "single-rounding multiplication, not accumulated addition");
+        assertEquals(1.0, plan.getValues().get(9), 0.0);
+        double accumulated = 0.0;
+        for (int i = 0; i < 10; i++) {
+            accumulated += 0.1;
+        }
+        assertTrue(accumulated != 1.0,
+                "the accumulated reference really is worse (sanity on the claim)");
+    }
+
+    @Test
+    void subUlpStepRefusesAsDuplicateInsteadOfWastingAllocation() {
+        // At 1e16 the double ulp is 2, so start+1*step rounds back to start:
+        // task 2 would silently equal task 1. The arithmetic guard must catch it.
+        OperationResult<ArraySweepPlanner.SweepPlan> result =
+                ArraySweepPlanner.plan("ecutwfc", 1e16, 1.0, 2, "k");
+        assertFalse(result.isSuccess());
+        assertEquals("SWEEP_VALUE", result.getCode());
+        assertTrue(result.getMessage().contains("too small to change"),
+                result.getMessage());
+        assertTrue(result.getMessage().contains("increase the step"), result.getMessage());
+    }
 }

@@ -35,7 +35,14 @@ import quantumforge.operation.OperationResult;
  *   <li>per-task input templating (substituting value_i into decks) is NOT
  *       hallucinated: the plan states exactly where the value lands in the
  *       directory mapping and leaves deck templating to the #100 runtime
- *       slice.</li>
+ *       slice;</li>
+ *   <li>sister surface (do not mix): {@code hpc.ArraySweepPlanner} is the
+ *       numeric-generated JSONL manifest under the same roadmap item. Its
+ *       directory mapping is {@code <base>-NNN} (this plan uses
+ *       {@code <base>/task_<i>}), its name grammar allows leading digits at
+ *       32 chars (this plan requires a leading letter at 64), and its count
+ *       bound is 2..50 (this plan: 1..1000). Pick ONE per study - the
+ *       ARRAY_JOB_AUDIT kind renders both mappings side by side.</li>
  * </ul>
  */
 public final class ArrayJobPlan {

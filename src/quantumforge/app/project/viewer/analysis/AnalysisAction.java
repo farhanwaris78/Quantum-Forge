@@ -533,6 +533,21 @@ public final class AnalysisAction {
             parameters.withJobCancel(scheduler, jobId, confirm);
             break;
         }
+        case ARRAY_JOB_AUDIT: {
+            String base = askText("array base name for the side-by-side probe"
+                    + " (BLANK = canned 'sweep'; grammar findings for BOTH products"
+                    + " are rendered from the same input)", "");
+            if (base == null) {
+                return null;
+            }
+            Integer count = askInteger("display task count (1..50; render-only -"
+                    + " nothing is submitted and no directory is created)", 3);
+            if (count == null) {
+                return null;
+            }
+            parameters.withArrayAudit(base, count.intValue());
+            break;
+        }
         case SCHEDULER_ADAPTER_AUDIT: {
             String scheduler = askText("scheduler audit - TYPED: slurm | pbs | pjm | sge"
                     + " (BLANK = census of every registered adapter; unknown names refuse"

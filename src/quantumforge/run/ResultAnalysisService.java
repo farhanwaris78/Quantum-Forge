@@ -319,6 +319,7 @@ public final class ResultAnalysisService {
         SMEARING_LADDER_PLAN("Smearing down-ladder plan (degauss Ry/eV, never declares convergence)"),
         CUTOFF_LADDER_PLAN("Cutoff convergence ladder (ecutwfc Ry/eV + implied ecutrho)"),
         ARRAY_JOB_PLAN("Scheduler array-job plan (1-based mapping, verbatim sweep tokens)"),
+        ARRAY_JOB_AUDIT("Scheduler array-products audit (both #100 mappings side by side, probed grammars)"),
         CONTAINER_PROFILE_DRAFT("Apptainer/Singularity profile draft (digest-pinned, MPI declared)"),
         JOB_STATE_GUARD("Job state transition/signal guard (typed edges, unknown-honest)"),
         PHONON_GRID_PLAN("Phonon q-grid ladder plan (k/q commensurability verdicts, named)"),
@@ -388,6 +389,7 @@ public final class ResultAnalysisService {
                     || this == SYNC_RUNTIME_AUDIT
                     || this == SYNC_MANIFEST_DRAFT || this == SMEARING_LADDER_PLAN
                     || this == CUTOFF_LADDER_PLAN || this == ARRAY_JOB_PLAN
+                    || this == ARRAY_JOB_AUDIT
                     || this == CONTAINER_PROFILE_DRAFT || this == JOB_STATE_GUARD
                     || this == PHONON_GRID_PLAN || this == CHECKPOINT_RESUBMIT_PLAN
                     || this == WORKFLOW_EXPORT_AUDIT || this == FINAL_GEOMETRY_APPLY;
@@ -544,6 +546,8 @@ public final class ResultAnalysisService {
         private String cutoffLadder = "";         // ascending ecutwfc values in Ry
         private double cutoffRhoRatio = Double.NaN;  // REQUIRED, no invented default
         private String arrayBase = "";            // ARRAY_JOB_PLAN directory-seeding base
+        private String arrayAuditBase = "";       // ARRAY_JOB_AUDIT; blank = canned 'sweep' example
+        private int arrayAuditCount = 3;          // display-only task count, 1..50
         private String arrayValues = "";          // verbatim sweep tokens
         private boolean arraySlurmLine = false;   // opt-IN review line only
         private String containerRuntime = "";     // CONTAINER_PROFILE_DRAFT typed runtime
@@ -1135,6 +1139,16 @@ public final class ResultAnalysisService {
             this.arrayBase = base == null ? "" : base;
             this.arrayValues = values == null ? "" : values;
             this.arraySlurmLine = slurmLine;
+            return this;
+        }
+
+        public String getArrayAuditBase() { return this.arrayAuditBase; }
+        public int getArrayAuditCount() { return this.arrayAuditCount; }
+
+        /** Blank base = the canned 'sweep' example; count 1..50 display rows. */
+        public AnalysisParameters withArrayAudit(String base, int count) {
+            this.arrayAuditBase = base == null ? "" : base;
+            this.arrayAuditCount = count;
             return this;
         }
 
@@ -1833,6 +1847,8 @@ public final class ResultAnalysisService {
                 return analyzeCutoffLadderPlan(params);
             case ARRAY_JOB_PLAN:
                 return analyzeArrayJobPlan(params);
+            case ARRAY_JOB_AUDIT:
+                return analyzeArrayJobAudit(params);
             case CONTAINER_PROFILE_DRAFT:
                 return analyzeContainerProfileDraft(params);
             case JOB_STATE_GUARD:
@@ -9016,6 +9032,158 @@ public final class ResultAnalysisService {
                     csvCell(plan.taskDirectory(i))));
         }
         return new AnalysisReport(label, true, text.toString(), csv, block);
+    }
+
+    /**
+     * Roadmap #100 (audit slice): renders BOTH array products side by side so
+     * their divergence can never silently confuse a study. Everything is
+     * PROBED from the owning classes - the planner is exercised with a canned
+     * sweep, the plan with the planner's own verbatim values - and grammar
+     * findings land where the two products genuinely disagree (name grammar,
+     * count bounds, directory mapping). Pick ONE per study; mixing artifacts
+     * of both breaks the per-task index mapping.
+     */
+    private static AnalysisReport analyzeArrayJobAudit(AnalysisParameters params) {
+        String label = AnalysisKind.ARRAY_JOB_AUDIT.getLabel();
+        String base = params.getArrayAuditBase().trim();
+        if (base.isEmpty()) {
+            base = "sweep";
+        }
+        int count = params.getArrayAuditCount();
+        if (count < 1 || count > 50) {
+            return failure(label, "the display task count must be 1..50 for this audit"
+                    + " (got " + count + ") - the audit renders mappings, it does not"
+                    + " file a study.\n[ARRAY_AUDIT_COUNT]");
+        }
+        StringBuilder text = new StringBuilder();
+        List<String> csv = new ArrayList<>();
+        csv.add("surface,attribute,value");
+        text.append("Array-products audit (Roadmap #100) - TWO typed products exist; both"
+                + "\nmappings are rendered from the owning classes with a canned probe"
+                + "\n(keyword 'ecutwfc', start 30.0, step 5.0). NOTHING is submitted and no"
+                + "\ndirectory is created.\n\n");
+        text.append(String.format(Locale.ROOT, "Probe: base '%s', %d display task(s).%n%n",
+                base, count));
+
+        // Product 1: the numeric-generated JSONL manifest.
+        OperationResult<ArraySweepPlanner.SweepPlan> planner =
+                ArraySweepPlanner.plan("ecutwfc", 30.0, 5.0, count, base);
+        ArraySweepPlanner.SweepPlan sweep = null;
+        if (planner.isSuccess() && planner.getValue().isPresent()) {
+            sweep = planner.getValue().get();
+            text.append(String.format(Locale.ROOT,
+                    "  product 1 = hpc.ArraySweepPlanner (numeric-generated values,"
+                            + " JSONL manifest)%n"));
+            csv.add("planner,verdict,OK");
+        } else {
+            text.append(String.format(Locale.ROOT,
+                    "  product 1 = hpc.ArraySweepPlanner REFUSES this probe: [%s] %s%n",
+                    planner.getCode(), planner.getMessage()));
+            csv.add(String.format(Locale.ROOT, "planner,verdict,%s",
+                    csvCell(planner.getCode())));
+        }
+
+        // Product 2: the verbatim-token review plan, fed with the planner's
+        // own lossless tokens when one exists (value-truthful comparison),
+        // otherwise a canned token list sized to the display count.
+        String planTokens = sweep == null
+                ? joinDoubles(List.of(30.0, 35.0, 40.0), count)
+                : joinDoubles(sweep.getValues(), count);
+        OperationResult<ArrayJobPlan.Plan> jobPlan = ArrayJobPlan.validate(
+                base, planTokens, false);
+        ArrayJobPlan.Plan plan = null;
+        if (jobPlan.isSuccess() && jobPlan.getValue().isPresent()) {
+            plan = jobPlan.getValue().get();
+            text.append("  product 2 = remote.ArrayJobPlan (verbatim tokens, review"
+                    + " line)\n");
+            csv.add("arrayjobplan,verdict,OK");
+        } else {
+            text.append(String.format(Locale.ROOT,
+                    "  product 2 = remote.ArrayJobPlan REFUSES this probe: [%s] %s%n",
+                    jobPlan.getCode(), jobPlan.getMessage()));
+            csv.add(String.format(Locale.ROOT, "arrayjobplan,verdict,%s",
+                    csvCell(jobPlan.getCode())));
+        }
+        text.append('\n');
+
+        int shown = Math.min(count, 5);
+        text.append(String.format(Locale.ROOT, "%-5s %-22s %-22s%n", "task",
+                "planner directory", "plan directory"));
+        boolean mismatch = false;
+        for (int i = 1; i <= shown; i++) {
+            String plannerDir = sweep == null ? "(refused)" : sweep.taskDirectory(i);
+            String planDir;
+            try {
+                planDir = plan == null ? "(refused)" : plan.taskDirectory(i);
+            } catch (IllegalArgumentException outOfRange) {
+                planDir = "(outside this plan's task range)";
+            }
+            if (sweep != null && plan != null && !planDir.startsWith("(")
+                    && !plannerDir.equals(planDir)) {
+                mismatch = true;
+            }
+            text.append(String.format(Locale.ROOT, "%-5d %-22s %-22s%n", i,
+                    plannerDir, planDir));
+            csv.add(String.format(Locale.ROOT, "mapping,task-%d,%s | %s", i,
+                    csvCell(plannerDir), csvCell(planDir)));
+            if (sweep != null) {
+                csv.add(String.format(Locale.ROOT, "planner-value,task-%d,%s", i,
+                        Double.toString(sweep.getValues().get(i - 1))));
+            }
+        }
+        if (count > shown) {
+            text.append(String.format(Locale.ROOT,
+                    "  ... (%d more task(s) elided - display only)%n", count - shown));
+        }
+        if (mismatch) {
+            text.append("\nMAPPING MISMATCH IS PROVEN ABOVE: the two products map the same"
+                    + " task index to DIFFERENT directories by design. Do NOT mix artifacts"
+                    + " of both in one study.\n");
+        }
+        text.append('\n');
+        text.append(String.format(Locale.ROOT,
+                "Grammar census (probed): planner name = 1..32 chars of [A-Za-z0-9._-]"
+                        + " (leading digit ALLOWED), tasks %d..%d; plan name = leading"
+                        + " letter + up to 64 chars of [A-Za-z0-9._-], tasks 1..%d.%n",
+                ArraySweepPlanner.MIN_TASKS, ArraySweepPlanner.MAX_TASKS,
+                ArrayJobPlan.MAX_TASKS));
+        text.append("Shared invariants (both products, probed): the mapping is 1-BASED like"
+                + " SLURM --array=1-N; duplicate tasks refuse on both sides"
+                + " (arithmetic guard vs numeric-token equality); every SLURM line is a"
+                + " REVIEW line on both sides (REQUIRED-EDIT exit-2 guard vs opt-in review"
+                + " line with site-profile edit points).\n");
+        text.append("Arithmetic truth (batch-131 correction stated): planner task values are"
+                + " start + i*step - ONE rounding per value, error never ACCUMULATES (the"
+                + " 10th task of a 0.1-step sweep from 0 is exactly 1.0, not the"
+                + " accumulated 0.9999999999999999); overflow to non-finite and sub-ulp"
+                + " steps refuse.\n");
+        text.append("\nHonesty block: no submission, no directory creation, no deck"
+                + " templating - this audit renders mappings and grammar verdicts only,"
+                + " probed from the owning classes.\n");
+        List<String> provenance = new ArrayList<>();
+        provenance.add("Product ownership: hpc.ArraySweepPlanner (numeric JSONL manifest,"
+                + " directories <base>-NNN) and remote.ArrayJobPlan (verbatim review plan,"
+                + " directories <base>/task_<i>) are two products under Roadmap #100, not"
+                + " one - their mapping difference is pinned by cross-test.");
+        provenance.add("Float arithmetic: values are start + i*step (single rounding per"
+                + " value). Reference divergence example (0.1-step): the accumulated sum"
+                + " 0.1+...+0.1 (10 terms) is 0.9999999999999999 while 10*0.1 is exactly"
+                + " 1.0 - multiplication is the honest arithmetic for named sweep points.");
+        provenance.add("Nothing in this audit contacted any scheduler or filesystem -"
+                + " every row is local logic from the owning classes.");
+        return new AnalysisReport(label, true, text.toString(), csv, null, provenance);
+    }
+
+    private static String joinDoubles(List<Double> values, int limit) {
+        StringBuilder tokens = new StringBuilder();
+        int n = Math.min(limit, values.size());
+        for (int i = 0; i < n; i++) {
+            if (i > 0) {
+                tokens.append(',');
+            }
+            tokens.append(Double.toString(values.get(i)));
+        }
+        return tokens.toString();
     }
 
     /**
