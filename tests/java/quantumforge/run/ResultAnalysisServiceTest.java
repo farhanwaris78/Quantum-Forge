@@ -6359,4 +6359,22 @@ class ResultAnalysisServiceTest {
         String csv = String.join("\n", report.getCsvLines());
         assertTrue(csv.contains("submit_plan,refused,SCHEDULER_NAME"), csv);
     }
+
+    @Test
+    void syncRuntimeAuditStatesTheBatch146IntegrityBoundary() throws IOException {
+        AnalysisReport report = ResultAnalysisService.analyze(
+                AnalysisKind.SYNC_RUNTIME_AUDIT, stubProject(this.tempDir),
+                new AnalysisParameters().withSyncRuntimeAudit("", "", false));
+        assertTrue(report.isSuccess(), report.getText());
+        String text = report.getText();
+        assertTrue(text.contains("integrity (batch 146)"), text);
+        assertTrue(text.contains("downloadVerifiedResult"), text);
+        assertTrue(text.contains("never a quiet 'missing'"), text);
+        assertTrue(text.contains("states the posture either way"), text);
+        assertTrue(text.contains("NOTHING was transferred"),
+                "the analysis-channel boundary stays frozen verbatim: " + text);
+        String provenance = String.join("\n", report.getProvenanceLines());
+        assertTrue(provenance.contains("uploadChunkedVerifiedResult"), provenance);
+        assertTrue(provenance.contains("resume at chunk granularity"), provenance);
+    }
 }

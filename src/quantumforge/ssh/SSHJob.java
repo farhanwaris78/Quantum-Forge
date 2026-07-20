@@ -210,6 +210,28 @@ public final class SSHJob {
     }
 
     /**
+     * Batch-146 (#92 hash pinning): the pinned variant - every manifest entry
+     * whose relative path appears in {@code pinsByRelativePath} downloads
+     * through the batch-136 two-sided verified download; entries without a
+     * pin follow the batch-128 walk and the verdict message states the
+     * posture either way. Pins are CALLER-attested (from a draft channel or
+     * an earlier probe), never invented here.
+     */
+    public OperationResult<SelectiveResultSync.SyncReport> syncResultsResult(
+            String remoteJobRelativeDir, Path localDir, boolean includeLarge,
+            java.util.Map<String, String> pinsByRelativePath) {
+        if (this.transport == null || !this.transport.isConnected()) {
+            return OperationResult.unsupported("SSH_NOT_CONNECTED",
+                    "No connected transport; nothing was downloaded.");
+        }
+        ResultSyncManifest manifest = ResultSyncManifest.forWorkflow(
+                this.type, this.project.getPrefixName());
+        SelectiveResultSync sync = new SelectiveResultSync(this.transport, this.stagingRoot);
+        return sync.sync(remoteJobRelativeDir, localDir, manifest, includeLarge,
+                pinsByRelativePath);
+    }
+
+    /**
      * Adapter for GUI monitoring of a submitted job (Roadmap #96 GUI slice).
      * Delegates to the single private owner ({@link #resolveAdapter()}) so
      * the site-profile / legacy-server fallback graph is never duplicated by

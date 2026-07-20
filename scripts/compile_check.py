@@ -428,6 +428,7 @@ def main() -> int:
                 "quantumforge/ssh/ArrayLoopSubmitExecutor.java",
                 "quantumforge/ssh/SSHServerScheduler.java",
                 "quantumforge/ssh/SSHConnectRetry.java",
+                "quantumforge/ssh/TransferChunkPlan.java",
                 "quantumforge/app/project/viewer/run/ArraySubmitAction.java",
                 "quantumforge/builder/ExtXyzCellExporter.java",
                 "quantumforge/run/parser/TrajectoryWindowReader.java",
@@ -527,6 +528,17 @@ def main() -> int:
     retry = SRC / "quantumforge/ssh/SSHConnectRetry.java"
     if not retry.is_file() or "isRetriable" not in retry.read_text(encoding="utf-8"):
         error("SSHConnectRetry (batch-145 retry combinator) missing its retriable owner")
+    transfer = (SRC / "quantumforge/ssh/SSHFileTransfer.java").read_text(encoding="utf-8")
+    if "uploadChunkedVerifiedResult" not in transfer or "TRANSFER_CHUNK_STALE" not in transfer:
+        error("SSHFileTransfer lost the batch-146 chunked/resumable verified upload")
+    syncRuns = (SRC / "quantumforge/ssh/SelectiveResultSync.java").read_text(encoding="utf-8")
+    if "downloadVerifiedResult" not in syncRuns or "pin-verified" not in syncRuns:
+        error("SelectiveResultSync lost the batch-146 hash-pinned download path")
+    if "NOT hash-verified (no pins supplied)" not in syncRuns:
+        error("SelectiveResultSync lost the unpinned-posture honesty sentence (batch 146)")
+    svcText = (SRC / "quantumforge/run/ResultAnalysisService.java").read_text(encoding="utf-8")
+    if "uploadChunkedVerifiedResult" not in svcText or "TransferChunkPlan" not in svcText:
+        error("ResultAnalysisService lost the batch-146 integrity boundary/provenance")
     if "waitDialog" not in runAction or "Platform.runLater" not in runAction.replace(
             "javafx.application.Platform.runLater", "Platform.runLater"):
         error("RunAction lost its FX-marshalling/lifecycle discipline (batch 139)")

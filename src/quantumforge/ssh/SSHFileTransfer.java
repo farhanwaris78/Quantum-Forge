@@ -189,6 +189,283 @@ public class SSHFileTransfer {
     }
 
     /**
+     * Batch-146 (Roadmap #92 resumable-transfer slice): chunked, pin-verified,
+     * RESUMABLE upload. The barrier the roadmap states - an interrupted
+     * transfer must never masquerade as complete - is enforced at chunk
+     * granularity: every part carries its own sha256 from
+     * {@link TransferChunkPlan} and is re-probed before reuse, and the
+     * assembled payload is whole-file verified BEFORE any rename.
+     *
+     * <ol>
+     *   <li>STALE-PLAN REFUSAL, before any remote step: the plan's whole-file
+     *       pin MUST equal a fresh local sha256 - a payload that changed
+     *       after planning refuses as TRANSFER_CHUNK_STALE (the plan must be
+     *       re-made; stale pins would verify the wrong bytes);</li>
+     *   <li>the overwrite posture on the FINAL path is pre-checked exactly
+     *       like batch 133 (TRANSFER_EXISTS / TRANSFER_PROBE_UNREADABLE) -
+     *       parts are probed only after that posture passes;</li>
+     *   <li>parts live exclusively in our own scratch dir
+     *       {@code <final>.qftmp.parts/} with owned names
+     *       ({@code part-NNNNN}). Per part: a sha256sum probe equal to the
+     *       pin SKIPS the upload (this is the resume), a mismatch RE-STAGES
+     *       over our own scratch (stale bytes from a crashed attempt are
+     *       never trusted), an absent part uploads fresh, and a post-upload
+     *       verify mismatch removes ONLY that part and fails
+     *       SFTP_PART_MISMATCH - nothing is assembled or renamed. An
+     *       unparseable probe refuses as TRANSFER_PART_UNREADABLE, a dead
+     *       probe as TRANSFER_PROBE_UNREADABLE - resume never proceeds
+     *       blind;</li>
+     *   <li>assembly ({@code sh -c "cat ... > <final>.qftmp"}) quotes every
+     *       owned name through {@link ShellQuotes}; the assembled bytes MUST
+     *       match the plan's whole-file pin, else SFTP_VERIFY_MISMATCH with
+     *       ONLY the assembled temp removed (verified parts stay for
+     *       resume) and 'NOTHING was renamed into place' stated;</li>
+     *   <li>a verified assembly renames atomically ({@code mv -f};
+     *       SFTP_RENAME preserves both temp and parts); only after a
+     *       successful rename are our scratch parts removed - a cleanup
+     *       failure degrades to a note in the success message, never to a
+     *       failed verdict. Remote deletion beyond our own named scratch
+     *       stays disabled, exactly as batches 133/136 scoped it.</li>
+     * </ol>
+     */
+    public OperationResult<Void> uploadChunkedVerifiedResult(Path localFile,
+            String remoteRelative, TransferChunkPlan.ChunkPlan plan,
+            boolean overwriteAllowed) {
+        if (this.transport == null || !this.transport.isConnected()) {
+            return OperationResult.unsupported("SSH_UPLOAD_UNAVAILABLE",
+                    "No secure SFTP transport is connected; no files were uploaded.");
+        }
+        if (localFile == null || !Files.isRegularFile(localFile)) {
+            return OperationResult.failed("SSH_LOCAL_MISSING", "Local file missing.", null);
+        }
+        if (plan == null) {
+            throw new NullPointerException("chunk plan is required - chunked staging "
+                    + "without pins would be an unreviewable transfer");
+        }
+        // (1) stale-plan refusal BEFORE any remote step.
+        final String freshSha;
+        try {
+            freshSha = SyncChecksumCache.sha256(localFile);
+        } catch (java.io.IOException hashFail) {
+            return OperationResult.failed("TRANSFER_LOCAL_UNREADABLE",
+                    "could not re-hash the local payload: " + hashFail.getMessage(),
+                    hashFail);
+        }
+        if (!plan.getWholeSha256().equalsIgnoreCase(freshSha)) {
+            return OperationResult.failed("TRANSFER_CHUNK_STALE",
+                    "the payload changed after its chunk plan was pinned (planned sha256 "
+                            + plan.getWholeSha256() + ", now " + freshSha
+                            + ") - plan again; uploading from stale pins would verify "
+                            + "the wrong bytes.",
+                    null);
+        }
+        String remote;
+        try {
+            remote = RemotePathGuard.resolveUnderRoot(this.stagingRoot, remoteRelative);
+        } catch (RuntimeException ex) {
+            return OperationResult.failed("SSH_PATH_INVALID", ex.getMessage(), ex);
+        }
+        String assembled = remote + ".qftmp";
+        String partsDir = remote + ".qftmp.parts";
+        Path out = null;
+        Path err = null;
+        try {
+            out = Files.createTempFile("qf-chunk-", ".out");
+            err = Files.createTempFile("qf-chunk-", ".err");
+            // (2) overwrite posture on the FINAL path first (batch-133 semantics).
+            if (!overwriteAllowed) {
+                OperationResult<Integer> probe = this.transport.exec(
+                        new String[] {"test", "-e", remote}, out, err);
+                if (probe.isSuccess()) {
+                    return OperationResult.failed("TRANSFER_EXISTS",
+                            "remote file already exists and overwrite is REFUSE-IF-EXISTS"
+                                    + " by plan: " + remote, null);
+                }
+                if (!"SSH_EXEC_FAILED".equals(probe.getCode())) {
+                    return OperationResult.failed("TRANSFER_PROBE_UNREADABLE",
+                            "the overwrite pre-check itself failed ("
+                                    + probe.getMessage() + ") - refusing to proceed"
+                                    + " blind.", null);
+                }
+            }
+            OperationResult<Void> mkdir = this.transport.mkdirRemote(partsDir);
+            if (!mkdir.isSuccess()) {
+                return OperationResult.failed(mkdir.getCode(),
+                        mkdir.getMessage() + " (chunk staging aborted before any part "
+                                + "moved)", null);
+            }
+            // (3) resume at chunk granularity.
+            int resumed = 0;
+            int restaged = 0;
+            int uploaded = 0;
+            List<String> partPaths = new java.util.ArrayList<>();
+            for (TransferChunkPlan.Chunk chunk : plan.getChunks()) {
+                String partPath = partsDir + "/" + chunk.getPartName();
+                partPaths.add(partPath);
+                OperationResult<Integer> probe = this.transport.exec(
+                        new String[] {"sha256sum", partPath}, out, err);
+                String probedSha = "";
+                if (probe.isSuccess()) {
+                    String probeOut = Files.isRegularFile(out)
+                            ? Files.readString(out).trim() : "";
+                    if (probeOut.isBlank()) {
+                        return chunkFailure("TRANSFER_PART_UNREADABLE", chunk,
+                                "the resume probe for " + chunk.getPartName()
+                                        + " returned nothing parseable - resume refuses"
+                                        + " to proceed blind; nothing was removed.");
+                    }
+                    probedSha = probeOut.split("\\s+")[0]
+                            .toLowerCase(java.util.Locale.ROOT);
+                    if (!probedSha.matches("[0-9a-f]{64}")) {
+                        return chunkFailure("TRANSFER_PART_UNREADABLE", chunk,
+                                "the resume probe for " + chunk.getPartName()
+                                        + " returned '" + probeOut.split("\\s+")[0]
+                                        + "' - not a sha256; resume refuses to proceed"
+                                        + " blind; nothing was removed.");
+                    }
+                    if (probedSha.equals(chunk.getSha256())) {
+                        resumed++;
+                        continue; // verified part already staged - THE resume
+                    }
+                } else if (!"SSH_EXEC_FAILED".equals(probe.getCode())) {
+                    return chunkFailure("TRANSFER_PROBE_UNREADABLE", chunk,
+                            "the resume probe itself failed (" + probe.getMessage()
+                                    + ") - refusing to proceed blind.");
+                }
+                if (!probedSha.isEmpty()) {
+                    restaged++; // our own scratch carried different bytes - never trusted
+                } else {
+                    uploaded++;
+                }
+                Path slice = writeSlice(localFile, chunk);
+                try {
+                    OperationResult<Void> partUpload =
+                            this.transport.uploadFile(slice, partPath);
+                    if (!partUpload.isSuccess()) {
+                        return chunkFailure(partUpload.getCode(), chunk,
+                                partUpload.getMessage() + " (part upload failed)");
+                    }
+                    OperationResult<Integer> verify = this.transport.exec(
+                            new String[] {"sha256sum", partPath}, out, err);
+                    String verifyOut = Files.isRegularFile(out)
+                            ? Files.readString(out).trim() : "";
+                    String verifySha = verify.isSuccess() && !verifyOut.isBlank()
+                            ? verifyOut.split("\\s+")[0].toLowerCase(java.util.Locale.ROOT)
+                            : "";
+                    if (!chunk.getSha256().equals(verifySha)) {
+                        // Cleanup scope is exactly this one part - nothing else, ever.
+                        this.transport.exec(new String[] {"rm", "-f", partPath}, out, err);
+                        return chunkFailure("SFTP_PART_MISMATCH", chunk,
+                                "staged part bytes do not match the chunk pin (pinned "
+                                        + chunk.getSha256() + ", remote computed '"
+                                        + (verifySha.isEmpty() ? "<unreadable>"
+                                                : verifySha)
+                                        + "') - the part was removed and nothing was"
+                                        + " assembled or renamed into place.");
+                    }
+                } finally {
+                    deleteTempQuietly(slice);
+                }
+            }
+            // (4) assembly + whole-file verification.
+            StringBuilder script = new StringBuilder("cat");
+            for (String partPath : partPaths) {
+                script.append(' ').append(ShellQuotes.single(partPath));
+            }
+            script.append(" > ").append(ShellQuotes.single(assembled));
+            OperationResult<Integer> assemble = this.transport.exec(
+                    new String[] {"sh", "-c", script.toString()}, out, err);
+            if (!assemble.isSuccess()) {
+                return OperationResult.failed("SFTP_ASSEMBLE",
+                        "chunk assembly failed (" + assemble.getMessage() + ") - the"
+                                + " verified parts remain at " + partsDir
+                                + " for resume; nothing was renamed into place.", null);
+            }
+            OperationResult<Integer> whole = this.transport.exec(
+                    new String[] {"sha256sum", assembled}, out, err);
+            String wholeOut = Files.isRegularFile(out) ? Files.readString(out).trim() : "";
+            String wholeSha = whole.isSuccess() && !wholeOut.isBlank()
+                    ? wholeOut.split("\\s+")[0].toLowerCase(java.util.Locale.ROOT) : "";
+            if (!plan.getWholeSha256().equalsIgnoreCase(wholeSha)) {
+                this.transport.exec(new String[] {"rm", "-f", assembled}, out, err);
+                return OperationResult.failed("SFTP_VERIFY_MISMATCH",
+                        "assembled bytes do not match the pinned whole-file sha256"
+                                + " (pinned " + plan.getWholeSha256()
+                                + ", remote computed '"
+                                + (wholeSha.isEmpty() ? "<unreadable>" : wholeSha)
+                                + "') - ONLY the assembled temp was removed; the"
+                                + " verified parts remain for resume and NOTHING was"
+                                + " renamed into place.", null);
+            }
+            OperationResult<Integer> rename = this.transport.exec(
+                    new String[] {"mv", "-f", assembled, remote}, out, err);
+            if (!rename.isSuccess()) {
+                return OperationResult.failed("SFTP_RENAME",
+                        "verified chunked upload could not be renamed into place ("
+                                + rename.getMessage() + ") - the verified assembled"
+                                + " temp is preserved at " + assembled + " and the"
+                                + " parts at " + partsDir + " for forensics.", null);
+            }
+            // (5) cleanup of OUR OWN scratch parts - degraded, never a verdict.
+            StringBuilder cleanup = new StringBuilder("rm -f");
+            for (String partPath : partPaths) {
+                cleanup.append(' ').append(ShellQuotes.single(partPath));
+            }
+            cleanup.append(" && rmdir ").append(ShellQuotes.single(partsDir));
+            OperationResult<Integer> removed = this.transport.exec(
+                    new String[] {"sh", "-c", cleanup.toString()}, out, err);
+            String cleanupNote = removed.isSuccess() ? ""
+                    : " (cleanup of the part scratch failed and was left in place at "
+                    + partsDir + ": " + removed.getMessage() + " - debris, never"
+                    + " hidden state)";
+            return OperationResult.success("TRANSFER_CHUNKED_VERIFIED",
+                    "Chunked upload staged " + plan.getChunkCount() + " part(s) ("
+                            + resumed + " resumed-skip, " + restaged
+                            + " re-staged stale, " + uploaded + " fresh), assembled and"
+                            + " whole-file sha256 verified, renamed into place: "
+                            + remote + cleanupNote, null);
+        } catch (Exception ex) {
+            return OperationResult.failed("SFTP_TRANSFER_ERROR",
+                    "chunked verified upload failed: " + ex.getMessage(), ex);
+        } finally {
+            deleteTempQuietly(out);
+            deleteTempQuietly(err);
+        }
+    }
+
+    /** A chunk-scoped refusal with the chunk index named in the message. */
+    private static OperationResult<Void> chunkFailure(String code,
+            TransferChunkPlan.Chunk chunk, String message) {
+        return OperationResult.failed(code,
+                "chunk " + chunk.getIndex() + " (" + chunk.getPartName() + "): "
+                        + message, (Throwable) null);
+    }
+
+    /** Write one chunk's bytes to a local scratch file for the part upload. */
+    private static Path writeSlice(Path localFile, TransferChunkPlan.Chunk chunk)
+            throws java.io.IOException {
+        byte[] bytes = new byte[(int) chunk.getLength()];
+        try (java.io.RandomAccessFile raf = new java.io.RandomAccessFile(
+                localFile.toFile(), "r")) {
+            raf.seek(chunk.getOffset());
+            raf.readFully(bytes);
+        }
+        Path slice = Files.createTempFile("qf-part-", ".bin");
+        Files.write(slice, bytes);
+        return slice;
+    }
+
+    private static void deleteTempQuietly(Path temp) {
+        try {
+            if (temp != null) {
+                Files.deleteIfExists(temp);
+            }
+        } catch (java.io.IOException ignored) {
+            // Scratch temp debris is honest clutter, never masked state.
+        }
+    }
+
+    /**
      * Batch-136 (Roadmap #92 verified-download slice): hash-verified download -
      * the mirror of {@link #uploadVerifiedResult}, with the hash verified on
      * BOTH sides because a download has two distinct wrongs to refuse:

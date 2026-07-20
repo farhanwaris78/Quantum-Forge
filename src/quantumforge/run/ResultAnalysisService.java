@@ -9017,6 +9017,12 @@ public final class ResultAnalysisService {
         text.append("  checksum cache: an OPTIMIZATION only - load/probe/record/save"
                 + " failures\n    degrade to warnings, never to a failed verdict;"
                 + " cache hits count as kept\n");
+        text.append("  integrity (batch 146): downloads run UNVERIFIED unless the caller"
+                + " supplies\n    per-path pins - pinned entries route through"
+                + " SSHFileTransfer.downloadVerifiedResult\n    (two-sided sha256), and"
+                + " a verification refusal lands in 'failed' with its typed code\n"
+                + "    named - a security finding, never a quiet 'missing'; the verdict"
+                + " message\n    states the posture either way\n");
         text.append("  scope: manifest entries are DOWNLOADED only - nothing is uploaded,"
                 + " nothing\n    is deleted remotely, and bulk 'download everything'"
                 + " stays forbidden by design\n");
@@ -9029,6 +9035,11 @@ public final class ResultAnalysisService {
         provenance.add("Path safety: entry-level refusal of absolute/'..' paths plus"
                 + " RemotePathGuard staging confinement; local-escape re-check happens"
                 + " per file before any write.");
+        provenance.add("Batch-146 integrity: pinned-entry downloads delegate to"
+                + " SSHFileTransfer.downloadVerifiedResult; chunked/resumable upload lives"
+                + " in TransferChunkPlan + SSHFileTransfer.uploadChunkedVerifiedResult"
+                + " (per-chunk pins, resume at chunk granularity); this audit still"
+                + " transfers nothing.");
         provenance.add("Nothing in this audit contacted any scheduler or storage; all"
                 + " verdicts are the stated runtime contract.");
         return new AnalysisReport(label, true, text.toString(), csv, null, provenance);
