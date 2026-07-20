@@ -23,9 +23,12 @@ import quantumforge.input.validation.ValidationSeverity;
  * container block (Roadmap #103).
  *
  * <p>The validator connects nothing and probes nothing: every finding is
- * derived from the file text. The scheduler id must map to one of the typed
- * adapters ({@code slurm}, {@code pbs}/{@code torque}, {@code sge}/{@code uge}/
- * {@code ge}); staging/scratch roots and modules are warned about rather than
+ * derived from the file text. The scheduler id must resolve through the
+ * typed-adapter registry ({@code slurm}, {@code pbs}, {@code pjm},
+ * {@code sge}); site vernacular ({@code torque}, {@code uge}, {@code ge}) is
+ * canonicalized by {@link SiteProfile#canonicalScheduler(String)} before the
+ * registry probe, so this class keeps NO second scheduler-name list of its
+ * own. Staging/scratch roots and modules are warned about rather than
  * guessed; and a container image without a pinned {@code sha256:} digest is a
  * reproducibility warning, never silently accepted, because tag-only images are
  * mutable. The host-MPI ABI constraint of hybrid container execution is stated
@@ -39,8 +42,10 @@ public final class SiteProfileValidator {
     public static final String DOCS_EXAMPLE =
             "packaging/sites/example-slurm.yaml";
 
-    private static final Set<String> KNOWN_SCHEDULERS =
-            Set.of("slurm", "pbs", "torque", "sge", "uge", "ge");
+    // Deliberately NO private scheduler-name list here: the canonical set is
+    // owned by SchedulerAdapters and the vernacular alias table by
+    // SiteProfile.canonicalScheduler. A second list is exactly the drift that
+    // previously sidelined pjm.
     private static final Set<String> KNOWN_LAUNCHERS =
             Set.of("srun", "mpirun", "mpiexec", "mpiexec.hydra", "jsrun", "aprun", "orterun");
     private static final Set<String> KNOWN_KEYS = Set.of(
@@ -159,11 +164,15 @@ public final class SiteProfileValidator {
                     "The profile has no id; remote job records should name their site.",
                     DOCS_ROADMAP));
         }
-        if (!KNOWN_SCHEDULERS.contains(profile.getScheduler())) {
+        // The profile already canonicalized vernacular aliases at load
+        // (torque -> pbs, uge/ge -> sge), so the honest check is the registry
+        // probe itself - the single owner of "which schedulers exist".
+        if (SchedulerAdapters.forName(profile.getScheduler()).isEmpty()) {
             issues.add(new ValidationIssue(ValidationSeverity.ERROR, "SITE_SCHEDULER_UNKNOWN",
                     "Scheduler '" + profile.getScheduler() + "' has no typed adapter "
-                            + "(supported: slurm, pbs/torque, sge/uge/ge); generated scripts "
-                            + "would be free-form guesses.",
+                            + "(supported: " + SchedulerAdapters.supportedNames()
+                            + "; site vernacular torque/uge/ge is canonicalized to pbs/sge "
+                            + "at load); generated scripts would otherwise be free-form guesses.",
                     DOCS_EXAMPLE));
         }
         if (profile.getStagingRoot().isEmpty()) {

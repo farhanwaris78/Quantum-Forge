@@ -19,6 +19,14 @@ import java.util.Objects;
  *
  * <p>YAML-like simple key: value parser (no external YAML dependency). Nested
  * lists use repeated {@code module:} / {@code env:} lines.</p>
+ *
+ * <p>Scheduler names are canonicalized at construction: {@link
+ * #canonicalScheduler(String)} is the SINGLE owner of the site-vernacular
+ * alias table ({@code torque} -&gt; {@code pbs}, {@code uge}/{@code ge} -&gt;
+ * {@code sge}), so {@link #getScheduler()} always returns either the
+ * canonical registry name or the original unknown value (for the validator
+ * to flag). {@code pjm} (Fugaku / Fujitsu TCS) is a first-class canonical
+ * name exactly like slurm/pbs/sge - no sidelining, no silent slurm default.</p>
  */
 public final class SiteProfile {
 
@@ -35,7 +43,14 @@ public final class SiteProfile {
 
     private SiteProfile(Builder builder) {
         this.id = Objects.requireNonNull(builder.id).trim();
-        this.scheduler = builder.scheduler == null ? "slurm" : builder.scheduler.trim().toLowerCase(Locale.ROOT);
+        String rawScheduler = builder.scheduler == null
+                ? "slurm" : builder.scheduler.trim().toLowerCase(Locale.ROOT);
+        String canonical = canonicalScheduler(rawScheduler);
+        // Known vernacular aliases resolve to the canonical registry name;
+        // unknown values pass through unchanged so the validator can flag
+        // them and the adapter registry can refuse them without ever
+        // misrouting a command to a guessed scheduler.
+        this.scheduler = canonical != null ? canonical : rawScheduler;
         this.stagingRoot = builder.stagingRoot == null ? "" : builder.stagingRoot.trim();
         this.scratchRoot = builder.scratchRoot == null ? "" : builder.scratchRoot.trim();
         this.defaultPartition = builder.defaultPartition == null ? "" : builder.defaultPartition.trim();
@@ -60,18 +75,58 @@ public final class SiteProfile {
     public Map<String, String> getEnvironment() { return this.environment; }
     public SchedulerResources getDefaultResources() { return this.defaultResources; }
 
+    /**
+     * Canonicalize a site-vernacular scheduler name. This table is the SINGLE
+     * owner of the aliases; its outputs are exactly the canonical names the
+     * {@link SchedulerAdapters} registry resolves:
+     * <ul>
+     *   <li>{@code slurm} -&gt; {@code slurm}</li>
+     *   <li>{@code pbs}, {@code torque} -&gt; {@code pbs}</li>
+     *   <li>{@code pjm} -&gt; {@code pjm} (Fugaku / Fujitsu TCS)</li>
+     *   <li>{@code sge}, {@code uge}, {@code ge} -&gt; {@code sge}</li>
+     * </ul>
+     * Returns {@code null} for null, blank, or unknown names - there is
+     * deliberately NO default here: silent defaulting would be the exact
+     * misrouting bug (cancel command aimed at the wrong cluster) the
+     * registry's no-default rule exists to prevent.
+     */
+    public static String canonicalScheduler(String name) {
+        if (name == null) {
+            return null;
+        }
+        String key = name.trim().toLowerCase(Locale.ROOT);
+        switch (key) {
+            case "slurm":
+                return "slurm";
+            case "pbs":
+            case "torque":
+                return "pbs";
+            case "pjm":
+                return "pjm";
+            case "sge":
+            case "uge":
+            case "ge":
+                return "sge";
+            default:
+                return null;
+        }
+    }
+
+    /**
+     * Typed adapter for this profile's scheduler, resolved through the {@link
+     * SchedulerAdapters} registry - the single owner of the canonical set and
+     * of every job-id grammar. A {@code pjm} profile resolves exactly like a
+     * slurm/pbs/sge one. An unknown value fails with a typed {@link
+     * IllegalArgumentException} naming the supported set: there is no default
+     * adapter and no free-form fallback.
+     */
     public SchedulerAdapter schedulerAdapter() {
-        if ("slurm".equals(this.scheduler)) {
-            return new SlurmSchedulerAdapter();
-        }
-        if ("pbs".equals(this.scheduler) || "torque".equals(this.scheduler)) {
-            return new PbsSchedulerAdapter();
-        }
-        if ("sge".equals(this.scheduler) || "uge".equals(this.scheduler)
-                || "ge".equals(this.scheduler)) {
-            return new SgeSchedulerAdapter();
-        }
-        throw new UnsupportedOperationException("Scheduler not implemented: " + this.scheduler);
+        return SchedulerAdapters.forName(this.scheduler)
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "Scheduler '" + this.scheduler + "' has no typed adapter (supported: "
+                                + SchedulerAdapters.supportedNames() + "); fix the site profile "
+                                + "scheduler value - generated scripts, cancel commands, and "
+                                + "status probes all route through the typed adapter."));
     }
 
     public static SiteProfile load(Path file) throws IOException {

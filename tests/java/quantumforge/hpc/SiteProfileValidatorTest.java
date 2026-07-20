@@ -129,4 +129,27 @@ class SiteProfileValidatorTest {
         assertTrue(hasCode(report, "SITE_MODULES_EMPTY"), report.getIssues().toString());
         assertEquals(0L, report.errorCount(), "Warnings are not blocking");
     }
+
+    @Test
+    void testPjmSchedulerIsAcceptedByTheRegistryProbe() throws IOException {
+        Path file = write("pjm.yaml",
+                "id: fugaku\nscheduler: pjm\nmpi_launcher: mpiexec\n");
+        SiteProfileReport report = SiteProfileValidator.validate(file);
+        assertFalse(hasCode(report, "SITE_SCHEDULER_UNKNOWN"),
+                "pjm must resolve through the typed-adapter registry: "
+                        + report.getIssues().toString());
+        assertEquals("pjm", report.getProfile().getScheduler());
+    }
+
+    @Test
+    void testVernacularAliasesAreCanonicalizedBeforeTheRegistryProbe() throws IOException {
+        Path file = write("torque.yaml",
+                "id: x\nscheduler: torque\nmpi_launcher: mpiexec\n");
+        SiteProfileReport report = SiteProfileValidator.validate(file);
+        assertFalse(hasCode(report, "SITE_SCHEDULER_UNKNOWN"),
+                "torque must canonicalize to pbs before the probe: "
+                        + report.getIssues().toString());
+        assertEquals("pbs", report.getProfile().getScheduler(),
+                "the parsed profile exposes the canonical name");
+    }
 }
