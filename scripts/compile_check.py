@@ -390,6 +390,7 @@ def main() -> int:
                   "SiteProfileSpec", "SITE_PROFILE_DRAFT",
                   "NebInputPlanner", "NEB_INPUT_DRAFT",
                   "JobCancelPlan", "JOB_CANCEL_PLAN",
+                  "MonitorPollPlan", "MONITOR_POLL_PLAN",
                   "JournalReplayMath", "replay_combined_det"]:
         if token not in service:
             error(f"ResultAnalysisService is not bound to {token}")
@@ -446,6 +447,7 @@ def main() -> int:
                 "quantumforge/remote/SiteProfileSpec.java",
                 "quantumforge/input/NebInputPlanner.java",
                 "quantumforge/remote/JobCancelPlan.java",
+                "quantumforge/remote/MonitorPollPlan.java",
                 "quantumforge/builder/JournalReplayMath.java"]:
         text = (SRC / rel).read_text(encoding="utf-8")
         if "class " not in text:

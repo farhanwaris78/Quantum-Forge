@@ -4910,4 +4910,60 @@ class ResultAnalysisServiceTest {
         assertTrue(freeScheduler.getText().contains("[CANCEL_SCHEDULER]"),
                 freeScheduler.getText());
     }
+
+
+    @Test
+    void monitorPollPlanPinsTheBackoffSchedule() throws IOException {
+        AnalysisReport report = ResultAnalysisService.analyze(
+                AnalysisKind.MONITOR_POLL_PLAN, stubProject(this.tempDir),
+                new AnalysisParameters().withMonitorPoll(10.0, 300.0, 2.0, 6));
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains(
+                "Policy: start 10.000 s, cap 300.000 s, factor 2.000, at most 6 polls "
+                        + "(horizon 610.000 s; 1 poll(s) ride at the cap)."),
+                report.getText());
+        String csv = String.join("\n", report.getCsvLines());
+        assertTrue(csv.contains("1,10.000,10.000"), csv);
+        assertTrue(csv.contains("4,80.000,150.000"), csv);
+        assertTrue(csv.contains("6,300.000,610.000"), csv,
+                "the cap row is visibly engaged (160*2=320 clamps to 300)");
+        assertTrue(csv.contains("policy,horizon_s=610.000,max_polls=6,capped=1,"
+                + "factor=2.000"), csv);
+        String block = report.getGeneratedInput().orElseThrow();
+        assertTrue(block.contains("single_flight"), block);
+        assertTrue(block.contains("NOT IMPLEMENTED in this slice"), block);
+        assertTrue(report.getText().contains("never 'job finished'")
+                || report.getText().contains("'job finished'"), report.getText());
+    }
+
+    @Test
+    void monitorPollPlanFailClosedPaths() throws IOException {
+        AnalysisReport storm = ResultAnalysisService.analyze(
+                AnalysisKind.MONITOR_POLL_PLAN, stubProject(this.tempDir),
+                new AnalysisParameters().withMonitorPoll(0.5, 300.0, 2.0, 10));
+        assertFalse(storm.isSuccess(),
+                "sub-second remote polling is a request storm by definition");
+        assertTrue(storm.getText().contains("[MONITOR_INTERVAL]"), storm.getText());
+
+        AnalysisReport inverted = ResultAnalysisService.analyze(
+                AnalysisKind.MONITOR_POLL_PLAN, stubProject(this.tempDir),
+                new AnalysisParameters().withMonitorPoll(10.0, 5.0, 2.0, 10));
+        assertFalse(inverted.isSuccess(),
+                "a cap under its own start refuses - nothing is silently floored");
+        assertTrue(inverted.getText().contains("[MONITOR_MAX]"), inverted.getText());
+
+        AnalysisReport shrink = ResultAnalysisService.analyze(
+                AnalysisKind.MONITOR_POLL_PLAN, stubProject(this.tempDir),
+                new AnalysisParameters().withMonitorPoll(10.0, 300.0, 0.5, 10));
+        assertFalse(shrink.isSuccess(), "shrinking intervals are not backoff");
+        assertTrue(shrink.getText().contains("[MONITOR_FACTOR]"), shrink.getText());
+
+        AnalysisReport constant = ResultAnalysisService.analyze(
+                AnalysisKind.MONITOR_POLL_PLAN, stubProject(this.tempDir),
+                new AnalysisParameters().withMonitorPoll(30.0, 30.0, 1.0, 20));
+        assertTrue(constant.isSuccess(), constant.getText());
+        assertTrue(constant.getGeneratedInput().orElseThrow()
+                .contains("CONSTANT polling - declared plainly"),
+                "factor 1.0 is an honest declaration, not dressed up as backoff");
+    }
 }

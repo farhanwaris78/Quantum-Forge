@@ -81,6 +81,7 @@ import quantumforge.remote.MpApiQueryBuilder;
 import quantumforge.remote.MpSummaryParser;
 import quantumforge.input.NebInputPlanner;
 import quantumforge.remote.JobCancelPlan;
+import quantumforge.remote.MonitorPollPlan;
 import quantumforge.remote.SftpTransferPlan;
 import quantumforge.remote.SiteProfileSpec;
 import quantumforge.remote.SlurmScriptBuilder;
@@ -297,7 +298,8 @@ public final class ResultAnalysisService {
         KMESH_CONVERGENCE_PLAN("k-mesh convergence ladder plan (spacing arithmetic, energies unaudited)"),
         SITE_PROFILE_DRAFT("HPC site-profile draft (typed scheduler/launcher, owned grammar)"),
         NEB_INPUT_DRAFT("neb.x &PATH namelist draft (typed, image-checklisted)"),
-        JOB_CANCEL_PLAN("Scheduler job-cancellation review plan (typed id, retype-confirm)");
+        JOB_CANCEL_PLAN("Scheduler job-cancellation review plan (typed id, retype-confirm)"),
+        MONITOR_POLL_PLAN("Remote-monitoring poll plan (bounded backoff, offline semantics)");
 
         private final String label;
 
@@ -354,7 +356,7 @@ public final class ResultAnalysisService {
                     || this == SSH_CONFIG_DRAFT || this == SFTP_TRANSFER_PLAN
                     || this == SLURM_SCRIPT_DRAFT || this == KMESH_CONVERGENCE_PLAN
                     || this == SITE_PROFILE_DRAFT || this == NEB_INPUT_DRAFT
-                    || this == JOB_CANCEL_PLAN;
+                    || this == JOB_CANCEL_PLAN || this == MONITOR_POLL_PLAN;
         }
 
         /** True for project-bound kinds that additionally parse a user data file. */
@@ -487,6 +489,10 @@ public final class ResultAnalysisService {
         private String cancelScheduler = "";   // JOB_CANCEL_PLAN typed scheduler
         private String cancelJobId = "";       // owned per-scheduler grammar
         private String cancelConfirm = "";     // must retype the id EXACTLY (untrimmed)
+        private double monitorInitialSec = 30.0;  // MONITOR_POLL_PLAN policy
+        private double monitorMaxSec = 300.0;
+        private double monitorFactor = 2.0;    // 1.0 = honest constant polling
+        private int monitorMaxPolls = 60;
 
         public double getFermiEv() { return this.fermiEv; }
         public int getKpointIndex() { return this.kpointIndex; }
@@ -962,6 +968,20 @@ public final class ResultAnalysisService {
             this.cancelScheduler = scheduler == null ? "" : scheduler;
             this.cancelJobId = jobId == null ? "" : jobId;
             this.cancelConfirm = confirmation == null ? "" : confirmation;
+            return this;
+        }
+
+        public double getMonitorInitialSec() { return this.monitorInitialSec; }
+        public double getMonitorMaxSec() { return this.monitorMaxSec; }
+        public double getMonitorFactor() { return this.monitorFactor; }
+        public int getMonitorMaxPolls() { return this.monitorMaxPolls; }
+
+        public AnalysisParameters withMonitorPoll(double initialSec, double maxSec,
+                double factor, int maxPolls) {
+            this.monitorInitialSec = initialSec;
+            this.monitorMaxSec = maxSec;
+            this.monitorFactor = factor;
+            this.monitorMaxPolls = maxPolls;
             return this;
         }
     }
@@ -1592,6 +1612,8 @@ public final class ResultAnalysisService {
                 return analyzeNebInputDraft(params);
             case JOB_CANCEL_PLAN:
                 return analyzeJobCancelPlan(params);
+            case MONITOR_POLL_PLAN:
+                return analyzeMonitorPollPlan(params);
             case SLAB_MILLER_PREVIEW:
                 return analyzeSlabMillerPreview(project, params);
             default:
@@ -8069,6 +8091,63 @@ public final class ResultAnalysisService {
                 csvCell(plan.getCommand())));
         csv.add("confirmation,retyped-exactly,compared untrimmed");
         csv.add("success_signal,scheduler-query-shows-absent,only signal accepted");
+        return new AnalysisReport(label, true, text.toString(), csv, block);
+    }
+
+    /**
+     * Roadmap #96 (plan slice): a bounded remote-monitoring poll policy with
+     * its backoff arithmetic computed BEFORE any thread exists. The preview
+     * rows pin min(max, initial * factor^(k-1)) with the cap visibly engaged;
+     * factor == 1.0 renders as an honest CONSTANT declaration; jitter's
+     * absence and the offline-vs-job-state distinction are stated, not
+     * implied. No thread starts from this build.
+     */
+    private static AnalysisReport analyzeMonitorPollPlan(AnalysisParameters params) {
+        String label = AnalysisKind.MONITOR_POLL_PLAN.getLabel();
+        OperationResult<MonitorPollPlan.PollPlan> validated =
+                MonitorPollPlan.validate(params.getMonitorInitialSec(),
+                        params.getMonitorMaxSec(), params.getMonitorFactor(),
+                        params.getMonitorMaxPolls());
+        if (!validated.isSuccess() || validated.getValue().isEmpty()) {
+            return failure(label, "The poll plan was refused:\n[" + validated.getCode()
+                    + "] " + validated.getMessage());
+        }
+        MonitorPollPlan.PollPlan plan = validated.getValue().get();
+        String block = plan.render();
+        StringBuilder text = new StringBuilder();
+        text.append(String.format(Locale.ROOT,
+                "Policy: start %.3f s, cap %.3f s, factor %.3f, at most %d polls "
+                        + "(horizon %.3f s; %d poll(s) ride at the cap).%n%n",
+                plan.getInitialSec(), plan.getMaxSec(), plan.getFactor(),
+                plan.getMaxPolls(), plan.getHorizonSec(), plan.getCappedPolls()));
+        text.append(String.format(Locale.ROOT, "%-5s %-14s %-16s%n", "poll",
+                "interval (s)", "cumulative (s)"));
+        for (double[] row : plan.getPreview()) {
+            text.append(String.format(Locale.ROOT, "%-5d %-14.3f %-16.3f%n",
+                    (int) row[0], row[1], row[2]));
+        }
+        if (plan.getMaxPolls() > plan.getPreview().size()) {
+            text.append(String.format(Locale.ROOT,
+                    "... %d further poll(s) follow at the capped interval (the full "
+                            + "horizon above counts them all).%n",
+                    plan.getMaxPolls() - plan.getPreview().size()));
+        }
+        text.append("\nPlan block (also in the draft channel):\n\n").append(block);
+        text.append("\nHonesty block: NO thread starts from this build - the plan is "
+                + "data for the runtime loop. Single-flight is a violation line, "
+                + "jitter is declared NOT IMPLEMENTED (no fake anti-thundering-herd "
+                + "claim), and repeated transport failure renders the channel "
+                + "UNKNOWN - never 'job finished'. Reconnect RESUMES this same plan "
+                + "and its counters; nothing silently restarts.\n");
+        List<String> csv = new ArrayList<>();
+        csv.add("poll,interval_s,cumulative_s");
+        for (double[] row : plan.getPreview()) {
+            csv.add(String.format(Locale.ROOT, "%d,%.3f,%.3f", (int) row[0], row[1],
+                    row[2]));
+        }
+        csv.add(String.format(Locale.ROOT, "policy,horizon_s=%.3f,max_polls=%d,capped=%d,"
+                + "factor=%.3f", plan.getHorizonSec(), plan.getMaxPolls(),
+                plan.getCappedPolls(), plan.getFactor()));
         return new AnalysisReport(label, true, text.toString(), csv, block);
     }
 

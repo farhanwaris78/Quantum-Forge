@@ -525,6 +525,30 @@ public final class AnalysisAction {
             parameters.withJobCancel(scheduler, jobId, confirm);
             break;
         }
+        case MONITOR_POLL_PLAN: {
+            Double initial = askDouble("initial poll interval [s] (1..3600)", "30");
+            if (initial == null) {
+                return null;
+            }
+            Double max = askDouble("max poll interval [s] (>= initial, <= 86400)",
+                    "300");
+            if (max == null) {
+                return null;
+            }
+            Double factor = askDouble("backoff factor (1.0..4.0; 1.0 = declared "
+                    + "constant polling)", "2.0");
+            if (factor == null) {
+                return null;
+            }
+            Integer polls = askInteger("max polls (1..10000 - unbounded refuses by "
+                    + "construction)", 60);
+            if (polls == null) {
+                return null;
+            }
+            parameters.withMonitorPoll(initial.doubleValue(), max.doubleValue(),
+                    factor.doubleValue(), polls.intValue());
+            break;
+        }
         case SLAB_MILLER_PREVIEW: {
             Integer h = askInteger("Miller index h (-16..16)", 1);
             if (h == null) {
