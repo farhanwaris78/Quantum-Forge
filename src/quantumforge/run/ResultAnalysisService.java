@@ -91,6 +91,7 @@ import quantumforge.remote.MpApiQueryBuilder;
 import quantumforge.remote.MpSummaryParser;
 import quantumforge.input.NebInputPlanner;
 import quantumforge.remote.ArrayJobPlan;
+import quantumforge.remote.ContainerLaunchBridge;
 import quantumforge.remote.ContainerProfileSpec;
 import quantumforge.remote.JobCancelPlan;
 import quantumforge.remote.JobStateGuard;
@@ -560,6 +561,7 @@ public final class ResultAnalysisService {
         private String containerBinds = "";       // csv absolute POSIX, literal grammar
         private String containerExecCommand = ""; // blank = canned 'pw.x -i pw.in' preview
         private String containerMpiAnswer = "";   // exactly 'yes'/'no' - neutral refuses
+        private String containerSiteProfile = ""; // CONTAINER_PROFILE_DRAFT bridge path; blank skips
         private String jobStateMode = "";         // JOB_STATE_GUARD: transition|signal
         private String jobStateFrom = "";
         private String jobStateTo = "";
@@ -1177,6 +1179,13 @@ public final class ResultAnalysisService {
         public String getContainerMpiAnswer() { return this.containerMpiAnswer; }
 
         public String getContainerExecCommand() { return this.containerExecCommand; }
+        public String getContainerSiteProfile() { return this.containerSiteProfile; }
+
+        /** Blank skips the launch bridge (stated as not_exercised, never silent). */
+        public AnalysisParameters withContainerSiteProfile(String siteProfilePath) {
+            this.containerSiteProfile = siteProfilePath == null ? "" : siteProfilePath;
+            return this;
+        }
 
         /** Blank = the canned 'pw.x -i pw.in' preview tokens (stated). */
         public AnalysisParameters withContainerExec(String commandTokens) {
@@ -9531,6 +9540,49 @@ public final class ResultAnalysisService {
                             + " tokens; the profile itself validated fine).%n",
                     preview.getCode(), preview.getMessage()));
         }
+        // Batch-147 launch-bridge slice: compose the VALIDATED profile with a
+        // loaded site profile so the batch-132 <mpirun/srun + counts> anchor
+        // gets its values from the owner (never transcribed). Blank path =
+        // stated not_exercised; any load/bridge refusal is a FINDING - the
+        // validated profile and the preview stand either way.
+        String bridgeCsvRow;
+        String sitePath = params.getContainerSiteProfile().trim();
+        if (sitePath.isEmpty()) {
+            text.append("\nLaunch bridge: not exercised (no site profile path given - "
+                    + "the <mpirun/srun + counts> anchor above stays an edit point).\n");
+            bridgeCsvRow = "launch_bridge,not_exercised,no site profile path given";
+        } else {
+            SiteProfile site = null;
+            String loadError = null;
+            try {
+                site = SiteProfile.load(java.nio.file.Path.of(sitePath));
+            } catch (Exception loadFail) {
+                loadError = String.valueOf(loadFail.getMessage());
+            }
+            if (site == null) {
+                text.append("\nLaunch bridge: site profile REFUSED - " + loadError
+                        + " (a FINDING on the path; the container profile and the"
+                        + " preview stand).\n");
+                bridgeCsvRow = "launch_bridge,refused,site load refused";
+            } else {
+                OperationResult<ContainerLaunchBridge.LaunchBridge> bridged =
+                        ContainerLaunchBridge.bridge(profile, site, tokens);
+                if (bridged.isSuccess() && bridged.getValue().isPresent()) {
+                    ContainerLaunchBridge.LaunchBridge launchBridge =
+                            bridged.getValue().get();
+                    text.append("\nLaunch bridge (site '" + launchBridge.getSiteId()
+                            + "'; REVIEW only - not launched):\n\n"
+                            + launchBridge.renderBlock());
+                } else {
+                    text.append("\nLaunch bridge: REFUSED - [" + bridged.getCode()
+                            + "] " + bridged.getMessage() + " (a FINDING on the bridge"
+                            + " inputs; the container profile and the preview stand).\n");
+                }
+                bridgeCsvRow = String.format(Locale.ROOT, "launch_bridge,%s,%s",
+                        bridged.isSuccess() ? "resolved" : "refused",
+                        csvCell(bridged.getCode()));
+            }
+        }
         text.append("\nHonesty block: NOTHING launches from this build. The digest pin "
                 + "is structural - a floating tag is a moving target and refuses; the "
                 + "bind list is literal (no expansion/whitespace/separators); and the "
@@ -9552,6 +9604,7 @@ public final class ResultAnalysisService {
                 profile.isHostMpiCompatible() ? "host-compatible" : "container-internal"));
         csv.add(String.format(Locale.ROOT, "exec_preview,%s,%s",
                 preview.isSuccess() ? "rendered" : "refused", preview.getCode()));
+        csv.add(bridgeCsvRow);
         return new AnalysisReport(label, true, text.toString(), csv, block);
     }
 

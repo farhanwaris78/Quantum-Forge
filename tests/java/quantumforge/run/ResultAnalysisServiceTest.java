@@ -6377,4 +6377,79 @@ class ResultAnalysisServiceTest {
         assertTrue(provenance.contains("uploadChunkedVerifiedResult"), provenance);
         assertTrue(provenance.contains("resume at chunk granularity"), provenance);
     }
+
+    @Test
+    void containerProfileDraftRendersTheLaunchBridgeViaTheSiteOwner() throws IOException {
+        java.nio.file.Path siteFile = this.tempDir.resolve("bridge-site.yaml");
+        Files.writeString(siteFile, "id: bridge-lab\nscheduler: pjm\n"
+                + "mpi_launcher: mpiexec\nntasks: 4\ncpus_per_task: 48\nnodes: 2\n"
+                + "partition: compute\naccount: x\n");
+        AnalysisReport report = ResultAnalysisService.analyze(
+                AnalysisKind.CONTAINER_PROFILE_DRAFT, stubProject(this.tempDir),
+                new AnalysisParameters()
+                        .withContainerProfile("apptainer",
+                                "qe/qe:7.3@sha256:" + "a".repeat(64), "/scratch", "yes")
+                        .withContainerExec("pw.x,-i,pw.in")
+                        .withContainerSiteProfile(siteFile.toString()));
+        assertTrue(report.isSuccess(), report.getText());
+        String text = report.getText();
+        assertTrue(text.contains("Launch bridge (site 'bridge-lab'"), text);
+        assertTrue(text.contains("# mpi launcher: mpiexec"), text);
+        assertTrue(text.contains("counts: ntasks=4, cpus-per-task=48, nodes=2"), text);
+        assertTrue(text.contains("scheduler: pjm"), text,
+                "batch-134 canonical scheduler name renders - pjm first-class");
+        assertTrue(text.contains("REQUIRED-EDIT: the argument SPELLING for 'mpiexec'"),
+                text);
+        assertTrue(text.contains("launched = NO"), text);
+        String csv = String.join("\n", report.getCsvLines());
+        assertTrue(csv.contains("launch_bridge,resolved,CONTAINER_BRIDGE_OK"), csv);
+    }
+
+    @Test
+    void containerProfileDraftStatesTheSkippedBridgeExplicitly() throws IOException {
+        AnalysisReport report = ResultAnalysisService.analyze(
+                AnalysisKind.CONTAINER_PROFILE_DRAFT, stubProject(this.tempDir),
+                new AnalysisParameters()
+                        .withContainerProfile("apptainer",
+                                "qe/qe:7.3@sha256:" + "b".repeat(64), "", "no"));
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains("Launch bridge: not exercised"),
+                "a skipped bridge is stated, never silent: " + report.getText());
+        String csv = String.join("\n", report.getCsvLines());
+        assertTrue(csv.contains("launch_bridge,not_exercised,"), csv);
+    }
+
+    @Test
+    void containerProfileDraftBridgeRefusalsAreFindingsNotVerdicts() throws IOException {
+        AnalysisReport missing = ResultAnalysisService.analyze(
+                AnalysisKind.CONTAINER_PROFILE_DRAFT, stubProject(this.tempDir),
+                new AnalysisParameters()
+                        .withContainerProfile("singularity",
+                                "qe/qe:7.3@sha256:" + "c".repeat(64), "", "yes")
+                        .withContainerSiteProfile(this.tempDir.resolve("nope.yaml")
+                                .toString()));
+        assertTrue(missing.isSuccess(),
+                "a bridge refusal must NOT sink the validated container profile");
+        assertTrue(missing.getText().contains("Launch bridge: site profile REFUSED"),
+                missing.getText());
+        String missingCsv = String.join("\n", missing.getCsvLines());
+        assertTrue(missingCsv.contains("launch_bridge,refused,site load refused"),
+                missingCsv);
+
+        java.nio.file.Path noLauncher = this.tempDir.resolve("quiet.yaml");
+        Files.writeString(noLauncher, "id: quiet-lab\nscheduler: slurm\n"
+                + "mpi_launcher:\nntasks: 8\n");
+        AnalysisReport blank = ResultAnalysisService.analyze(
+                AnalysisKind.CONTAINER_PROFILE_DRAFT, stubProject(this.tempDir),
+                new AnalysisParameters()
+                        .withContainerProfile("apptainer",
+                                "qe/qe:7.3@sha256:" + "d".repeat(64), "", "yes")
+                        .withContainerSiteProfile(noLauncher.toString()));
+        assertTrue(blank.isSuccess(), blank.getText());
+        assertTrue(blank.getText().contains("Launch bridge: REFUSED - "
+                + "[CONTAINER_BRIDGE_MPI_BLANK]"), blank.getText());
+        String blankCsv = String.join("\n", blank.getCsvLines());
+        assertTrue(blankCsv.contains("launch_bridge,refused,CONTAINER_BRIDGE_MPI_BLANK"),
+                blankCsv);
+    }
 }

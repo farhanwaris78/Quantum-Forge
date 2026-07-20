@@ -388,7 +388,7 @@ def main() -> int:
                   "MpSummaryParser", "MP_SUMMARY_PARSE",
                   "SlurmScriptBuilder", "SLURM_SCRIPT_DRAFT",
                   "KMeshConvergenceLadder", "KMESH_CONVERGENCE_PLAN",
-                  "SiteProfileSpec", "SITE_PROFILE_DRAFT",
+                  "SiteProfileSpec", "SITE_PROFILE_DRAFT", "ContainerLaunchBridge",
                   "NebInputPlanner", "NEB_INPUT_DRAFT",
                   "JobCancelPlan", "JOB_CANCEL_PLAN",
                   "MonitorPollPlan", "MONITOR_POLL_PLAN",
@@ -480,6 +480,7 @@ def main() -> int:
                 "quantumforge/run/CutoffLadderPlan.java",
                 "quantumforge/remote/ArrayJobPlan.java",
                 "quantumforge/remote/ContainerProfileSpec.java",
+                "quantumforge/remote/ContainerLaunchBridge.java",
                 "quantumforge/remote/JobStateGuard.java",
                 "quantumforge/run/PhononGridLadderPlan.java",
                 "quantumforge/run/ResubmitAdvice.java",
@@ -559,6 +560,12 @@ def main() -> int:
             error("QEFXJobMonitorDialog lost its FX-thread/lifecycle discipline")
         if "MAX_LINES" not in monitorModel.read_text(encoding="utf-8"):
             error("MonitorLogModel lost its owned ring bound")
+    actionFx = (SRC / "quantumforge/app/project/viewer/analysis/AnalysisAction.java").read_text(
+        encoding="utf-8")
+    if "withContainerSiteProfile" not in actionFx:
+        error("AnalysisAction lost the batch-147 launch-bridge prompt wiring")
+    if "launch_bridge" not in svcText:
+        error("ResultAnalysisService lost the batch-147 launch-bridge render/csv trail")
     sshJob = (SRC / "quantumforge/ssh/SSHJob.java").read_text(encoding="utf-8")
     if "SSHServerScheduler" not in sshJob:
         error("SSHJob lost the batch-144 single-owner scheduler resolution fix")

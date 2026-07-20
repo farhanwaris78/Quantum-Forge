@@ -739,6 +739,14 @@ public final class AnalysisAction {
                 return null;
             }
             parameters.withContainerExec(exec);
+            String sitePath = askText("OPTIONAL site profile path (yml/yaml) for the "
+                    + "launch bridge - resolves the <mpirun/srun + counts> anchor "
+                    + "from the site owner (BLANK skips; REVIEW only, nothing "
+                    + " launches)", "");
+            if (sitePath == null) {
+                return null;
+            }
+            parameters.withContainerSiteProfile(sitePath);
             parameters.withContainerProfile(runtime, image, binds, mpi);
             break;
         }
