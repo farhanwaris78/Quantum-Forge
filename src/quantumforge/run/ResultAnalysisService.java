@@ -76,6 +76,7 @@ import quantumforge.input.QEPpWavefunctionBuilder;
 import quantumforge.hpc.PoolDivisorMath;
 import quantumforge.hpc.JobDbSchema;
 import quantumforge.remote.OptimadeQueryBuilder;
+import quantumforge.remote.MpApiQueryBuilder;
 import quantumforge.com.math.QEUnits;
 import quantumforge.input.QESCFInput;
 import quantumforge.input.QEVersionRuleCatalog;
@@ -278,7 +279,8 @@ public final class ResultAnalysisService {
         PROVENANCE_JOURNAL_REVIEW("Structure provenance journal verify (hash-chained)"),
         JOB_DB_SCHEMA_PLAN("Job database schema + migration plan (SQLite WAL target)"),
         OPTIMADE_QUERY_DRAFT("OPTIMADE /structures query draft (validated, unfetched)"),
-        OCCUPATION_LEVELS_REVIEW("HOMO/LUMO occupation-level review (line-provenanced)");
+        OCCUPATION_LEVELS_REVIEW("HOMO/LUMO occupation-level review (line-provenanced)"),
+        MP_QUERY_DRAFT("Materials Project summary query draft (validated, unfetched, key-safe)");
 
         private final String label;
 
@@ -331,7 +333,7 @@ public final class ResultAnalysisService {
                     || this == UNIT_CONVERT || this == XSPECTRA_INPUT_DRAFT
                     || this == GIPAW_INPUT_DRAFT || this == SLAB_MILLER_PREVIEW
                     || this == TDDFPT_INPUT_DRAFT || this == JOB_DB_SCHEMA_PLAN
-                    || this == OPTIMADE_QUERY_DRAFT;
+                    || this == OPTIMADE_QUERY_DRAFT || this == MP_QUERY_DRAFT;
         }
 
         /** True for project-bound kinds that additionally parse a user data file. */
@@ -425,6 +427,9 @@ public final class ResultAnalysisService {
         private int optimadeNeMax = 0;          // 0 omits nelements<=N
         private int optimadeNsMax = 0;          // 0 omits nsites<=M
         private int optimadePageLimit = 0;      // 0 maps to builder default
+        private String mpBase = "https://api.materialsproject.org";
+        private String mpMaterialIds = "";    // csv of mp-/mvc- ids, REQUIRED
+        private String mpApiKey = "";         // never echoed back into reports
 
         public double getFermiEv() { return this.fermiEv; }
         public int getKpointIndex() { return this.kpointIndex; }
@@ -774,6 +779,17 @@ public final class ResultAnalysisService {
             this.optimadeNeMax = neMax;
             this.optimadeNsMax = nsMax;
             this.optimadePageLimit = pageLimit;
+            return this;
+        }
+
+        public String getMpBase() { return this.mpBase; }
+        public String getMpMaterialIds() { return this.mpMaterialIds; }
+        public String getMpApiKey() { return this.mpApiKey; }
+
+        public AnalysisParameters withMpQuery(String base, String ids, String key) {
+            this.mpBase = base == null ? "" : base.trim();
+            this.mpMaterialIds = ids == null ? "" : ids.trim();
+            this.mpApiKey = key == null ? "" : key;
             return this;
         }
     }
@@ -1378,6 +1394,8 @@ public final class ResultAnalysisService {
                 return analyzeJobDbSchemaPlan();
             case OPTIMADE_QUERY_DRAFT:
                 return analyzeOptimadeQueryDraft(params);
+            case MP_QUERY_DRAFT:
+                return analyzeMpQueryDraft(params);
             case SLAB_MILLER_PREVIEW:
                 return analyzeSlabMillerPreview(project, params);
             default:
@@ -7363,6 +7381,66 @@ public final class ResultAnalysisService {
                 + "before use)\n");
         draft.append("# base:   ").append(query.getNormalizedBase()).append('\n');
         draft.append("# filter: ").append(query.getFilter()).append('\n');
+        draft.append(query.getUrl()).append('\n');
+        return new AnalysisReport(label, true, text.toString(), csv, draft.toString());
+    }
+
+    /**
+     * Roadmap #116 (builder slice): validates a Materials Project mp-api v2
+     * base + task ids and composes a GET /materials/summary/ URL for review.
+     * The API key is never attached to the URL and never echoed back; the
+     * draft writes a file only via the explicit save action.
+     */
+    private static AnalysisReport analyzeMpQueryDraft(AnalysisParameters params) {
+        String label = AnalysisKind.MP_QUERY_DRAFT.getLabel();
+        OperationResult<MpApiQueryBuilder.MpQuery> built = MpApiQueryBuilder.build(
+                params.getMpBase(), params.getMpMaterialIds(), params.getMpApiKey());
+        if (!built.isSuccess() || built.getValue().isEmpty()) {
+            return failure(label, "The Materials Project query draft was refused:\n["
+                    + built.getCode() + "] " + built.getMessage());
+        }
+        MpApiQueryBuilder.MpQuery query = built.getValue().get();
+        StringBuilder text = new StringBuilder();
+        text.append(String.format(Locale.ROOT,
+                "API base (https-only, normalized): %s%n", query.getNormalizedBase()));
+        text.append(String.format(Locale.ROOT,
+                "Material ids (%d, analyst order preserved exactly): %s%n",
+                query.getMaterialIds().size(),
+                String.join(", ", query.getMaterialIds())));
+        text.append(String.format(Locale.ROOT,
+                "API key: %s%n",
+                query.isApiKeyProvided()
+                        ? "provided (" + params.getMpApiKey().trim().length()
+                                + " chars) - travels ONLY in the X-API-KEY "
+                                + "header, never in the URL or this report"
+                        : "NOT provided - the draft still builds, but the runtime "
+                                + "fetch requires an X-API-KEY header"));
+        text.append("\nGET URL (not fetched - review before use):\n")
+                .append(query.getUrl()).append('\n');
+        text.append("\nHonesty block: like the OPTIMADE draft this slice builds "
+                + "and validates ONLY - no fetch, no TLS policy, no rate-limit "
+                + "handling, no JSON parsing, no _fields projection and no "
+                + "POST-based search; route semantics follow the mp-api v2 "
+                + "documentation as curated here. The draft saves/exports only "
+                + "via the explicit action; the fetch + response import remain "
+                + "the #116 depth.\n");
+        List<String> csv = new ArrayList<>();
+        csv.add("item,value,note");
+        csv.add(String.format(Locale.ROOT, "base,%s,https validated",
+                csvCell(query.getNormalizedBase())));
+        csv.add(String.format(Locale.ROOT, "material_ids,%d,order preserved",
+                query.getMaterialIds().size()));
+        csv.add(String.format(Locale.ROOT, "api_key,%s,header-only",
+                query.isApiKeyProvided() ? "provided" : "missing"));
+        StringBuilder draft = new StringBuilder();
+        draft.append("# Materials Project query draft (QuantumForge, unfetched - "
+                + "review before use)\n");
+        draft.append("# base: ").append(query.getNormalizedBase()).append('\n');
+        draft.append("# ids:  ").append(String.join(",", query.getMaterialIds()))
+                .append('\n');
+        draft.append("# key:  X-API-KEY header ")
+                .append(query.isApiKeyProvided() ? "(provided)" : "(REQUIRED at fetch)")
+                .append(" - never in the URL\n");
         draft.append(query.getUrl()).append('\n');
         return new AnalysisReport(label, true, text.toString(), csv, draft.toString());
     }

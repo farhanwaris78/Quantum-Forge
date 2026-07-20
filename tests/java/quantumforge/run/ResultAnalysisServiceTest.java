@@ -4302,4 +4302,47 @@ class ResultAnalysisServiceTest {
                 "NEITHER a convergence nor a run-quality certificate"),
                 empty.getText());
     }
+
+    @Test
+    void testMpQueryDraftKindBuildsKeySafeAndRefuses() {
+        AnalysisReport report = ResultAnalysisService.analyze(
+                AnalysisKind.MP_QUERY_DRAFT, stubProject(this.tempDir),
+                new AnalysisParameters().withMpQuery(
+                        "https://api.materialsproject.org/", "mp-149, mp-13",
+                        "sekret42tok"));
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains(
+                "API base (https-only, normalized): https://api.materialsproject.org"),
+                report.getText());
+        assertTrue(report.getText().contains(
+                "Material ids (2, analyst order preserved exactly): mp-149, mp-13"),
+                report.getText());
+        assertTrue(report.getText().contains("provided (11 chars)"),
+                report.getText());
+        assertTrue(report.getText().contains(
+                "?material_ids=mp-149,mp-13"), report.getText());
+        assertFalse(report.getText().contains("sekret42tok"),
+                "the key is never echoed into the report");
+        assertTrue(report.getGeneratedInput() != null
+                        && report.getGeneratedInput().contains("X-API-KEY header"),
+                "the draft names the header");
+        assertFalse(report.getGeneratedInput().contains("sekret42tok"),
+                "the draft itself carries no key material");
+        assertTrue(report.getCsvLines().contains("api_key,provided,header-only"),
+                String.join("\n", report.getCsvLines()));
+
+        AnalysisReport http = ResultAnalysisService.analyze(
+                AnalysisKind.MP_QUERY_DRAFT, stubProject(this.tempDir),
+                new AnalysisParameters().withMpQuery(
+                        "http://api.materialsproject.org", "mp-149", ""));
+        assertFalse(http.isSuccess(), "plain http must fail closed");
+        assertTrue(http.getText().contains("[MP_BASE]"), http.getText());
+
+        AnalysisReport badId = ResultAnalysisService.analyze(
+                AnalysisKind.MP_QUERY_DRAFT, stubProject(this.tempDir),
+                new AnalysisParameters().withMpQuery(
+                        "https://api.materialsproject.org", "xyz-1", ""));
+        assertFalse(badId.isSuccess(), "undocumented id forms fail closed");
+        assertTrue(badId.getText().contains("[MP_ID]"), badId.getText());
+    }
 }

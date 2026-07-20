@@ -300,6 +300,26 @@ public final class AnalysisAction {
             parameters.withOptimadeQuery(base, elements, neMax, nsMax, pageLimit);
             break;
         }
+        case MP_QUERY_DRAFT: {
+            String mpBase = askText("Materials Project API base URL (https only, "
+                    + "API root; no credentials)", "https://api.materialsproject.org");
+            if (mpBase == null) {
+                return null;
+            }
+            String ids = askText("Material ids (comma-separated mp-NUMBER or "
+                    + "mvc-NUMBER, 1-20)", "");
+            if (ids == null) {
+                return null;
+            }
+            String key = askText("API key (plain token; travels ONLY in the "
+                    + "X-API-KEY header at fetch time, never echoed or embedded "
+                    + "in the URL; leave blank to draft without a key)", "");
+            if (key == null) {
+                return null;
+            }
+            parameters.withMpQuery(mpBase, ids, key);
+            break;
+        }
         case SLAB_MILLER_PREVIEW: {
             Integer h = askInteger("Miller index h (-16..16)", 1);
             if (h == null) {
