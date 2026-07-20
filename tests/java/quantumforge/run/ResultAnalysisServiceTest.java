@@ -4236,4 +4236,57 @@ class ResultAnalysisServiceTest {
         assertTrue(noElements.getText().contains("[OPTIMADE_ELEMENT]"),
                 noElements.getText());
     }
+
+    @Test
+    void testOccupationLevelsReviewKindProvenanceAndHonesty() throws IOException {
+        File log = write("scf.out",
+                "Program PWSCF v.7.2 starts...\n"
+                + "     intermediate text\n"
+                + "     highest occupied, lowest unoccupied level (ev):   -13.2500    -5.5000\n"
+                + "     total energy =   -15.8 Ry\n"
+                + "     highest occupied, lowest unoccupied level (ev):   -13.1000    -5.3000\n"
+                + "     End of self-consistent calculation\n");
+        AnalysisReport report = ResultAnalysisService.analyze(
+                AnalysisKind.OCCUPATION_LEVELS_REVIEW, new ProjectProperty(),
+                this.tempDir.toFile(), "pw", "scf.out", log,
+                new AnalysisParameters());
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains(
+                "occupation-level statements found: 2 (HOMO-LUMO pairs: 2; "
+                        + "single HOMO-only lines: 0)"), report.getText());
+        assertTrue(report.getText().contains(
+                "line 3: HOMO = -13.250000 eV, LUMO = -5.500000 eV, "
+                        + "line-gap = 7.750000 eV"), report.getText());
+        assertTrue(report.getText().contains(
+                "line 5: HOMO = -13.100000 eV, LUMO = -5.300000 eV, "
+                        + "line-gap = 7.800000 eV"), report.getText());
+        assertTrue(report.getText().contains("does not establish convergence"),
+                report.getText());
+        assertTrue(report.getCsvLines().contains(
+                "3,-13.250000,-5.500000,7.750000,pair"),
+                String.join("\n", report.getCsvLines()));
+
+        File metal = write("metal.out",
+                "Program PWSCF\n"
+                + "     highest occupied level (ev):    -6.7400\n");
+        AnalysisReport single = ResultAnalysisService.analyze(
+                AnalysisKind.OCCUPATION_LEVELS_REVIEW, new ProjectProperty(),
+                this.tempDir.toFile(), "pw", "metal.out", metal,
+                new AnalysisParameters());
+        assertTrue(single.isSuccess(), single.getText());
+        assertTrue(single.getText().contains("gap UNDEFINED"), single.getText());
+        assertTrue(single.getCsvLines().contains(
+                "2,-6.740000,,undefined,homo_only"),
+                String.join("\n", single.getCsvLines()));
+
+        File quiet = write("early.out", "Program PWSCF starts\nReading input\n");
+        AnalysisReport empty = ResultAnalysisService.analyze(
+                AnalysisKind.OCCUPATION_LEVELS_REVIEW, new ProjectProperty(),
+                this.tempDir.toFile(), "pw", "early.out", quiet,
+                new AnalysisParameters());
+        assertTrue(empty.isSuccess(), empty.getText());
+        assertTrue(empty.getText().contains(
+                "NEITHER a convergence nor a run-quality certificate"),
+                empty.getText());
+    }
 }

@@ -129,6 +129,7 @@ import quantumforge.neural.CompositionalBaselineMath;
 import quantumforge.run.parser.SeriesAlignmentMath;
 import quantumforge.run.parser.BandsFermiReviewMath;
 import quantumforge.run.parser.BandGapBandMath;
+import quantumforge.run.parser.OccupationLevelsParser;
 import quantumforge.run.parser.ScfConvergenceAnalyzer;
 import quantumforge.run.parser.ScfIterationRecord;
 import quantumforge.symmetry.MagneticSpaceGroupDetector;
@@ -275,7 +276,8 @@ public final class ResultAnalysisService {
         BAND_GAP_BANDS("Band-gap classification (valence count, metallicity tolerance)"),
         PROVENANCE_JOURNAL_REVIEW("Structure provenance journal verify (hash-chained)"),
         JOB_DB_SCHEMA_PLAN("Job database schema + migration plan (SQLite WAL target)"),
-        OPTIMADE_QUERY_DRAFT("OPTIMADE /structures query draft (validated, unfetched)");
+        OPTIMADE_QUERY_DRAFT("OPTIMADE /structures query draft (validated, unfetched)"),
+        OCCUPATION_LEVELS_REVIEW("HOMO/LUMO occupation-level review (line-provenanced)");
 
         private final String label;
 
@@ -296,7 +298,7 @@ public final class ResultAnalysisService {
         /** True when this kind normally reads the primary pw.x project log. */
         public boolean usesProjectLog() {
             return this == MAGNETIZATION || this == BORN_DIELECTRIC || this == THERMOPW_EOS
-                    || this == LOG_ERROR_DIAGNOSIS;
+                    || this == LOG_ERROR_DIAGNOSIS || this == OCCUPATION_LEVELS_REVIEW;
         }
 
         /** True when the analysis synthesizes a pp.x input instead of parsing output. */
@@ -1029,6 +1031,8 @@ public final class ResultAnalysisService {
             return name.endsWith(".cif");
         case MOL_SDF_REVIEW:
             return name.endsWith(".mol") || name.endsWith(".sdf");
+        case OCCUPATION_LEVELS_REVIEW:
+            return name.endsWith(".log") || name.endsWith(".out");
         case ML_DATASET_BASELINE:
             return name.endsWith(".xyz") || name.contains("extxyz");
         case SERIES_REF_ALIGN:
@@ -1192,6 +1196,8 @@ public final class ResultAnalysisService {
                 return analyzeCifReview(source);
             case MOL_SDF_REVIEW:
                 return analyzeMolSdfReview(source);
+            case OCCUPATION_LEVELS_REVIEW:
+                return analyzeOccupationLevelsReview(source);
             case ML_DATASET_BASELINE:
                 return analyzeMlDatasetBaseline(source);
             case SERIES_REF_ALIGN:
@@ -7315,6 +7321,89 @@ public final class ResultAnalysisService {
         draft.append("# filter: ").append(query.getFilter()).append('\n');
         draft.append(query.getUrl()).append('\n');
         return new AnalysisReport(label, true, text.toString(), csv, draft.toString());
+    }
+
+    /**
+     * Roadmap #47 (occupation half): line-provenanced HOMO/LUMO review of a
+     * pw log. Repeating pairs across SCF steps are ALL shown (no silent
+     * 'last wins'); single-value lines mean the gap is undefined; spin
+     * attribution is never guessed; an empty result is a needle statement,
+     * not a health certificate.
+     */
+    private static AnalysisReport analyzeOccupationLevelsReview(File source) {
+        String label = AnalysisKind.OCCUPATION_LEVELS_REVIEW.getLabel();
+        OperationResult<OccupationLevelsParser.OccupationReview> reviewed =
+                OccupationLevelsParser.review(source.toPath());
+        if (!reviewed.isSuccess() || reviewed.getValue().isEmpty()) {
+            return failure(label, "The occupation-level review refused "
+                    + source.getName() + ":\n[" + reviewed.getCode() + "] "
+                    + reviewed.getMessage());
+        }
+        OccupationLevelsParser.OccupationReview review = reviewed.getValue().get();
+        StringBuilder text = new StringBuilder();
+        text.append("File: ").append(source.getName()).append('\n');
+        text.append(String.format(Locale.ROOT,
+                "Scanned %d line(s); occupation-level statements found: %d "
+                        + "(HOMO-LUMO pairs: %d; single HOMO-only lines: %d).%n",
+                review.getLinesScanned(), review.getOccurrences().size(),
+                review.getPairCount(), review.getSingleCount()));
+        if (review.getOccurrences().isEmpty()) {
+            text.append("\nNo occupation-level line was found. This is a needle "
+                    + "statement ONLY - it says the pw.x HOMO/LUMO print is "
+                    + "absent (early run, non-pw program, or log level), and it "
+                    + "is NEITHER a convergence nor a run-quality certificate.\n");
+        } else {
+            int cap = 40;
+            text.append(String.format(Locale.ROOT,
+                    "Occurrences (line-provenanced; ALL shown up to %d, nothing "
+                            + "silently 'last-wins'):%n",
+                    cap));
+            int shown = 0;
+            for (OccupationLevelsParser.OccupationLine line : review.getOccurrences()) {
+                if (shown >= cap) {
+                    break;
+                }
+                if (Double.isNaN(line.getLumoEv())) {
+                    text.append(String.format(Locale.ROOT,
+                            "  line %d: HOMO-only = %+.6f eV  (metallic/smearing "
+                                    + "occupations; gap UNDEFINED - no LUMO was "
+                                    + "printed and none is invented)%n",
+                            line.getLineNumber(), line.getHomoEv()));
+                } else {
+                    text.append(String.format(Locale.ROOT,
+                            "  line %d: HOMO = %+.6f eV, LUMO = %+.6f eV, "
+                                    + "line-gap = %.6f eV%n",
+                            line.getLineNumber(), line.getHomoEv(), line.getLumoEv(),
+                            line.getGapEv()));
+                }
+                shown += 1;
+            }
+            if (review.getOccurrences().size() > cap) {
+                text.append(String.format(Locale.ROOT,
+                        "  ... %d more occurrence(s) not displayed (counted "
+                                + "above).%n",
+                        review.getOccurrences().size() - cap));
+            }
+        }
+        text.append("\nHonesty block: a later pair is the converged one ONLY if "
+                + "the run converged - this parser does not establish "
+                + "convergence; these lines carry no spin-channel label, so "
+                + "per-channel attribution is never guessed; the line-gap is "
+                + "the single-cell HOMO-LUMO statement and complements - never "
+                + "replaces - the k-resolved VBM/CBM/directness verdict of the "
+                + "BAND_GAP_BANDS kind (#47 curve half).\n");
+        List<String> csv = new ArrayList<>();
+        csv.add("line,homo_ev,lumo_ev,line_gap_ev,kind");
+        for (OccupationLevelsParser.OccupationLine line : review.getOccurrences()) {
+            csv.add(String.format(Locale.ROOT, "%d,%+.6f,%s,%s,%s",
+                    line.getLineNumber(), line.getHomoEv(),
+                    Double.isNaN(line.getLumoEv()) ? ""
+                            : String.format(Locale.ROOT, "%+.6f", line.getLumoEv()),
+                    Double.isNaN(line.getGapEv()) ? "undefined"
+                            : String.format(Locale.ROOT, "%.6f", line.getGapEv()),
+                    Double.isNaN(line.getLumoEv()) ? "homo_only" : "pair"));
+        }
+        return new AnalysisReport(label, true, text.toString(), csv, null);
     }
 
     /**
