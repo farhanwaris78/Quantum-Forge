@@ -426,6 +426,51 @@ public final class AnalysisAction {
             parameters.withKmeshPlan(ladder, offset);
             break;
         }
+        case SITE_PROFILE_DRAFT: {
+            String cluster = askText("cluster name ([A-Za-z][A-Za-z0-9._-]{0,63})",
+                    "");
+            if (cluster == null) {
+                return null;
+            }
+            String scheduler = askText("scheduler - TYPED: slurm | pbs | pjm | sge "
+                    + "(free-form strings refuse)", "slurm");
+            if (scheduler == null) {
+                return null;
+            }
+            String launcher = askText("launcher - TYPED: srun | mpirun | mpiexec "
+                    + "(pairing with the scheduler is not judged)", "srun");
+            if (launcher == null) {
+                return null;
+            }
+            String partition = askText("default partition (blank = honest omission "
+                    + "comment, not a default)", "");
+            if (partition == null) {
+                return null;
+            }
+            String account = askText("account/allocation (blank = honest omission "
+                    + "comment)", "");
+            if (account == null) {
+                return null;
+            }
+            String scratch = askText("scratch root - REQUIRED absolute POSIX path "
+                    + "(e.g. /scratch/you; no expansion characters)", "");
+            if (scratch == null) {
+                return null;
+            }
+            Integer maxNodes = askInteger("max nodes ceiling (1..100000; recorded, "
+                    + "not enforced here)", 32);
+            if (maxNodes == null) {
+                return null;
+            }
+            String modules = askText("site modules, comma-separated (blank = "
+                    + "'none declared' comment)", "");
+            if (modules == null) {
+                return null;
+            }
+            parameters.withSiteProfile(cluster, scheduler, launcher, partition,
+                    account, scratch, maxNodes.intValue(), modules);
+            break;
+        }
         case SLAB_MILLER_PREVIEW: {
             Integer h = askInteger("Miller index h (-16..16)", 1);
             if (h == null) {

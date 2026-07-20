@@ -80,6 +80,7 @@ import quantumforge.remote.OptimadeStructuresParser;
 import quantumforge.remote.MpApiQueryBuilder;
 import quantumforge.remote.MpSummaryParser;
 import quantumforge.remote.SftpTransferPlan;
+import quantumforge.remote.SiteProfileSpec;
 import quantumforge.remote.SlurmScriptBuilder;
 import quantumforge.remote.SshTargetSpec;
 import quantumforge.com.math.QEUnits;
@@ -291,7 +292,8 @@ public final class ResultAnalysisService {
         SSH_CONFIG_DRAFT("SSH target ssh_config draft (publickey-only, validated)"),
         SFTP_TRANSFER_PLAN("SFTP staging plan (upload, hash-pinned, explicit overwrite)"),
         SLURM_SCRIPT_DRAFT("SLURM submit-script draft (typed directives, reviewed payload)"),
-        KMESH_CONVERGENCE_PLAN("k-mesh convergence ladder plan (spacing arithmetic, energies unaudited)");
+        KMESH_CONVERGENCE_PLAN("k-mesh convergence ladder plan (spacing arithmetic, energies unaudited)"),
+        SITE_PROFILE_DRAFT("HPC site-profile draft (typed scheduler/launcher, owned grammar)");
 
         private final String label;
 
@@ -346,7 +348,8 @@ public final class ResultAnalysisService {
                     || this == TDDFPT_INPUT_DRAFT || this == JOB_DB_SCHEMA_PLAN
                     || this == OPTIMADE_QUERY_DRAFT || this == MP_QUERY_DRAFT
                     || this == SSH_CONFIG_DRAFT || this == SFTP_TRANSFER_PLAN
-                    || this == SLURM_SCRIPT_DRAFT || this == KMESH_CONVERGENCE_PLAN;
+                    || this == SLURM_SCRIPT_DRAFT || this == KMESH_CONVERGENCE_PLAN
+                    || this == SITE_PROFILE_DRAFT;
         }
 
         /** True for project-bound kinds that additionally parse a user data file. */
@@ -460,6 +463,14 @@ public final class ResultAnalysisService {
         private String slurmCommand = "";      // one analyst-reviewed payload line
         private String kmeshLadder = "";       // "4 4 4; 8 8 8; ..." rungs, order kept
         private String kmeshOffset = "";       // exactly three 0/1 shifts, never defaulted
+        private String siteCluster = "";       // SITE_PROFILE_DRAFT owned values
+        private String siteScheduler = "";     // typed enum: slurm/pbs/pjm/sge
+        private String siteLauncher = "";      // typed enum: srun/mpirun/mpiexec
+        private String sitePartition = "";     // blank = honest omission comment
+        private String siteAccount = "";       // blank = honest omission comment
+        private String siteScratchDir = "";    // absolute POSIX scratch root, required
+        private int siteMaxNodes = 1;
+        private String siteModules = "";       // csv, blank = none-declared comment
 
         public double getFermiEv() { return this.fermiEv; }
         public int getKpointIndex() { return this.kpointIndex; }
@@ -877,6 +888,29 @@ public final class ResultAnalysisService {
         public AnalysisParameters withKmeshPlan(String ladder, String offset) {
             this.kmeshLadder = ladder == null ? "" : ladder;
             this.kmeshOffset = offset == null ? "" : offset;
+            return this;
+        }
+
+        public String getSiteCluster() { return this.siteCluster; }
+        public String getSiteScheduler() { return this.siteScheduler; }
+        public String getSiteLauncher() { return this.siteLauncher; }
+        public String getSitePartition() { return this.sitePartition; }
+        public String getSiteAccount() { return this.siteAccount; }
+        public String getSiteScratchDir() { return this.siteScratchDir; }
+        public int getSiteMaxNodes() { return this.siteMaxNodes; }
+        public String getSiteModules() { return this.siteModules; }
+
+        public AnalysisParameters withSiteProfile(String cluster, String scheduler,
+                String launcher, String partition, String account, String scratchDir,
+                int maxNodes, String modules) {
+            this.siteCluster = cluster == null ? "" : cluster;
+            this.siteScheduler = scheduler == null ? "" : scheduler;
+            this.siteLauncher = launcher == null ? "" : launcher;
+            this.sitePartition = partition == null ? "" : partition;
+            this.siteAccount = account == null ? "" : account;
+            this.siteScratchDir = scratchDir == null ? "" : scratchDir;
+            this.siteMaxNodes = maxNodes;
+            this.siteModules = modules == null ? "" : modules;
             return this;
         }
     }
@@ -1501,6 +1535,8 @@ public final class ResultAnalysisService {
                 return analyzeSlurmScriptDraft(params);
             case KMESH_CONVERGENCE_PLAN:
                 return analyzeKmeshConvergencePlan(project, params);
+            case SITE_PROFILE_DRAFT:
+                return analyzeSiteProfileDraft(params);
             case SLAB_MILLER_PREVIEW:
                 return analyzeSlabMillerPreview(project, params);
             default:
@@ -7801,6 +7837,73 @@ public final class ResultAnalysisService {
                 + "distance); rung order is exactly as prompted - nothing is re-sorted, "
                 + "and a coarsening ladder refuses rather than inverting the study.\n");
         return new AnalysisReport(label, true, text.toString(), csv, null);
+    }
+
+    /**
+     * Roadmap #94 (draft slice): a site-profile draft with typed
+     * scheduler/launcher enums and owned value grammars. The render is an
+     * OWNED qf-site-profile v1 key=value block, explicitly labeled NOT-YAML;
+     * unset optional keys render as honest omission comments rather than
+     * invented defaults. No submit path consumes profiles from this build.
+     */
+    private static AnalysisReport analyzeSiteProfileDraft(AnalysisParameters params) {
+        String label = AnalysisKind.SITE_PROFILE_DRAFT.getLabel();
+        OperationResult<SiteProfileSpec.SiteProfile> validated =
+                SiteProfileSpec.validate(params.getSiteCluster(), params.getSiteScheduler(),
+                        params.getSiteLauncher(), params.getSitePartition(),
+                        params.getSiteAccount(), params.getSiteScratchDir(),
+                        params.getSiteMaxNodes(), params.getSiteModules());
+        if (!validated.isSuccess() || validated.getValue().isEmpty()) {
+            return failure(label, "The site-profile draft was refused:\n["
+                    + validated.getCode() + "] " + validated.getMessage());
+        }
+        SiteProfileSpec.SiteProfile profile = validated.getValue().get();
+        String block = profile.render();
+        StringBuilder text = new StringBuilder();
+        text.append(String.format(Locale.ROOT,
+                "Cluster '%s': scheduler=%s, launcher=%s, max_nodes=%d, modules=%d, "
+                        + "partition %s, account %s.%n",
+                profile.getCluster(), profile.getScheduler(), profile.getLauncher(),
+                profile.getMaxNodes(), profile.getModules().size(),
+                profile.getDefaultPartition().isEmpty() ? "(omitted - honest comment)"
+                        : "'" + profile.getDefaultPartition() + "'",
+                profile.getAccount().isEmpty() ? "(omitted - honest comment)"
+                        : "'" + profile.getAccount() + "'"));
+        text.append("Scratch root: ").append(profile.getScratchDir()).append('\n');
+        text.append("\nRendered profile block (also in the draft channel):\n\n").append(block);
+        text.append("\nHonesty block: this draft changes NOTHING about how jobs run "
+                + "today - no submit path reads profiles from this build. Scheduler and "
+                + "launcher are TYPED enums (free-form strings refuse); the scratch root "
+                + "is required and literal (no expansion characters); unset optionals "
+                + "render as omission comments, not defaults. The #94 runtime depth: "
+                + "site-admin YAML with schema validation, one portable project "
+                + "targeting multiple clusters, policy limits, and scheduler-adapter "
+                + "consumption of every value drafted here.\n");
+        List<String> csv = new ArrayList<>();
+        csv.add("item,value,note");
+        csv.add(String.format(Locale.ROOT, "cluster,%s,owned grammar",
+                csvCell(profile.getCluster())));
+        csv.add(String.format(Locale.ROOT, "scheduler,%s,typed enum",
+                profile.getScheduler()));
+        csv.add(String.format(Locale.ROOT, "launcher,%s,typed enum - pairing not judged",
+                profile.getLauncher()));
+        csv.add(String.format(Locale.ROOT, "default_partition,%s,%s",
+                csvCell(profile.getDefaultPartition().isEmpty() ? "(omitted)"
+                        : profile.getDefaultPartition()),
+                profile.getDefaultPartition().isEmpty() ? "honest omission"
+                        : "owned grammar"));
+        csv.add(String.format(Locale.ROOT, "account,%s,%s",
+                csvCell(profile.getAccount().isEmpty() ? "(omitted)" : profile.getAccount()),
+                profile.getAccount().isEmpty() ? "honest omission" : "owned grammar"));
+        csv.add(String.format(Locale.ROOT, "scratch_dir,%s,literal absolute POSIX%s",
+                csvCell(profile.getScratchDir()),
+                profile.isScratchTrimmed() ? " (trailing slash normalized)" : ""));
+        csv.add(String.format(Locale.ROOT, "max_nodes,%d,ceiling recorded - enforced by "
+                + "the submit path", profile.getMaxNodes()));
+        csv.add(String.format(Locale.ROOT, "modules,%d,%s", profile.getModules().size(),
+                profile.getModules().isEmpty() ? "none declared - not assumed"
+                        : "tokens grammar-checked"));
+        return new AnalysisReport(label, true, text.toString(), csv, block);
     }
 
     /**

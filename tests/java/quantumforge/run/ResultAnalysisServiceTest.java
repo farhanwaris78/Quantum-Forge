@@ -4712,4 +4712,74 @@ class ResultAnalysisServiceTest {
                 "spacing arithmetic needs the live lattice - no placeholder geometry");
         assertTrue(noCell.getText().contains("no atomic cell"), noCell.getText());
     }
+
+
+    @Test
+    void siteProfileDraftRendersTheOwnedBlockThroughTheDraftChannel() throws IOException {
+        AnalysisReport report = ResultAnalysisService.analyze(
+                AnalysisKind.SITE_PROFILE_DRAFT, stubProject(this.tempDir),
+                new AnalysisParameters().withSiteProfile("atlas", "SLURM", "srun",
+                        "main", "phys2026", "/scratch/farhan/", 256, "qe/7.3"));
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains(
+                "Cluster 'atlas': scheduler=slurm, launcher=srun, max_nodes=256, "
+                        + "modules=1, partition 'main', account 'phys2026'."),
+                report.getText());
+        assertTrue(report.getText().contains("no submit path reads profiles"),
+                report.getText());
+        String block = report.getGeneratedInput().orElseThrow();
+        assertTrue(block.contains("# qf-site-profile v1"), block);
+        assertTrue(block.contains("NOT YAML"), block);
+        assertTrue(block.contains("cluster = atlas\n"), block);
+        assertTrue(block.contains("scheduler = slurm\n"), block);
+        assertTrue(block.contains("launcher = srun\n"), block);
+        assertTrue(block.contains("scratch_dir = /scratch/farhan   # trailing '/' "
+                + "normalized away at validation"), block);
+        assertTrue(block.contains("max_nodes = 256\n"), block);
+        assertTrue(block.contains("modules = qe/7.3\n"), block);
+        String csv = String.join("\n", report.getCsvLines());
+        assertTrue(csv.contains("scheduler,slurm,typed enum"), csv);
+        assertTrue(csv.contains("scratch_dir,/scratch/farhan,literal absolute POSIX "
+                + "(trailing slash normalized)"), csv);
+    }
+
+    @Test
+    void siteProfileDraftOmissionsAndFailClosedPaths() throws IOException {
+        AnalysisReport omitted = ResultAnalysisService.analyze(
+                AnalysisKind.SITE_PROFILE_DRAFT, stubProject(this.tempDir),
+                new AnalysisParameters().withSiteProfile("atlas", "sge", "mpirun",
+                        "", "", "/scratch/farhan", 8, ""));
+        assertTrue(omitted.isSuccess(), omitted.getText());
+        String block = omitted.getGeneratedInput().orElseThrow();
+        assertTrue(block.contains("# default_partition = (unset - honestly omitted"),
+                block);
+        assertTrue(block.contains("# account = (unset - honestly omitted)"), block);
+        assertTrue(block.contains("# modules = (none declared"), block);
+
+        AnalysisReport freeScheduler = ResultAnalysisService.analyze(
+                AnalysisKind.SITE_PROFILE_DRAFT, stubProject(this.tempDir),
+                new AnalysisParameters().withSiteProfile("atlas", "torque-ish", "srun",
+                        "", "", "/scratch/x", 8, ""));
+        assertFalse(freeScheduler.isSuccess(),
+                "free-form scheduler strings refuse, they are not echoed");
+        assertTrue(freeScheduler.getText().contains("[SITE_SCHEDULER]"),
+                freeScheduler.getText());
+
+        AnalysisReport relativeScratch = ResultAnalysisService.analyze(
+                AnalysisKind.SITE_PROFILE_DRAFT, stubProject(this.tempDir),
+                new AnalysisParameters().withSiteProfile("atlas", "slurm", "srun",
+                        "", "", "scratch/farhan", 8, ""));
+        assertFalse(relativeScratch.isSuccess(),
+                "relative scratch paths refuse - the policy must be deliberate");
+        assertTrue(relativeScratch.getText().contains("[SITE_SCRATCH]"),
+                relativeScratch.getText());
+
+        AnalysisReport whitespaceModule = ResultAnalysisService.analyze(
+                AnalysisKind.SITE_PROFILE_DRAFT, stubProject(this.tempDir),
+                new AnalysisParameters().withSiteProfile("atlas", "slurm", "srun",
+                        "", "", "/scratch/x", 8, "qe 7.3"));
+        assertFalse(whitespaceModule.isSuccess());
+        assertTrue(whitespaceModule.getText().contains("[SITE_MODULE]"),
+                whitespaceModule.getText());
+    }
 }
