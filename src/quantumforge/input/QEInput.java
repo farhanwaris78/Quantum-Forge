@@ -39,6 +39,49 @@ public abstract class QEInput {
     public static final String NAMELIST_PROJWFC = "PROJWFC";
     public static final String NAMELIST_BANDS = "BANDS";
 
+    /**
+     * pw.x EXTENSION namelist keys mined from the QE 7.2-7.6 grammar:
+     * &FCP (fixed-cell-potential constant-mu), &RISM (ESM-RISM electrolyte),
+     * &WANNIER, &WANNIER_AC and &PRESS_AI (vcd md.x companion). They are
+     * deliberately NOT part of {@link #listNamelistKeys()}: the render/write
+     * path keeps its eight-slot shape, and a subclass registers one of these
+     * only when it OWNS that deck. The mined-schema audit adapter reaches them
+     * either from a registered model namelist or from the rendered deck text.
+     */
+    public static final String NAMELIST_FCP = "FCP";
+    public static final String NAMELIST_RISM = "RISM";
+    public static final String NAMELIST_WANNIER = "WANNIER";
+    public static final String NAMELIST_WANNIER_AC = "WANNIER_AC";
+    public static final String NAMELIST_PRESS_AI = "PRESS_AI";
+
+    /**
+     * The five extension namelist keys of {@link #NAMELIST_FCP} and siblings,
+     * in mined-schema order. Roadmap R1 accessor.
+     */
+    public static String[] listExtraNamelistKeys() {
+        return new String[] {
+                NAMELIST_FCP,
+                NAMELIST_RISM,
+                NAMELIST_WANNIER,
+                NAMELIST_WANNIER_AC,
+                NAMELIST_PRESS_AI
+        };
+    }
+
+    /**
+     * The eight primary keys followed by the five extension keys (13 total).
+     * Read-side accessor only - nothing in this class starts WRITING these
+     * decks implicitly because of this list.
+     */
+    public static String[] listAllNamelistKeys() {
+        String[] primary = listNamelistKeys();
+        String[] extra = listExtraNamelistKeys();
+        String[] all = new String[primary.length + extra.length];
+        System.arraycopy(primary, 0, all, 0, primary.length);
+        System.arraycopy(extra, 0, all, primary.length, extra.length);
+        return all;
+    }
+
     public static String[] listNamelistKeys() {
         return new String[] {
                 NAMELIST_CONTROL,

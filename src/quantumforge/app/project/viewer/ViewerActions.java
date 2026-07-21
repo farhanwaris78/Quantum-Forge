@@ -66,6 +66,7 @@ import javafx.scene.Node;
 import javafx.scene.control.Alert;
 import javafx.scene.control.Alert.AlertType;
 import javafx.scene.control.ButtonType;
+import javafx.scene.control.ChoiceDialog;
 import javafx.stage.FileChooser;
 import javafx.stage.Stage;
 
@@ -469,13 +470,36 @@ public class ViewerActions extends ProjectActions<Node> {
         QEInput input = this.project.getQEInputCurrent();
         List<ValidationIssue> issues = new java.util.ArrayList<>(
                 new QEInputValidator().validate(input));
-        // Batch 150: mined-schema audit layered on top of the structural checks,
-        // against the newest mined QE grammar (window 7.2-7.6; a specific minor
-        // version can be audited from the version-check analysis action).
-        String schemaVersion = QENamelistSchema.VERSIONS.get(QENamelistSchema.VERSIONS.size() - 1);
+        // Batch 155 (QE-integration roadmap R2): the audit version is now a
+        // USER-PINNED choice - the mined grammar window the deck is checked
+        // against is the version the user will actually run, never a silent
+        // newest-only default. Cancelling runs nothing (consent doctrine).
+        String newestSchema = QENamelistSchema.VERSIONS
+                .get(QENamelistSchema.VERSIONS.size() - 1);
+        ChoiceDialog<String> versionDialog = new ChoiceDialog<>(newestSchema,
+                QENamelistSchema.VERSIONS);
+        versionDialog.setTitle("Mined-schema audit version");
+        versionDialog.setHeaderText("Audit the input against which QE grammar window?");
+        versionDialog.setContentText("QE version:");
+        String schemaVersion = versionDialog.showAndWait().orElse(null);
+        if (schemaVersion == null) {
+            return;
+        }
+        QESchemaValidator schemaValidator = new QESchemaValidator();
         List<ValidationIssue> schemaIssues =
-                new QESchemaValidator().validate(input, schemaVersion);
+                schemaValidator.validate(input, schemaVersion);
         issues.addAll(schemaIssues);
+        // Batch 155 (QE-integration roadmap R1): the five pw.x extension decks
+        // (&FCP/&RISM/&WANNIER/&WANNIER_AC/&PRESS_AI) are audited from the
+        // RENDERED deck text through the same QEInputReader/QENamelist grammar
+        // the model path uses - a deck carrying them is no longer out of reach.
+        int extensionDeckIssues = 0;
+        if (input != null) {
+            List<ValidationIssue> deckIssues =
+                    schemaValidator.validateDeckText(input.toString(), schemaVersion);
+            extensionDeckIssues = deckIssues.size();
+            issues.addAll(deckIssues);
+        }
         boolean errors = QEInputValidator.hasErrors(issues);
         StringBuilder message = new StringBuilder();
         if (issues.isEmpty()) {
@@ -491,9 +515,11 @@ public class ViewerActions extends ProjectActions<Node> {
         }
         message.append("\n--\nStructural checks plus the mined-schema audit (QE ")
                 .append(schemaVersion)
-                .append(" grammar; namelist keywords machine-mined from QE tags qe-7.2 .. ")
-                .append("qe-7.6 - cards and runtime-conditional rules stay out of scope); ")
-                .append("the version-check analysis audits a specific minor version.");
+                .append(" grammar, user-pinned; namelist keywords machine-mined from QE ")
+                .append("tags qe-7.2 .. qe-7.6 - cards and runtime-conditional rules stay ")
+                .append("out of scope). Extension decks &FCP/&RISM/&WANNIER/&WANNIER_AC/")
+                .append("&PRESS_AI audited from the rendered deck text: ")
+                .append(extensionDeckIssues).append(" issue(s).");
         Alert alert = new Alert(errors ? AlertType.ERROR : AlertType.INFORMATION);
         alert.setTitle("Quantum ESPRESSO input validation");
         alert.setHeaderText(errors ? "Input has blocking preflight errors"

@@ -709,6 +709,21 @@ def main() -> int:
     if "qeVersionCombo" not in phononFxml or "keywordWindowList" not in phononFxml:
         error("QEFXPhonon.fxml lost the batch-154 version picker / keyword window list")
 
+    # Batch 155 (QE-roadmap R1+R2): extension-deck accessor + deck-text audit +
+    # user-pinned validation version picker.
+    qeinp = (SRC / "quantumforge/input/QEInput.java").read_text(encoding="utf-8")
+    if "listExtraNamelistKeys" not in qeinp or "NAMELIST_PRESS_AI" not in qeinp \
+            or "listAllNamelistKeys" not in qeinp:
+        error("QEInput lost the batch-155 R1 extension-deck accessor (FCP/RISM/WANNIER.../PRESS_AI)")
+    schemaVal = (SRC / "quantumforge/input/validation/QESchemaValidator.java").read_text(encoding="utf-8")
+    if "validateDeckText" not in schemaVal or "CODE_TEXT_LIMIT" not in schemaVal:
+        error("QESchemaValidator lost the batch-155 deck-text extension audit or its bounded read")
+    vact = (SRC / "quantumforge/app/project/viewer/ViewerActions.java").read_text(encoding="utf-8")
+    if "versionDialog" not in vact or "ChoiceDialog<String>" not in vact:
+        error("ViewerActions lost the batch-155 R2 user-pinned audit-version picker")
+    if "audit the input against which qe grammar window" not in vact.lower():
+        error("ViewerActions lost the batch-155 R2 picker text naming the grammar window")
+
     cap = (SRC / "quantumforge/capability/CapabilityRegistry.java").read_text(encoding="utf-8")
     if "Strict known_hosts" not in cap:
         error("CapabilityRegistry SSH status not updated")
