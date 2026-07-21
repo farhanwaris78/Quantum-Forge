@@ -1074,6 +1074,40 @@ def main() -> int:
     if not (ROOT / "tests/java/quantumforge/run/parser/QEThermoPwSeriesParserTest.java").is_file():
         error("batch-166 parser/scanner/stdout tests missing")
 
+    # --- batch 167: ELATE integration + thermo_pw elastic channel ---
+    elateText = (SRC / "quantumforge/run/parser/QEElateAnalyzer.java").read_text(encoding="utf-8")
+    for needle in ("ELATE_SHAPE", "ELATE_ASYMMETRIC", "ELATE_SINGULAR",
+                   "0627e636a7c97e8678f71aea44d0851455650d3a",
+                   "GRID_2D = 25", "GRID_3D = 10", "ASYMMETRY_TOLERANCE",
+                   "No further analysis will be performed",
+                   "polarYoung", "polarShearBand", "youngGpa", "KBAR_TO_GPA"):
+        if needle not in elateText:
+            error("QEElateAnalyzer lost the batch-167 ELATE mirror: " + needle)
+    tpwElasticText = (SRC / "quantumforge/run/parser/QEThermoPwElasticParser.java").read_text(encoding="utf-8")
+    for needle in ("THERMOPW_ELASTIC_INPUT", "THERMOPW_ELASTIC_SHAPE",
+                   "THERMOPW_ELASTIC_PARTIAL", "THERMOPW_ELASTIC_HEADER",
+                   "output_el_cons", "Elastic constants C_ij",
+                   "toElateMatrixText", "getSoundTokens", "getDebyeTokens"):
+        if needle not in tpwElasticText:
+            error("QEThermoPwElasticParser lost the batch-167 elastic channels: " + needle)
+    elateDialogText = (SRC / "quantumforge/app/project/viewer/elate/QEFXElateDialog.java").read_text(encoding="utf-8")
+    for needle in ("Paste 6x6 stiffness matrix", "output_el_cons.dat[.gN]",
+                   "polarYoung", "polarPoissonBand", "BAND_CHI_STEPS",
+                   "convention difference", "No further analysis"):
+        if needle not in elateDialogText:
+            error("QEFXElateDialog lost the batch-167 ELATE viewer: " + needle)
+    if "getElateItem" not in itemSetText or "ELATE elastic tensor analysis ..." not in itemSetText:
+        error("ViewerItemSet lost the batch-167 ELATE menu item")
+    if "actionElate" not in vactText2 or "QEFXElateDialog" not in vactText2:
+        error("ViewerActions lost the batch-167 ELATE action wiring")
+    if "ELATE_TENSOR_ANALYSIS" not in rasText \
+            or "analyzeElateTensor" not in rasText \
+            or "QEElateAnalyzer.analyze" not in rasText:
+        error("ResultAnalysisService lost the batch-167 ELATE_TENSOR_ANALYSIS kind")
+    if not (ROOT / "tests/java/quantumforge/run/parser/QEElateAnalyzerTest.java").is_file() \
+            or not (ROOT / "tests/java/quantumforge/run/parser/QEThermoPwElasticParserTest.java").is_file():
+        error("batch-167 ELATE/elastic-channel tests missing")
+
     cap = (SRC / "quantumforge/capability/CapabilityRegistry.java").read_text(encoding="utf-8")
     if "Strict known_hosts" not in cap:
         error("CapabilityRegistry SSH status not updated")

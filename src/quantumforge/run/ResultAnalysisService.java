@@ -171,6 +171,8 @@ import quantumforge.run.parser.ScfIterationRecord;
 import quantumforge.symmetry.MagneticSpaceGroupDetector;
 import quantumforge.symmetry.QEBrillouinZoneGeometry;
 import quantumforge.run.parser.QEPwcondConductanceParser;
+import quantumforge.run.parser.QEElateAnalyzer;
+import quantumforge.run.parser.QEThermoPwElasticParser;
 import quantumforge.run.parser.QEThermoPwEosParser;
 import quantumforge.run.parser.QEThermoPwRunScanner;
 import quantumforge.run.parser.QETurboSpectrumParser;
@@ -218,6 +220,7 @@ public final class ResultAnalysisService {
         WANNIER90_SPREAD("Wannier90 spread convergence"),
         THERMO_PW_DECK_AUDIT("thermo_pw thermo_control grammar audit (mined)"),
         THERMO_PW_RUN_SUMMARY("thermo_pw run summary (directory census + stdout EOS extracts)"),
+        ELATE_TENSOR_ANALYSIS("ELATE elastic tensor analysis (averages/eigen/extrema)"),
         QE_CARD_AUDIT("pw.x card grammar audit (mined read_cards)"),
         QE_AUX_DECK_AUDIT("auxiliary QE input grammar audit (24 programs)"),
         THERMOPW_EOS("thermo_pw equation of state"),
@@ -1402,6 +1405,8 @@ public final class ResultAnalysisService {
             return name.equals("thermo_control");
         case THERMO_PW_RUN_SUMMARY:
             return false; // manual select only: ANY *.out would else hijack run routing
+        case ELATE_TENSOR_ANALYSIS:
+            return false; // manual select only: shares the same *.out / .dat* surface
         case QE_CARD_AUDIT:
             return false; // manual select only: EVERY pw input is a candidate
         case QE_AUX_DECK_AUDIT:
@@ -1613,6 +1618,8 @@ public final class ResultAnalysisService {
                 return analyzeThermoPwDeckAudit(property, source);
             case THERMO_PW_RUN_SUMMARY:
                 return analyzeThermoPwRunSummary(property, source);
+            case ELATE_TENSOR_ANALYSIS:
+                return analyzeElateTensor(property, source);
             case QE_CARD_AUDIT:
                 return analyzeQeCardAudit(property, source);
             case QE_AUX_DECK_AUDIT:
@@ -3119,6 +3126,149 @@ public final class ResultAnalysisService {
                 + " without asserting band-vs-segment semantics; files outside the pinned"
                 + " set are named as uninterpreted; no thermodynamics review is implied.\n");
         return new AnalysisReport(label, anyFact, text.toString(), csv, null);
+    }
+
+    /**
+     * ELATE TENSOR ANALYSIS (batch 167): one 6x6 stiffness tensor from the
+     * pinned thermo_pw elastic channels (output_el_cons.dat[.gN], or the LAST
+     * 'Elastic constants C_ij (kbar)' block of a run stdout, both declared
+     * kbar) run through {@link QEElateAnalyzer} - the clean-room mirror of
+     * the published ELATE workflow (coudertlab/elate commit 0627e636a). The
+     * report shows stability + eigenvalues + Voigt/Reuss/Hill rows always,
+     * extrema only when ELATE's own positive-definite gate passes; the
+     * thermo_pw-vs-ELATE Hill CONVENTION difference is stated wherever the
+     * stdout's printed Hill row is also quoted. Manual-select ONLY (shares
+     * the *.out / .dat* name surface with many other kinds). Anything that
+     * matches neither pinned grammar is refused with the dialog paste-route
+     * pointer - never auto-guessed.
+     */
+    private static AnalysisReport analyzeElateTensor(ProjectProperty property,
+            File source) throws IOException {
+        String label = AnalysisKind.ELATE_TENSOR_ANALYSIS.getLabel();
+        if (source == null || !source.isFile()) {
+            return failure(label, "Pick a thermo_pw output_el_cons.dat[.gN] constants file"
+                    + " or a run stdout (*.out) holding the C_ij block. To analyse a tensor"
+                    + " from any other source, use the ELATE dialog's paste route (declared"
+                    + " unit) - this report never guesses a grammar.");
+        }
+        String name = source.getName();
+        String matrixText;
+        StringBuilder provenance = new StringBuilder();
+        StringBuilder verbatim = new StringBuilder();
+        if (name.startsWith("output_el_cons.dat")) {
+            OperationResult<QEThermoPwElasticParser.ElasticConstantsFile> parsed =
+                    QEThermoPwElasticParser.parseElasticConstantsFile(source.toPath());
+            if (!parsed.isSuccess() || parsed.getValue().isEmpty()) {
+                return failure(label, "[" + parsed.getCode() + "] " + parsed.getMessage());
+            }
+            QEThermoPwElasticParser.ElasticConstantsFile file = parsed.getValue()
+                    .orElseThrow();
+            matrixText = file.toElateMatrixText();
+            provenance.append("constants file ").append(name)
+                    .append(file.getGeometryTag() != null
+                            ? " (geometry " + file.getGeometryTag() + ")" : "")
+                    .append(" - ").append(file.getUnitProvenance()).append('\n');
+            provenance.append("compliance block: ").append(file.hasCompliance()
+                    ? "present (1/Mbar)" : "not written (yet)").append('\n');
+        } else if (name.endsWith(".out") || name.endsWith(".log")) {
+            OperationResult<QEThermoPwElasticParser.ElasticStdout> parsed =
+                    QEThermoPwElasticParser.parseElasticStdout(source.toPath());
+            if (!parsed.isSuccess() || parsed.getValue().isEmpty()) {
+                return failure(label, "[" + parsed.getCode() + "] " + parsed.getMessage());
+            }
+            QEThermoPwElasticParser.ElasticStdout stdout = parsed.getValue().orElseThrow();
+            matrixText = stdout.toElateMatrixText();
+            provenance.append("run stdout ").append(name)
+                    .append(" - LAST C_ij block at line ")
+                    .append(stdout.getStiffnessFirstLine())
+                    .append(" (stdout digits are the run's ROUNDED prints, used as-is).\n");
+            for (QEThermoPwElasticParser.StdoutScheme scheme : stdout.getSchemes()) {
+                verbatim.append(String.format(Locale.ROOT,
+                        "  line %d  %s:  B=%s kbar  E=%s kbar  G=%s kbar  n=%s%n",
+                        scheme.getFirstLine(), scheme.getScheme(), scheme.getBulkKbar(),
+                        scheme.getYoungKbar(), scheme.getShearKbar(), scheme.getPoisson()));
+            }
+            if (!stdout.getSoundTokens().isEmpty()) {
+                verbatim.append("  sound velocities (m/s tokens): ")
+                        .append(String.join(", ", stdout.getSoundTokens())).append('\n');
+            }
+            if (!stdout.getDebyeTokens().isEmpty()) {
+                verbatim.append("  Debye tokens: ")
+                        .append(String.join(", ", stdout.getDebyeTokens())).append('\n');
+            }
+        } else {
+            return failure(label, name + " matches neither pinned elastic channel"
+                    + " (output_el_cons.dat[.gN] / run stdout). Use the ELATE dialog's"
+                    + " paste route for ad-hoc tensors - nothing is auto-guessed here.");
+        }
+        OperationResult<QEElateAnalyzer.ElateReport> analysed =
+                QEElateAnalyzer.analyze(matrixText, QEElateAnalyzer.ElateUnit.KBAR);
+        if (!analysed.isSuccess() || analysed.getValue().isEmpty()) {
+            return failure(label, "[" + analysed.getCode() + "] " + analysed.getMessage());
+        }
+        QEElateAnalyzer.ElateReport report = analysed.getValue().orElseThrow();
+        StringBuilder text = new StringBuilder();
+        List<String> csv = new ArrayList<>();
+        text.append("== ELATE elastic tensor analysis (Java mirror of the published\n");
+        text.append("   coudertlab/elate workflow, commit 0627e636a7c97e8678f71aea44d0851455650d3a)\n");
+        text.append("   ==\n");
+        text.append(provenance);
+        double[] eigen = report.getEigenvaluesGpa();
+        text.append(String.format(Locale.ROOT,
+                "%nStability: %s (smallest eigenvalue %.6g GPa)%neigenvalues (GPa):",
+                report.isMechanicallyStable() ? "mechanically STABLE"
+                        : "mechanically UNSTABLE - ELATE's gate: no spatial extrema",
+                eigen[0]));
+        for (double value : eigen) {
+            text.append(String.format(Locale.ROOT, "  %.6g", value));
+        }
+        text.append('\n');
+        csv.add("elate,field,value");
+        csv.add(String.format(Locale.ROOT, "elate,stable,%s", report.isMechanicallyStable()));
+        csv.add(String.format(Locale.ROOT, "elate,lambda_min_gpa,%.6g", eigen[0]));
+        text.append("\nVoigt / Reuss / Hill averages (GPa; Poisson dimensionless):\n");
+        text.append(String.format(Locale.ROOT, "  %-16s %12s %12s %12s %10s%n",
+                "scheme", "K (bulk)", "E (Young)", "G (shear)", "nu"));
+        for (QEElateAnalyzer.AverageRow row : report.getAverages()) {
+            text.append(String.format(Locale.ROOT, "  %-16s %12.5f %12.5f %12.5f %10.5f%n",
+                    row.getScheme(), row.getBulkGpa(), row.getYoungGpa(),
+                    row.getShearGpa(), row.getPoisson()));
+            csv.add(String.format(Locale.ROOT, "elate,bulk_gpa_%s,%.6f",
+                    row.getScheme(), row.getBulkGpa()));
+            csv.add(String.format(Locale.ROOT, "elate,young_gpa_%s,%.6f",
+                    row.getScheme(), row.getYoungGpa()));
+        }
+        if (report.getMinYoung() != null) {
+            text.append("\nSpatial extrema (ELATE grid + refine):\n");
+            text.append(String.format(Locale.ROOT,
+                    "  E: min %.6g / max %.6g GPa (anisotropy %s)%n",
+                    report.getMinYoung().getValue(), report.getMaxYoung().getValue(),
+                    report.getYoungAnisotropy()));
+            text.append(String.format(Locale.ROOT,
+                    "  G: min %.6g / max %.6g GPa (anisotropy %s)%n",
+                    report.getMinShear().getValue(), report.getMaxShear().getValue(),
+                    report.getShearAnisotropy()));
+            text.append(String.format(Locale.ROOT,
+                    "  nu: min %.6g / max %.6g (LC: %.6g..%.6g TPa^-1)%n",
+                    report.getMinPoisson().getValue(), report.getMaxPoisson().getValue(),
+                    report.getMinLc().getValue(), report.getMaxLc().getValue()));
+        }
+        if (verbatim.length() > 0) {
+            text.append("\nverbatim thermo_pw stdout prints (the run's own claims):\n")
+                    .append(verbatim);
+        }
+        text.append("\nHill convention note: thermo_pw prints Hill as the MEAN of its two"
+                + " scheme rows; ELATE closes Hill from K_H, G_H - on upstream Si"
+                + " (example13) 159.958 vs 159.977 GPa, ~0.012%, a convention difference"
+                + " shown, not reconciled.\n");
+        text.append("\nHonesty boundary: kbar -> GPa by the declared 0.1 (thermo_pw's own"
+                + " printed aid); the constants file carries no unit text (cross-pinned"
+                + " from the sibling stdout of upstream example13, commit b73edd6d); no"
+                + " stability REVIEW is implied beyond Born positive-definiteness.\n");
+        boolean stable = report.isMechanicallyStable();
+        return new AnalysisReport(label, true, text.toString(), csv, null,
+                stable ? List.of() : List.of("tensor is not positive definite: spatial"
+                        + " extrema withheld by ELATE's own gate"));
     }
 
     /**

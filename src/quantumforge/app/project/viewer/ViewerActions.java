@@ -28,6 +28,7 @@ import quantumforge.app.project.viewer.atoms.AtomsAction;
 import quantumforge.app.project.viewer.auxdeck.QEFXAuxDeckDialog;
 import quantumforge.app.project.viewer.rocrate.QEFXRoCratePackDialog;
 import quantumforge.app.project.viewer.thermopw.QEFXThermoPwLiveDialog;
+import quantumforge.app.project.viewer.elate.QEFXElateDialog;
 import quantumforge.app.project.viewer.designer.DesignerAction;
 import quantumforge.app.project.viewer.inputfile.QEFXInputFile;
 import quantumforge.app.project.viewer.modeler.ModelerAction;
@@ -216,6 +217,9 @@ public class ViewerActions extends ProjectActions<Node> {
 
             } else if (item == this.itemSet.getThermoPwLiveItem()) {
                 this.actions.put(item, controller2 -> this.actionThermoPwLive(controller2));
+
+            } else if (item == this.itemSet.getElateItem()) {
+                this.actions.put(item, controller2 -> this.actionElate(controller2));
 
             } else if (item == this.itemSet.getDiagnoseLogItem()) {
                 this.actions.put(item, controller2 -> this.actionDiagnoseLog(controller2));
@@ -742,6 +746,29 @@ public class ViewerActions extends ProjectActions<Node> {
             return;
         }
         QEFXThermoPwLiveDialog dialog = new QEFXThermoPwLiveDialog();
+        if (controller.getStage() != null) {
+            dialog.initOwner(controller.getStage());
+        }
+        dialog.showAndWait();
+    }
+
+    /**
+     * ELATE integration chunk: opens the ELATE elastic-tensor analysis dialog.
+     * The tensor comes from exactly one explicit route - a pasted 6x6 matrix
+     * with a declared unit, a thermo_pw output_el_cons.dat[.gN] constants
+     * file (the very constants thermo_pw's scf_elastic_constants writes,
+     * handed to the ELATE channel through the pinned 12-line grammar), or
+     * the run stdout's printed C_ij block. Averages/eigenvalues always show;
+     * polar charts (Young, linear compressibility, shear/Poisson bands on
+     * xy/xz/yz) and the direction probe draw only for mechanically stable
+     * tensors, mirroring ELATE's own gate. Reads only: nothing is written,
+     * no job is started.
+     */
+    private void actionElate(QEFXProjectController controller) {
+        if (controller == null) {
+            return;
+        }
+        QEFXElateDialog dialog = new QEFXElateDialog();
         if (controller.getStage() != null) {
             dialog.initOwner(controller.getStage());
         }
