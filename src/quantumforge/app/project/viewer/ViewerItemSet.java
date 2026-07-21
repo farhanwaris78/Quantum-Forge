@@ -30,6 +30,7 @@ public class ViewerItemSet {
     private ViewerItem exportWorkflowItem;
     private ViewerItem validateInputItem;
     private ViewerItem auxDeckItem;
+    private ViewerItem tensorSurfaceItem;
     private ViewerItem diagnoseLogItem;
     private ViewerItem bandGapItem;
     private ViewerItem finalGeometryItem;
@@ -55,6 +56,7 @@ public class ViewerItemSet {
         this.exportWorkflowItem = new ViewerItem(SVGData.FILE, "Export workflow script");
         this.validateInputItem = new ViewerItem(SVGData.TOOL, "Validate QE input");
         this.auxDeckItem = new ViewerItem(SVGData.TOOL, "Auxiliary deck builder ...");
+        this.tensorSurfaceItem = new ViewerItem(SVGData.RESULT, "Tensor surface viewer ...");
         this.diagnoseLogItem = new ViewerItem(SVGData.RESULT, "Diagnose QE log");
         this.bandGapItem = new ViewerItem(SVGData.RESULT, "Analyze band gap from QE log");
         this.finalGeometryItem = new ViewerItem(SVGData.ATOMS, "Preview final geometry");
@@ -82,6 +84,7 @@ public class ViewerItemSet {
                 this.exportItem,
                 this.validateInputItem,
                 this.auxDeckItem,
+                this.tensorSurfaceItem,
                 this.diagnoseLogItem,
                 this.bandGapItem,
                 this.finalGeometryItem,
@@ -153,6 +156,10 @@ public ViewerItem getSaveAsFileItem() {
 
     public ViewerItem getAuxDeckItem() {
         return this.auxDeckItem;
+    }
+
+    public ViewerItem getTensorSurfaceItem() {
+        return this.tensorSurfaceItem;
     }
 
     public ViewerItem getDiagnoseLogItem() {

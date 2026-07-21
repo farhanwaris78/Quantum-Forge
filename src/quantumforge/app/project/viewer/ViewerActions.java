@@ -37,6 +37,7 @@ import quantumforge.app.project.viewer.run.RunEvent;
 import quantumforge.app.project.viewer.recovery.RecoveryAction;
 import quantumforge.app.project.viewer.save.SaveAction;
 import quantumforge.app.project.viewer.screenshot.QEFXScreenshotDialog;
+import quantumforge.app.project.viewer.tensor.QEFXTensorSurfaceDialog;
 import quantumforge.export.AtomicExporter;
 import quantumforge.operation.OperationResult;
 import quantumforge.input.QEInput;
@@ -197,6 +198,9 @@ public class ViewerActions extends ProjectActions<Node> {
 
             } else if (item == this.itemSet.getAuxDeckItem()) {
                 this.actions.put(item, controller2 -> this.actionAuxDeckBuilder(controller2));
+
+            } else if (item == this.itemSet.getTensorSurfaceItem()) {
+                this.actions.put(item, controller2 -> this.actionTensorSurfaceViewer(controller2));
 
             } else if (item == this.itemSet.getDiagnoseLogItem()) {
                 this.actions.put(item, controller2 -> this.actionDiagnoseLog(controller2));
@@ -603,6 +607,25 @@ public class ViewerActions extends ProjectActions<Node> {
             alert.setContentText("Nothing was written to disk; paste it where you need it.");
             alert.showAndWait();
         }
+    }
+
+    /**
+     * Roadmap #125 viewer slice: opens the TENSOR directional-surface panel.
+     * The panel renders only (2D polar slices / the sign-colored 3D surface
+     * over the batch-tested SymmetricEigen3 + TensorSurfaceSampler layers);
+     * it reads a tensor file only through the explicit Load action inside
+     * the dialog, renders nothing without a converged symmetric eigenbasis,
+     * writes nothing, starts nothing, and changes no project state.
+     */
+    private void actionTensorSurfaceViewer(QEFXProjectController controller) {
+        if (controller == null) {
+            return;
+        }
+        QEFXTensorSurfaceDialog dialog = new QEFXTensorSurfaceDialog();
+        if (controller.getStage() != null) {
+            dialog.initOwner(controller.getStage());
+        }
+        dialog.showAndWait();
     }
 
     /** Parses an explicit QE gap summary; it never infers directness from a total DOS. */

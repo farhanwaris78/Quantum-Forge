@@ -870,6 +870,31 @@ def main() -> int:
     if not (ROOT / "tests/java/quantumforge/input/QEAuxDeckPlannerTest.java").is_file():
         error("batch-160 planner test missing")
 
+    # Batch 161 (Roadmap #125 viewer slice): tensor directional-surface
+    # headless data layer + viewer panel + menu wiring.
+    sampler = SRC / "quantumforge/com/math/TensorSurfaceSampler.java"
+    if not sampler.is_file():
+        error("batch-161 TensorSurfaceSampler missing (#125 viewer data layer)")
+    else:
+        samplerText = sampler.read_text(encoding="utf-8")
+        if "parseMatrix3x3" not in samplerText or "sampleSphere" not in samplerText \
+                or "samplePlane" not in samplerText or "CartesianPlane" not in samplerText:
+            error("TensorSurfaceSampler lost the parse contract / sphere / plane sampling (batch 161)")
+    tensorDialog = SRC / "quantumforge/app/project/viewer/tensor/QEFXTensorSurfaceDialog.java"
+    if not tensorDialog.is_file():
+        error("batch-161 QEFXTensorSurfaceDialog missing")
+    else:
+        tensorDialogText = tensorDialog.read_text(encoding="utf-8")
+        if "TensorSurfaceSampler" not in tensorDialogText or "sampleSphere" not in tensorDialogText \
+                or "viewCombo" not in tensorDialogText or "assertBounds" not in tensorDialogText:
+            error("QEFXTensorSurfaceDialog lost the sampler-bound render surface (batch 161)")
+    if "getTensorSurfaceItem" not in itemSetText or "Tensor surface viewer ..." not in itemSetText:
+        error("ViewerItemSet lost the batch-161 tensor surface viewer menu item")
+    if "actionTensorSurfaceViewer" not in vactText2 or "QEFXTensorSurfaceDialog" not in vactText2:
+        error("ViewerActions lost the batch-161 tensor surface viewer action wiring")
+    if not (ROOT / "tests/java/quantumforge/com/math/TensorSurfaceSamplerTest.java").is_file():
+        error("batch-161 sampler test missing")
+
     cap = (SRC / "quantumforge/capability/CapabilityRegistry.java").read_text(encoding="utf-8")
     if "Strict known_hosts" not in cap:
         error("CapabilityRegistry SSH status not updated")
