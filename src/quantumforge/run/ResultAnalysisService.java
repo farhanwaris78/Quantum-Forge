@@ -107,9 +107,11 @@ import quantumforge.input.QEVersionRuleCatalog;
 import quantumforge.input.card.QEKPoints;
 import quantumforge.input.namelist.QENamelist;
 import quantumforge.input.namelist.QEValue;
+import quantumforge.input.schema.QEAuxSchema;
 import quantumforge.input.schema.QECardSchema;
 import quantumforge.input.schema.QENamelistSchema;
 import quantumforge.input.schema.QEThermoPwSchema;
+import quantumforge.input.validation.QEAuxDeckAudit;
 import quantumforge.input.validation.QECardAudit;
 import quantumforge.input.validation.QESchemaValidator;
 import quantumforge.input.validation.QEThermoPwDeckAudit;
@@ -215,6 +217,7 @@ public final class ResultAnalysisService {
         WANNIER90_SPREAD("Wannier90 spread convergence"),
         THERMO_PW_DECK_AUDIT("thermo_pw thermo_control grammar audit (mined)"),
         QE_CARD_AUDIT("pw.x card grammar audit (mined read_cards)"),
+        QE_AUX_DECK_AUDIT("auxiliary QE input grammar audit (24 programs)"),
         THERMOPW_EOS("thermo_pw equation of state"),
         PHONO3PY_KAPPA("phono3py lattice thermal conductivity"),
         BOLTZTRAP2_TRANSPORT("BoltzTraP2 transport tables (.trace/.condtens)"),
@@ -1397,6 +1400,9 @@ public final class ResultAnalysisService {
             return name.equals("thermo_control");
         case QE_CARD_AUDIT:
             return false; // manual select only: EVERY pw input is a candidate
+        case QE_AUX_DECK_AUDIT:
+            return false; // manual select only: any .in could be an aux deck
+
         case THERMOPW_EOS:
             return name.contains("eos") || name.contains("thermo");
         case PHONO3PY_KAPPA:
@@ -1603,6 +1609,8 @@ public final class ResultAnalysisService {
                 return analyzeThermoPwDeckAudit(property, source);
             case QE_CARD_AUDIT:
                 return analyzeQeCardAudit(property, source);
+            case QE_AUX_DECK_AUDIT:
+                return analyzeQeAuxDeckAudit(property, source);
             case THERMOPW_EOS:
                 return analyzeEos(property, source);
             case PHONO3PY_KAPPA:
@@ -3018,6 +3026,104 @@ public final class ResultAnalysisService {
                 + " WARNINGS because read_cards only writes 'Warning: card ... ignored' - but a"
                 + " typo there silently drops the intended physics. Audit version window:"
                 + " qe-7.2 .. qe-" + newest + ".\n");
+        return new AnalysisReport(label, errors == 0, text.toString(), csv, null);
+    }
+
+    /**
+     * Auxiliary-program input grammar audit (batch 159): decks of the 24
+     * mandated auxiliary programs adjudicated against the mined grammar
+     * (21 INPUT_*.def machine grammars + the XSpectra-family namelist
+     * declarations mined from compilable source; masks per tag qe-7.2..qe-7.6;
+     * tag sha256 provenance and the spectra_correction option STOP-set fact
+     * in QEAuxSchemaData). Program detection is conservative: an unambiguous
+     * namelist signature picks the program (INPUTCOND -> pwcond); ambiguous
+     * families (INPUT_MANIP -> the two spectra tools, &INPUT collisions) are
+     * audited as the first candidate with every alternative NAMED, never
+     * silently guessed. Severities mirror the binaries: unknown keywords,
+     * wrong-namelist placements, version-absent keywords and the spectra
+     * option STOP-set abort the programs outright (ERROR); REQUIRED keywords
+     * without a default, declared-type shapes and undocumented option
+     * literals are advisory layers (WARNING, doc layer honestly SOFT).
+     * Version: null falls to the newest mined tag, stated in the header.
+     */
+    private static AnalysisReport analyzeQeAuxDeckAudit(ProjectProperty property,
+            File source) throws IOException {
+        String label = AnalysisKind.QE_AUX_DECK_AUDIT.getLabel();
+        String content = Files.readString(source.toPath(), StandardCharsets.UTF_8);
+        QEAuxDeckAudit audit = new QEAuxDeckAudit();
+        String newest = QENamelistSchema.VERSIONS.get(QENamelistSchema.VERSIONS.size() - 1);
+        Optional<String> detected = audit.detectProgram(content);
+        List<String> candidates = detected.isPresent() ? List.of(detected.get())
+                : audit.candidatePrograms(content);
+        if (candidates.isEmpty()) {
+            return failure(label, source.getName() + " names no namelist owned by any of the"
+                    + " 24 mined auxiliary programs, so the audit ran nothing (a refusal, not"
+                    + " a pass). This kind audits decks for: "
+                    + String.join(", ", QEAuxSchema.programs()) + ". If the file really is an"
+                    + " auxiliary deck, its namelist header may be missing or foreign; the"
+                    + " grammar table covers "
+                    + QEAuxSchema.rowCount() + " keyword rows across tags qe-7.2..qe-"
+                    + newest + ".");
+        }
+        String program = candidates.get(0);
+        List<ValidationIssue> issues = audit.auditDeckText(program, content, null);
+        StringBuilder text = new StringBuilder();
+        List<String> csv = new ArrayList<>();
+        text.append(String.format(Locale.ROOT,
+                "== auxiliary QE input grammar audit: %s (mined grammar: %d keyword rows,"
+                        + " %d namelist(s); tags qe-7.2..qe-%s; version not pinned -> newest"
+                        + " tag) ==%n",
+                program, QEAuxSchema.entries(program).size(),
+                QEAuxSchema.namelists(program).size(), newest));
+        text.append("Source: ").append(source.getName()).append('\n');
+        if (detected.isPresent()) {
+            text.append("Program detection: unambiguous namelist signature -> ")
+                    .append(detected.get()).append('\n');
+        } else if (candidates.size() > 1) {
+            text.append("Program detection: ambiguous signature - audited as ")
+                    .append(program).append(" (alternatives: ")
+                    .append(String.join(", ", candidates.subList(1, candidates.size())))
+                    .append("); re-check the others if this deck was meant for them.\n");
+        }
+        text.append("Doc page of record: ").append(QEAuxSchema.docPage(program)).append('\n');
+        csv.add("qe-aux-deck-audit,severity,code,message");
+        int errors = 0;
+        int warnings = 0;
+        for (ValidationIssue issue : issues) {
+            if (issue.getSeverity() == ValidationSeverity.ERROR) {
+                errors += 1;
+            } else {
+                warnings += 1;
+            }
+            text.append("  ").append(issue.getSeverity())
+                    .append(" [").append(issue.getCode()).append("] ")
+                    .append(issue.getMessage()).append('\n');
+            if (!issue.getDocumentationUrl().isEmpty()) {
+                text.append("      docs: ").append(issue.getDocumentationUrl()).append('\n');
+            }
+            csv.add(String.format(Locale.ROOT, "qe-aux-deck-audit,%s,%s,%s",
+                    issue.getSeverity(), csvCell(issue.getCode()), csvCell(issue.getMessage())));
+        }
+        if (issues.isEmpty()) {
+            text.append("  No grammar findings: every keyword belongs to the mined " + program
+                    + " grammar at the audited version, sits under its declared namelist,"
+                    + " and no mined hard rule (REQUIRED assignments, documented-option"
+                    + " layers, verbatim STOP sets) trips.\n");
+        }
+        text.append(String.format(Locale.ROOT,
+                "%nVerdict: %d ERROR (the program aborts: unknown keywords / wrong-namelist"
+                        + " placements / version-absent keywords / verbatim STOP sets) and"
+                        + " %d WARNING (advisory layers: REQUIRED-without-default, declared"
+                        + " type shapes, undocumented option literals).%n",
+                errors, warnings));
+        text.append("\nHonesty boundary: this is a GRAMMAR audit of namelist assignments,"
+                + " never run-readiness, physics, or a completeness review. Decks are read"
+                + " through the production QEInputReader grammar; unknown keywords are ERROR"
+                + " because the Fortran namelist READ aborts on them in every mined program,"
+                + " while documented option literals are a SOFT doc layer that never refuses"
+                + " by itself. Hard sets exist only where mined verbatim (the"
+                + " spectra_correction option guard writes 'Option not recognized' and"
+                + " STOPS). Audit version window: qe-7.2 .. qe-" + newest + ".\n");
         return new AnalysisReport(label, errors == 0, text.toString(), csv, null);
     }
 
