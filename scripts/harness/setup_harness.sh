@@ -98,16 +98,20 @@ for round in 1 2 3 4 5 6 7 8 9 10; do
 done
 
 echo "compiling schema + deck-planner tests against stub layer..."
-javac -nowarn -encoding UTF-8 -cp "$TMPROOT/schemacls:$TMPROOT/qfclasses:$TMPROOT/stubcls:$TMPROOT/testclasses" \
+javac -nowarn -encoding UTF-8 -cp "$TMPROOT/newcls:$TMPROOT/schemacls:$TMPROOT/qfclasses:$TMPROOT/stubcls:$TMPROOT/testclasses" \
     -d "$TMPROOT/schematests" \
     "$ROOT/tests/java/quantumforge/input/validation/QESchemaValidatorTest.java" \
     "$ROOT/tests/java/quantumforge/input/PhInputPlannerTest.java" \
     "$ROOT/tests/java/quantumforge/input/QEHubbardPlannerTest.java" \
-    "$ROOT/tests/java/quantumforge/input/CpInputPlannerTest.java" || exit 1
+    "$ROOT/tests/java/quantumforge/input/CpInputPlannerTest.java" \
+    "$ROOT/tests/java/quantumforge/input/validation/QECardAuditTest.java" \
+    "$ROOT/tests/java/quantumforge/input/schema/QECardSchemaTest.java" || exit 1
 
 { find "$TMPROOT/testclasses" -name '*.class' | sed "s|$TMPROOT/testclasses/||; s|\.class$||; s|/|.|g; s|\$.*$||" | sort -u
   echo quantumforge.input.validation.QESchemaValidatorTest
   echo quantumforge.input.PhInputPlannerTest
   echo quantumforge.input.QEHubbardPlannerTest
-  echo quantumforge.input.CpInputPlannerTest; } | sort -u > "$TMPROOT/run_all.txt"
+  echo quantumforge.input.CpInputPlannerTest
+  echo quantumforge.input.validation.QECardAuditTest
+  echo quantumforge.input.schema.QECardSchemaTest; } | sort -u > "$TMPROOT/run_all.txt"
 echo "setup complete: $(find $TMPROOT/qfclasses -name '*.class' | wc -l) main classes, $(wc -l < $TMPROOT/run_all.txt) runnable test classes"

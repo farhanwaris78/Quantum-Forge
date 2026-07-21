@@ -107,8 +107,10 @@ import quantumforge.input.QEVersionRuleCatalog;
 import quantumforge.input.card.QEKPoints;
 import quantumforge.input.namelist.QENamelist;
 import quantumforge.input.namelist.QEValue;
+import quantumforge.input.schema.QECardSchema;
 import quantumforge.input.schema.QENamelistSchema;
 import quantumforge.input.schema.QEThermoPwSchema;
+import quantumforge.input.validation.QECardAudit;
 import quantumforge.input.validation.QESchemaValidator;
 import quantumforge.input.validation.QEThermoPwDeckAudit;
 import quantumforge.input.validation.ValidationIssue;
@@ -212,6 +214,7 @@ public final class ResultAnalysisService {
         PWCOND_TRANSMISSION("PWcond transmission"),
         WANNIER90_SPREAD("Wannier90 spread convergence"),
         THERMO_PW_DECK_AUDIT("thermo_pw thermo_control grammar audit (mined)"),
+        QE_CARD_AUDIT("pw.x card grammar audit (mined read_cards)"),
         THERMOPW_EOS("thermo_pw equation of state"),
         PHONO3PY_KAPPA("phono3py lattice thermal conductivity"),
         BOLTZTRAP2_TRANSPORT("BoltzTraP2 transport tables (.trace/.condtens)"),
@@ -1392,6 +1395,8 @@ public final class ResultAnalysisService {
             return name.endsWith(".wout");
         case THERMO_PW_DECK_AUDIT:
             return name.equals("thermo_control");
+        case QE_CARD_AUDIT:
+            return false; // manual select only: EVERY pw input is a candidate
         case THERMOPW_EOS:
             return name.contains("eos") || name.contains("thermo");
         case PHONO3PY_KAPPA:
@@ -1596,6 +1601,8 @@ public final class ResultAnalysisService {
                 return analyzeWannier90(property, source);
             case THERMO_PW_DECK_AUDIT:
                 return analyzeThermoPwDeckAudit(property, source);
+            case QE_CARD_AUDIT:
+                return analyzeQeCardAudit(property, source);
             case THERMOPW_EOS:
                 return analyzeEos(property, source);
             case PHONO3PY_KAPPA:
@@ -2948,6 +2955,67 @@ public final class ResultAnalysisService {
                 + " will announce itself when mined. Defaults shown are the procedural"
                 + " assignments (last-assignment-wins); the audit is the grammar, not a"
                 + " thermodynamics result.\n");
+        return new AnalysisReport(label, errors == 0, text.toString(), csv, null);
+    }
+
+    /**
+     * pw.x CARD grammar audit (R4): the deck's card-adjacent lines adjudicated
+     * against the mined read_cards.f90 grammar (dispatch chain, option IF-chain
+     * arms with HUBBARD sanity traps, ELSE-arm dispositions, prog gates, and
+     * the K_POINTS automatic-mesh constraints; tag sha256 provenance in
+     * QECardSchemaData). Severities mirror the binary: removed cards, traps,
+     * FATAL dispositions and mesh violations ABORT (ERROR); unknown cards and
+     * tolerated-with-default options are what pw.x itself survives (WARNING).
+     * Version: null falls to the newest mined tag, stated in the header.
+     */
+    private static AnalysisReport analyzeQeCardAudit(ProjectProperty property,
+            File source) throws IOException {
+        String label = AnalysisKind.QE_CARD_AUDIT.getLabel();
+        String content = Files.readString(source.toPath(), StandardCharsets.UTF_8);
+        List<ValidationIssue> issues = new QECardAudit().auditDeckText(content, null);
+        String newest = QENamelistSchema.VERSIONS.get(QENamelistSchema.VERSIONS.size() - 1);
+        StringBuilder text = new StringBuilder();
+        List<String> csv = new ArrayList<>();
+        text.append(String.format(Locale.ROOT,
+                "== pw.x card grammar audit (mined read_cards.f90: %d dispatch cards, %d option"
+                        + " grammars, tags qe-7.2..qe-%s; version not pinned -> newest tag) ==%n",
+                QECardSchema.dispatchChain().size(), QECardSchema.grammars().size(), newest));
+        text.append("Source: ").append(source.getName()).append('\n');
+        csv.add("qe-card-audit,severity,code,message");
+        int errors = 0;
+        int warnings = 0;
+        for (ValidationIssue issue : issues) {
+            if (issue.getSeverity() == ValidationSeverity.ERROR) {
+                errors += 1;
+            } else {
+                warnings += 1;
+            }
+            text.append("  ").append(issue.getSeverity())
+                    .append(" [").append(issue.getCode()).append("] ")
+                    .append(issue.getMessage()).append('\n');
+            if (!issue.getDocumentationUrl().isEmpty()) {
+                text.append("      docs: ").append(issue.getDocumentationUrl()).append('\n');
+            }
+            csv.add(String.format(Locale.ROOT, "qe-card-audit,%s,%s,%s",
+                    issue.getSeverity(), csvCell(issue.getCode()), csvCell(issue.getMessage())));
+        }
+        if (issues.isEmpty()) {
+            text.append("  No card-grammar findings: every card-shaped line is a card pw.x\n"
+                    + "  dispatches on, every option matches the mined IF-chain, and no\n"
+                    + "  mined consistency trap trips.\n");
+        }
+        text.append(String.format(Locale.ROOT,
+                "%nVerdict: %d ERROR (pw.x aborts: removed cards / HUBBARD traps / fatal"
+                        + " options / mesh constraints) and %d WARNING (pw.x tolerates:"
+                        + " unknown cards are IGNORED, tolerated options silently default).%n",
+                errors, warnings));
+        text.append("\nHonesty boundary: this is a GRAMMAR audit of card-shaped lines, never"
+                + " a physics or completeness review. Content rules of known cards stay with"
+                + " QEInputValidator; prog gates are adjudicated for a plain pw.x run"
+                + " (K_POINTS warns only under CP and earns no finding here). Unknown cards are"
+                + " WARNINGS because read_cards only writes 'Warning: card ... ignored' - but a"
+                + " typo there silently drops the intended physics. Audit version window:"
+                + " qe-7.2 .. qe-" + newest + ".\n");
         return new AnalysisReport(label, errors == 0, text.toString(), csv, null);
     }
 
