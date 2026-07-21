@@ -841,6 +841,35 @@ def main() -> int:
     if not (ROOT / "scripts/qe_aux_schema_miner.py").is_file():
         error("auxiliary schema miner script missing (batch 159 provenance)")
 
+    # Batch 160 (QE roadmap R7 frontend slice): the version-windowed aux
+    # DECK BUILDER - typed planner backend + viewer dialog + menu wiring.
+    auxPlanner = SRC / "quantumforge/input/QEAuxDeckPlanner.java"
+    if not auxPlanner.is_file():
+        error("batch-160 QEAuxDeckPlanner missing")
+    else:
+        auxPlannerText = auxPlanner.read_text(encoding="utf-8")
+        if "QEAUX_PROGRAM" not in auxPlannerText or "QEAUX_KEYWORD_VERSION" not in auxPlannerText \
+                or "renderDraft" not in auxPlannerText or "auditDraft" not in auxPlannerText \
+                or "QEAuxDeckAudit" not in auxPlannerText:
+            error("QEAuxDeckPlanner lost its fail-closed codes / render-audit delegation (batch 160)")
+    auxDialog = SRC / "quantumforge/app/project/viewer/auxdeck/QEFXAuxDeckDialog.java"
+    if not auxDialog.is_file():
+        error("batch-160 QEFXAuxDeckDialog missing")
+    else:
+        auxDialogText = auxDialog.read_text(encoding="utf-8")
+        if "QEAuxDeckPlanner" not in auxDialogText or "programCombo" not in auxDialogText \
+                or "auditArea" not in auxDialogText or "Use deck text" not in auxDialogText:
+            error("QEFXAuxDeckDialog lost the planner-bound builder surface (batch 160)")
+    itemSetText = (SRC / "quantumforge/app/project/viewer/ViewerItemSet.java").read_text(encoding="utf-8")
+    if "getAuxDeckItem" not in itemSetText or "Auxiliary deck builder ..." not in itemSetText:
+        error("ViewerItemSet lost the batch-160 aux deck builder menu item")
+    vactText2 = (SRC / "quantumforge/app/project/viewer/ViewerActions.java").read_text(encoding="utf-8")
+    if "actionAuxDeckBuilder" not in vactText2 or "QEFXAuxDeckDialog" not in vactText2 \
+            or "getAuxDeckItem" not in vactText2:
+        error("ViewerActions lost the batch-160 aux deck builder action wiring")
+    if not (ROOT / "tests/java/quantumforge/input/QEAuxDeckPlannerTest.java").is_file():
+        error("batch-160 planner test missing")
+
     cap = (SRC / "quantumforge/capability/CapabilityRegistry.java").read_text(encoding="utf-8")
     if "Strict known_hosts" not in cap:
         error("CapabilityRegistry SSH status not updated")

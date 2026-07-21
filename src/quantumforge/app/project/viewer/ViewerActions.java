@@ -25,6 +25,7 @@ import quantumforge.app.project.ProjectAction;
 import quantumforge.app.project.ProjectActions;
 import quantumforge.app.project.QEFXProjectController;
 import quantumforge.app.project.viewer.atoms.AtomsAction;
+import quantumforge.app.project.viewer.auxdeck.QEFXAuxDeckDialog;
 import quantumforge.app.project.viewer.designer.DesignerAction;
 import quantumforge.app.project.viewer.inputfile.QEFXInputFile;
 import quantumforge.app.project.viewer.modeler.ModelerAction;
@@ -67,6 +68,8 @@ import javafx.scene.control.Alert;
 import javafx.scene.control.Alert.AlertType;
 import javafx.scene.control.ButtonType;
 import javafx.scene.control.ChoiceDialog;
+import javafx.scene.input.Clipboard;
+import javafx.scene.input.ClipboardContent;
 import javafx.stage.FileChooser;
 import javafx.stage.Stage;
 
@@ -191,6 +194,9 @@ public class ViewerActions extends ProjectActions<Node> {
 
             } else if (item == this.itemSet.getValidateInputItem()) {
                 this.actions.put(item, controller2 -> this.actionValidateInput(controller2));
+
+            } else if (item == this.itemSet.getAuxDeckItem()) {
+                this.actions.put(item, controller2 -> this.actionAuxDeckBuilder(controller2));
 
             } else if (item == this.itemSet.getDiagnoseLogItem()) {
                 this.actions.put(item, controller2 -> this.actionDiagnoseLog(controller2));
@@ -528,6 +534,75 @@ public class ViewerActions extends ProjectActions<Node> {
         alert.getDialogPane().setPrefWidth(900.0);
         alert.setResizable(true);
         alert.showAndWait();
+    }
+
+    /**
+     * Batch 160 (QE roadmap R7 frontend slice): opens the auxiliary input
+     * DECK BUILDER dialog for the 24 mined auxiliary QE programs. Every
+     * prompt row, render and live verdict inside the dialog comes from
+     * QEAuxDeckPlanner (the mined grammar) - the dialog returns only the
+     * rendered deck text, and even then this action asks AGAIN how to use it
+     * (clipboard or an explicitly chosen file); cancelling anywhere writes
+     * nothing, starts nothing, and never touches the project input.
+     */
+    private void actionAuxDeckBuilder(QEFXProjectController controller) {
+        if (controller == null) {
+            return;
+        }
+        QEFXAuxDeckDialog dialog = new QEFXAuxDeckDialog();
+        if (controller.getStage() != null) {
+            dialog.initOwner(controller.getStage());
+        }
+        Optional<String> deck = dialog.showAndWait();
+        if (deck.isEmpty() || deck.get().isBlank()) {
+            return; // cancel or an empty draft: nothing happens
+        }
+        ChoiceDialog<String> target = new ChoiceDialog<>("Copy to clipboard",
+                List.of("Copy to clipboard", "Save as file ..."));
+        target.setTitle("Auxiliary input deck");
+        target.setHeaderText("Deck drafted for " + dialog.getSelectedProgram()
+                + " (mined grammar audit verdict shown in the builder). Use the"
+                + " rendered deck text via:");
+        target.setContentText("Target:");
+        Optional<String> choice = target.showAndWait();
+        if (choice.isEmpty()) {
+            return; // explicit cancel: nothing is written anywhere
+        }
+        if (choice.get().startsWith("Save")) {
+            FileChooser chooser = new FileChooser();
+            chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter(
+                    "Quantum ESPRESSO input (*.in)", "*.in"));
+            File file = chooser.showSaveDialog(controller.getStage());
+            if (file == null) {
+                return;
+            }
+            try {
+                Files.writeString(file.toPath(), deck.get(), StandardCharsets.UTF_8);
+            } catch (IOException problem) {
+                Alert alert = new Alert(AlertType.ERROR);
+                alert.setTitle("Auxiliary input deck");
+                alert.setHeaderText("Could not write the deck file");
+                alert.setContentText(problem.toString());
+                alert.showAndWait();
+                return;
+            }
+            Alert alert = new Alert(AlertType.INFORMATION);
+            alert.setTitle("Auxiliary input deck");
+            alert.setHeaderText("Deck written");
+            alert.setContentText("Saved to " + file.getName()
+                    + "\n\nGrammar-audit the final file anytime via Analyze QE results"
+                    + " with the 'auxiliary QE input grammar audit (24 programs)' kind.");
+            alert.showAndWait();
+        } else {
+            ClipboardContent content = new ClipboardContent();
+            content.putString(deck.get());
+            Clipboard.getSystemClipboard().setContent(content);
+            Alert alert = new Alert(AlertType.INFORMATION);
+            alert.setTitle("Auxiliary input deck");
+            alert.setHeaderText("Deck copied to the clipboard");
+            alert.setContentText("Nothing was written to disk; paste it where you need it.");
+            alert.showAndWait();
+        }
     }
 
     /** Parses an explicit QE gap summary; it never infers directness from a total DOS. */

@@ -29,6 +29,7 @@ public class ViewerItemSet {
     private ViewerItem xcrysdenItem;
     private ViewerItem exportWorkflowItem;
     private ViewerItem validateInputItem;
+    private ViewerItem auxDeckItem;
     private ViewerItem diagnoseLogItem;
     private ViewerItem bandGapItem;
     private ViewerItem finalGeometryItem;
@@ -53,6 +54,7 @@ public class ViewerItemSet {
         this.exportItem = new ViewerItem(SVGData.EXPORT, "Export structure");
         this.exportWorkflowItem = new ViewerItem(SVGData.FILE, "Export workflow script");
         this.validateInputItem = new ViewerItem(SVGData.TOOL, "Validate QE input");
+        this.auxDeckItem = new ViewerItem(SVGData.TOOL, "Auxiliary deck builder ...");
         this.diagnoseLogItem = new ViewerItem(SVGData.RESULT, "Diagnose QE log");
         this.bandGapItem = new ViewerItem(SVGData.RESULT, "Analyze band gap from QE log");
         this.finalGeometryItem = new ViewerItem(SVGData.ATOMS, "Preview final geometry");
@@ -79,6 +81,7 @@ public class ViewerItemSet {
                 this.resultItem,
                 this.exportItem,
                 this.validateInputItem,
+                this.auxDeckItem,
                 this.diagnoseLogItem,
                 this.bandGapItem,
                 this.finalGeometryItem,
@@ -146,6 +149,10 @@ public ViewerItem getSaveAsFileItem() {
 
     public ViewerItem getValidateInputItem() {
         return this.validateInputItem;
+    }
+
+    public ViewerItem getAuxDeckItem() {
+        return this.auxDeckItem;
     }
 
     public ViewerItem getDiagnoseLogItem() {
