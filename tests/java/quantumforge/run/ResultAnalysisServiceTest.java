@@ -6462,4 +6462,56 @@ class ResultAnalysisServiceTest {
         assertTrue(blankCsv.contains("launch_bridge,refused,CONTAINER_BRIDGE_MPI_BLANK"),
                 blankCsv);
     }
+
+    @Test
+    void testThermoPwRunSummaryRendersCensusAndVerbatimEos() throws IOException {
+        // [upstream] thermo_pw example09 thermo_control excerpt + example05
+        // si.mur_lc.out EOS block values (verbatim, commit b73edd6d).
+        Files.createDirectories(this.tempDir.resolve("run/energy_files"));
+        Files.createDirectories(this.tempDir.resolve("run/restart"));
+        write("run/thermo_control", " &INPUT_THERMO\n  what='mur_lc_t',\n"
+                + "  lmurn=.TRUE.\n  deltat=3.\n /\n");
+        write("run/energy_files/output_ev.dat",
+                "         0.250000000000000E+03        -0.158487731110002E+02\n");
+        write("run/restart/e_work_part.1.1", "  -15.848773111000199     \n");
+        File picked = write("run/si.mur_lc.out",
+                "     unit-cell volume          =     250.0000 (a.u.)^3\n"
+                        + "     The equilibrium lattice constant is               10.2087 a.u.\n"
+                        + "     The bulk modulus is                              941.833  kbar\n"
+                        + "     The pressure derivative of the bulk modulus is     4.127\n"
+                        + "     The total energy at the minimum is:                -15.852190733 Ry\n");
+        AnalysisReport report = ResultAnalysisService.analyze(
+                AnalysisKind.THERMO_PW_RUN_SUMMARY, new ProjectProperty(),
+                this.tempDir.toFile(), "si", "si.log", picked, new AnalysisParameters());
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains("what='mur_lc_t'"), report.getText());
+        assertTrue(report.getText().contains("restart tasks completed: 1"), report.getText());
+        assertTrue(report.getText().contains("E(V) points"), report.getText());
+        assertTrue(report.getText().contains("equilibrium lattice constant 10.2087 a.u."),
+                report.getText());
+        assertTrue(report.getText().contains("bulk modulus 941.833 kbar"), report.getText());
+        assertTrue(report.getText().contains("total energy at the minimum -15.852190733 Ry"),
+                "the raw token keeps every digit: " + report.getText());
+        assertTrue(report.getText().contains("the run's own fit claim"), report.getText());
+        assertTrue(report.getText().contains("Honesty boundary"), report.getText());
+        String csv = String.join("\n", report.getCsvLines());
+        assertTrue(csv.contains("thermo-run-summary,what,mur_lc_t"), csv);
+        assertTrue(csv.contains("thermo-run-summary,eos_bulk_kbar,941.833"), csv);
+        assertTrue(csv.contains("thermo-run-summary,eos_min_energy_ry,-15.852190733"), csv);
+    }
+
+    @Test
+    void testThermoPwRunSummaryEmptyDirectoryFailsHonestly() throws IOException {
+        Files.createDirectories(this.tempDir.resolve("lonely"));
+        File lonely = write("lonely/note.out", "not a thermo run at all\n");
+        AnalysisReport report = ResultAnalysisService.analyze(
+                AnalysisKind.THERMO_PW_RUN_SUMMARY, new ProjectProperty(),
+                this.tempDir.toFile(), "si", "si.log", lonely, new AnalysisParameters());
+        assertFalse(report.isSuccess(),
+                "an empty run directory is an honest failure, not an empty summary");
+        assertTrue(report.getText().contains("no *.out stdout file")
+                        || report.getText().contains("top-level"),
+                report.getText());
+        assertTrue(report.getCsvLines().size() > 0);
+    }
 }

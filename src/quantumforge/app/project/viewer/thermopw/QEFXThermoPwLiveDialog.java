@@ -46,7 +46,12 @@ import quantumforge.run.parser.QEThermoPwSeriesParser.SeriesKind;
  * the run's own plot-data files as they grow and appear: the mur_lc E(V)
  * arc point by point, per-geometry harmonic E/F/S/Cv(T) tables as each
  * geometry completes, the mur_lc_t quasi-harmonic beta/B_T/gamma/Ce series the
- * moment the anhar sidecars are written, plus the restart-token task counter.
+ * moment the anhar sidecars are written (including the _ph route
+ * counterparts, dB/dp(T), the Grüneisen-route .aux_grun/.gamma_grun and the
+ * mode-Grüneisen / mode-frequency pgrun path rows - every new census kind
+ * flows into the same picker and chart without a dialog change), plus the
+ * restart-token task counter and the verbatim EOS fit-summary card that
+ * lights up line by line the moment the run's stdout writes it.
  *
  * <p>Live doctrine: a JavaFX {@link Timeline} polls every two seconds (the
  * user can pause/resume). Polling is signature-based - only files whose
@@ -67,6 +72,7 @@ public final class QEFXThermoPwLiveDialog extends Dialog<Void> {
     private final Label dirLabel = new Label("(no run directory chosen)");
     private final Label liveBadge = new Label("NOT LIVE");
     private final Label progressLabel = new Label();
+    private final Label eosLabel = new Label();
     private final Label statusLabel = new Label();
     private final TextArea summaryArea = new TextArea();
     private final ListView<String> seriesList = new ListView<>();
@@ -85,10 +91,12 @@ public final class QEFXThermoPwLiveDialog extends Dialog<Void> {
     public QEFXThermoPwLiveDialog() {
         setTitle("thermo_pw live monitor (mur_lc / mur_lc_t / scf_disp series)");
         setHeaderText("Watch a thermo_pw run directory redraw itself: E(V) points as"
-                + " geometries complete, harmonic E/F/S/Cv(T) per geometry, and the"
-                + " quasi-harmonic beta/B_T/gamma/heat series when mur_lc_t writes them."
-                + " Units are verbatim from the files' own headers; partial write rows"
-                + " are held back, never drawn as fake points.");
+                + " geometries complete, harmonic E/F/S/Cv(T) per geometry, the"
+                + " quasi-harmonic beta/B_T/gamma/heat series when mur_lc_t writes them"
+                + " (plus dB/dp, the Grüneisen-route sidecars, _ph counterparts and the"
+                + " mode-Grüneisen/frequency path rows), and the EOS fit summary as the"
+                + " stdout prints it. Units are verbatim from the files' own headers;"
+                + " partial write rows are held back, never drawn as fake points.");
         getDialogPane().getButtonTypes().add(ButtonType.CLOSE);
 
         Button chooseButton = new Button("Choose run directory ...");
@@ -127,9 +135,13 @@ public final class QEFXThermoPwLiveDialog extends Dialog<Void> {
 
         HBox top = new HBox(10, chooseButton, pauseButton, this.liveBadge);
         top.setPadding(new Insets(6));
+        this.eosLabel.setWrapText(true);
+        this.eosLabel.setMaxWidth(300);
+        this.eosLabel.setText("EOS summary: waiting for a run directory (the stdout"
+                + " line-block is read verbatim, never assumed)");
         VBox left = new VBox(6, this.dirLabel, this.summaryArea,
                 new Label("Series (arrive live, uninterpreted named):"),
-                this.seriesList, this.progressLabel);
+                this.seriesList, this.progressLabel, this.eosLabel);
         left.setPadding(new Insets(6));
         VBox.setVgrow(this.seriesList, Priority.ALWAYS);
 
@@ -215,6 +227,69 @@ public final class QEFXThermoPwLiveDialog extends Dialog<Void> {
                 + (this.scan.getControl().getExplicitNgeoProduct() > 0
                         ? " / ngeo product " + this.scan.getControl().getExplicitNgeoProduct()
                         : " (ngeo total not explicit - no fabricated total)"));
+        renderEosCard();
+    }
+
+    /**
+     * The verbatim EOS fit-summary card: picks the stdout file with the most
+     * EOS lines so far (ties resolve to the alphabetically first name, the
+     * scanner's sort order) and renders EXACTLY the tokens the run printed,
+     * with 1-based line numbers. A live partial block states n/4 - the card
+     * never completes lines by guesswork.
+     */
+    private void renderEosCard() {
+        if (this.scan == null || this.scan.getStdoutSummaries().isEmpty()) {
+            this.eosLabel.setText("EOS summary: no *.out stdout at the run-directory"
+                    + " top level yet");
+            return;
+        }
+        QEThermoPwRunScanner.StdoutSummary best = null;
+        for (QEThermoPwRunScanner.StdoutSummary summary : this.scan.getStdoutSummaries()) {
+            if (summary.isOversized()) {
+                continue;
+            }
+            if (best == null || summary.getEosLineCount() > best.getEosLineCount()) {
+                best = summary;
+            }
+        }
+        if (best == null) {
+            this.eosLabel.setText("EOS summary: the only *.out stdout exceeds the 32 MiB"
+                    + " bound (named, not parsed)");
+            return;
+        }
+        String name = best.getPath().getFileName().toString();
+        if (best.getEosLineCount() == 0) {
+            this.eosLabel.setText("EOS summary: not written yet in " + name + " ("
+                    + best.getUnitCellVolumeCount() + " unit-cell-volume print(s) so"
+                    + " far) - waiting, nothing faked");
+            return;
+        }
+        StringBuilder card = new StringBuilder("EOS summary (verbatim from " + name);
+        if (best.getEosFirstLine() > 0) {
+            card.append(", from line ").append(best.getEosFirstLine());
+        }
+        card.append("):");
+        if (best.getLatticeConstantToken() != null) {
+            card.append(" a0=").append(best.getLatticeConstantToken()).append(" a.u. [L")
+                    .append(best.getLatticeConstantLine()).append(']');
+        }
+        if (best.getBulkModulusToken() != null) {
+            card.append(" B0=").append(best.getBulkModulusToken()).append(" kbar [L")
+                    .append(best.getBulkModulusLine()).append(']');
+        }
+        if (best.getDerivativeToken() != null) {
+            card.append(" B0'=").append(best.getDerivativeToken()).append(" [L")
+                    .append(best.getDerivativeLine()).append(']');
+        }
+        if (best.getMinEnergyToken() != null) {
+            card.append(" Emin=").append(best.getMinEnergyToken()).append(" Ry [L")
+                    .append(best.getMinEnergyLine()).append(']');
+        }
+        if (!best.isEosComplete()) {
+            card.append("  (live: ").append(best.getEosLineCount())
+                    .append("/4 lines so far)");
+        }
+        this.eosLabel.setText(card.toString());
     }
 
     private static List<String> limit(List<String> names) {
@@ -240,6 +315,10 @@ public final class QEFXThermoPwLiveDialog extends Dialog<Void> {
         }
         if (artifact.isPhVariant()) {
             row.append(", ph variant");
+        }
+        if (artifact.getSuffixTag() != null) {
+            row.append(", plot-tag ").append(artifact.getSuffixTag())
+                    .append(" (verbatim)");
         }
         row.append(']');
         return row.toString();

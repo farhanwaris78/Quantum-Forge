@@ -275,12 +275,167 @@ class QEThermoPwSeriesParserTest {
         assertFalse(emptyResult.isSuccess());
         assertEquals("THERMOPW_EMPTY", emptyResult.getCode());
 
-        assertTrue(QEThermoPwSeriesParser.candidateKinds("output_anhar.dat.aux_grun").isEmpty(),
-                "the aux_grun sidecar is outside the pinned set");
-        assertTrue(QEThermoPwSeriesParser.candidateKinds("output_grun.dat").isEmpty());
+        // Batch 166 closed the aux_grun grammar; the k/band row-matrix files and
+        // unknown tail names stay deliberately unmapped.
+        assertTrue(QEThermoPwSeriesParser.candidateKinds("output_anhar.dat.aux_grun")
+                .contains(SeriesKind.ANHARM_AUX_GRUN),
+                "aux_grun is inside the pinned set since batch 166");
+        assertTrue(QEThermoPwSeriesParser.candidateKinds("output_grun.dat").isEmpty(),
+                "the &plot row-matrix is enumerated, never parsed (deliberate boundary)");
+        assertTrue(QEThermoPwSeriesParser.candidateKinds("output_grun.dat_freq").isEmpty());
+        assertTrue(QEThermoPwSeriesParser.candidateKinds("output_anhar.dat.unknown_tail")
+                .isEmpty());
         assertTrue(QEThermoPwSeriesParser.candidateKinds("output_therm.dat.g1_ph")
                 .contains(SeriesKind.THERMO_HARMONIC));
         assertFalse(QEThermoPwSeriesParser.parse(this.tempDir.resolve("missing.dat"),
                 SeriesKind.EV_CURVE).isSuccess());
+    }
+
+    @Test
+    void testDbulkHeaderAndRowsWithUnitSilenceStated() throws IOException {
+        // [upstream] examples/example09/reference/anhar_files/output_anhar.dat.dbulk_mod
+        Path file = write("output_anhar.dat.dbulk_mod", """
+            #
+            #   T (K)          dB/dp (T)
+             0.40000E+01    0.3025394680653E+01
+             0.70000E+01    0.3025397186136E+01
+            """);
+        OperationResult<Series> result = QEThermoPwSeriesParser.parse(file,
+                SeriesKind.ANHARM_DBULK);
+        assertTrue(result.isSuccess(), () -> result.getMessage());
+        Series series = result.getValue().orElseThrow();
+        assertEquals(2, series.getRowCount());
+        assertEquals(2, series.getColumns().size());
+        assertEquals("T (K)", series.getXLabel());
+        assertEquals("dB/dp(T)", series.getYLabel(1),
+                "the header carries no unit for dB/dp - the label stays unit-free");
+        assertEquals(4.0, series.getX(0), 1e-9);
+        assertEquals(3.025394680653, series.getY(0, 1), 1e-9);
+        assertTrue(series.getUnitProvenance().contains("no unit"), series.getUnitProvenance());
+        assertTrue(QEThermoPwSeriesParser.candidateKinds("output_anhar.dat.dbulk_mod_ph")
+                .contains(SeriesKind.ANHARM_DBULK));
+    }
+
+    @Test
+    void testAuxGrunVerbatimColumns() throws IOException {
+        // [upstream] examples/example09/reference/anhar_files/output_anhar.dat.aux_grun
+        Path file = write("output_anhar.dat.aux_grun", """
+            # gamma is the average gruneisen parameter
+            #   T (K)         beta(T)x10^6    (C_p - C_v)(T)   (B_S - B_T) (T) (kbar)
+              0.40000000E+01 -0.27937578E-03  0.52586332E-18  0.32992693E-06
+              0.70000000E+01 -0.14107656E-02  0.23466217E-16  0.27742861E-05
+            """);
+        OperationResult<Series> result = QEThermoPwSeriesParser.parse(file,
+                SeriesKind.ANHARM_AUX_GRUN);
+        assertTrue(result.isSuccess(), () -> result.getMessage());
+        Series series = result.getValue().orElseThrow();
+        assertEquals(2, series.getRowCount());
+        assertEquals("beta(T)x10^6", series.getYLabel(1),
+                "the x10^6 scaling lives inside the verbatim column name");
+        assertEquals("(C_p - C_v)(T)", series.getYLabel(2));
+        assertEquals("(B_S - B_T)(T) (kbar)", series.getYLabel(3),
+                "only the last column's unit is header-stated (kbar)");
+        assertEquals(-0.27937578e-3, series.getY(0, 1), 1e-12);
+        assertEquals(0.52586332e-18, series.getY(0, 2), 1e-27);
+        assertEquals(0.27742861e-5, series.getY(1, 3), 1e-12);
+    }
+
+    @Test
+    void testGammaGrunSharesGammaGrammarWithProvenance() throws IOException {
+        // [upstream] examples/example09/reference/anhar_files/output_anhar.dat.gamma_grun
+        Path file = write("output_anhar.dat.gamma_grun", """
+            #
+            # T (K)          gamma(T)             C_V(T) (Ry/cell/K)    beta B_T (kbar/K)
+             0.40000E+01  -0.3200993285976E+00   0.1470074696348E-08  -0.2576754075982E-06
+            """);
+        OperationResult<Series> result = QEThermoPwSeriesParser.parse(file,
+                SeriesKind.ANHARM_GAMMA_GRUN);
+        assertTrue(result.isSuccess(), () -> result.getMessage());
+        Series series = result.getValue().orElseThrow();
+        assertEquals("gamma(T)", series.getYLabel(1));
+        assertEquals("beta B_T (kbar/K)", series.getYLabel(3));
+        assertEquals(-0.3200993285976, series.getY(0, 1), 1e-9);
+        assertTrue(series.getUnitProvenance().contains("Grüneisen-route"),
+                series.getUnitProvenance());
+    }
+
+    @Test
+    void testPhVariantsShareTheBaseGrammar() throws IOException {
+        // [upstream] examples/example09/reference/anhar_files/output_anhar.dat.heat_ph
+        Path heat = write("output_anhar.dat.heat_ph", """
+            #
+            # T (K)        C_e(T) (Ry/cell/K)    (C_P-C_V)(T) (Ry/cell/K)     C_e+C_P-C_V(T) (Ry/cell/K)
+             0.40000E+01   0.1473900484505E-08   0.1984486732829E-17   0.1473900486490E-08
+            """);
+        OperationResult<Series> heatResult = QEThermoPwSeriesParser.parse(heat,
+                SeriesKind.ANHARM_HEAT);
+        assertTrue(heatResult.isSuccess(), () -> heatResult.getMessage());
+        assertEquals(0.1473900484505e-8,
+                heatResult.getValue().orElseThrow().getY(0, 1), 1e-17);
+
+        // [upstream] examples/example09/reference/anhar_files/output_anhar.dat_ph
+        Path main = write("output_anhar.dat_ph", """
+            # beta is the volume thermal expansion
+            #   T (K)         V(T) (a.u.)^3          F (T) (Ry)       beta (10^(-6) K^(-1))
+             0.40000E+01    0.2686450606298E+03   -0.1582981437041E+02   -0.54272071E-03
+            """);
+        OperationResult<Series> mainResult = QEThermoPwSeriesParser.parse(main,
+                SeriesKind.ANHARM_MAIN);
+        assertTrue(mainResult.isSuccess(), () -> mainResult.getMessage());
+        assertEquals(-0.54272071e-3, mainResult.getValue().orElseThrow().getY(0, 3), 1e-12);
+
+        assertTrue(QEThermoPwSeriesParser.candidateKinds("output_anhar.dat_ph")
+                .contains(SeriesKind.ANHARM_MAIN));
+        assertTrue(QEThermoPwSeriesParser.candidateKinds("output_anhar.dat.therm_ph")
+                .contains(SeriesKind.ANHARM_THERM));
+        assertTrue(QEThermoPwSeriesParser.candidateKinds("output_anhar.dat.gamma_ph")
+                .contains(SeriesKind.ANHARM_GAMMA));
+        assertTrue(QEThermoPwSeriesParser.candidateKinds("output_anhar.dat.bulk_mod_ph")
+                .contains(SeriesKind.ANHARM_BULK));
+    }
+
+    @Test
+    void testPgrunHeaderlessPlotRows() throws IOException {
+        // [upstream] examples/example09/reference/anhar_files/output_pgrun.dat.1.1
+        Path gamma = write("output_pgrun.dat.1.1", """
+                 0.0000000     1.0467186
+                 0.0250000     1.0467186
+                 0.0500000     1.0481364
+            """);
+        OperationResult<Series> gammaResult = QEThermoPwSeriesParser.parse(gamma,
+                SeriesKind.PGRUN_GAMMA);
+        assertTrue(gammaResult.isSuccess(), () -> gammaResult.getMessage());
+        Series gammaSeries = gammaResult.getValue().orElseThrow();
+        assertEquals(3, gammaSeries.getRowCount());
+        assertEquals("k-path coordinate", gammaSeries.getXLabel(),
+                "the path x carries no unit - the upstream script's own k-label is"
+                        + " commented out, so none is invented here");
+        assertEquals("mode Grüneisen gamma", gammaSeries.getYLabel(1));
+        assertEquals(0.025, gammaSeries.getX(1), 1e-9);
+        assertEquals(1.0481364, gammaSeries.getY(2, 1), 1e-9);
+        assertTrue(gammaSeries.getUnitProvenance().contains("gnuplot.tmp_grun"),
+                gammaSeries.getUnitProvenance());
+
+        // [upstream] examples/example09/reference/anhar_files/output_pgrun.dat_freq.1.1
+        Path freq = write("output_pgrun.dat_freq.1.1", """
+                 0.0000000     0.0000000
+                 0.0250000    12.5829173
+            """);
+        OperationResult<Series> freqResult = QEThermoPwSeriesParser.parse(freq,
+                SeriesKind.PGRUN_FREQ);
+        assertTrue(freqResult.isSuccess(), () -> freqResult.getMessage());
+        Series freqSeries = freqResult.getValue().orElseThrow();
+        assertEquals("mode frequency (cm^{-1})", freqSeries.getYLabel(1),
+                "the unit is pinned verbatim from the upstream dispersion script");
+        assertEquals(12.5829173, freqSeries.getY(1, 1), 1e-9);
+
+        assertTrue(QEThermoPwSeriesParser.candidateKinds("output_pgrun.dat.5")
+                .contains(SeriesKind.PGRUN_GAMMA));
+        assertTrue(QEThermoPwSeriesParser.candidateKinds("output_pgrun.dat.7.2")
+                .contains(SeriesKind.PGRUN_GAMMA));
+        assertTrue(QEThermoPwSeriesParser.candidateKinds("output_pgrun.dat_freq.2.3")
+                .contains(SeriesKind.PGRUN_FREQ));
+        assertTrue(QEThermoPwSeriesParser.candidateKinds("output_pgrun.dat.1.1.extra")
+                .isEmpty(), "three-part tails are outside the pinned name grammar");
     }
 }

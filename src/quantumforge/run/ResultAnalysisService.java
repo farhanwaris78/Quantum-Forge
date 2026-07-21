@@ -172,6 +172,7 @@ import quantumforge.symmetry.MagneticSpaceGroupDetector;
 import quantumforge.symmetry.QEBrillouinZoneGeometry;
 import quantumforge.run.parser.QEPwcondConductanceParser;
 import quantumforge.run.parser.QEThermoPwEosParser;
+import quantumforge.run.parser.QEThermoPwRunScanner;
 import quantumforge.run.parser.QETurboSpectrumParser;
 import quantumforge.run.parser.QEVasprunXmlParser;
 import quantumforge.run.parser.QEWannier90SpreadParser;
@@ -216,6 +217,7 @@ public final class ResultAnalysisService {
         PWCOND_TRANSMISSION("PWcond transmission"),
         WANNIER90_SPREAD("Wannier90 spread convergence"),
         THERMO_PW_DECK_AUDIT("thermo_pw thermo_control grammar audit (mined)"),
+        THERMO_PW_RUN_SUMMARY("thermo_pw run summary (directory census + stdout EOS extracts)"),
         QE_CARD_AUDIT("pw.x card grammar audit (mined read_cards)"),
         QE_AUX_DECK_AUDIT("auxiliary QE input grammar audit (24 programs)"),
         THERMOPW_EOS("thermo_pw equation of state"),
@@ -1398,6 +1400,8 @@ public final class ResultAnalysisService {
             return name.endsWith(".wout");
         case THERMO_PW_DECK_AUDIT:
             return name.equals("thermo_control");
+        case THERMO_PW_RUN_SUMMARY:
+            return false; // manual select only: ANY *.out would else hijack run routing
         case QE_CARD_AUDIT:
             return false; // manual select only: EVERY pw input is a candidate
         case QE_AUX_DECK_AUDIT:
@@ -1607,6 +1611,8 @@ public final class ResultAnalysisService {
                 return analyzeWannier90(property, source);
             case THERMO_PW_DECK_AUDIT:
                 return analyzeThermoPwDeckAudit(property, source);
+            case THERMO_PW_RUN_SUMMARY:
+                return analyzeThermoPwRunSummary(property, source);
             case QE_CARD_AUDIT:
                 return analyzeQeCardAudit(property, source);
             case QE_AUX_DECK_AUDIT:
@@ -2966,6 +2972,153 @@ public final class ResultAnalysisService {
                 + " shown are the procedural assignments (last-assignment-wins); the audit"
                 + " is the grammar, not a thermodynamics result.\n");
         return new AnalysisReport(label, errors == 0, text.toString(), csv, null);
+    }
+
+    /**
+     * thermo_pw RUN SUMMARY (batch 166): a whole run-directory census through
+     * {@link QEThermoPwRunScanner} (user-guide §2.5 layout) rendered as one
+     * report - verbatim thermo_control extracts, the artifact census with
+     * kinds/geometry/ph/suffix tags, restart-token counts, and the verbatim
+     * stdout EOS extracts with 1-based line numbers. The run directory is
+     * the picked file's parent (an explicit thermo_control, the run's
+     * stdout, or any sibling artifact all resolve to the same census); the
+     * kind is manual-select ONLY because every *.out would else hijack
+     * routing. Verdict: success when the directory yields any positive
+     * census fact (control present, an artifact, a restart token, or a
+     * stdout extract); an empty directory is an honest failure, not an
+     * empty summary.
+     */
+    private static AnalysisReport analyzeThermoPwRunSummary(ProjectProperty property,
+            File source) throws IOException {
+        String label = AnalysisKind.THERMO_PW_RUN_SUMMARY.getLabel();
+        File runDir = source.isDirectory() ? source : source.getParentFile();
+        if (runDir == null || !runDir.isDirectory()) {
+            return failure(label, source.getName() + " has no resolvable thermo_pw run"
+                    + " directory - pick the run's thermo_control, its stdout, or any"
+                    + " file inside the run directory.");
+        }
+        QEThermoPwRunScanner.ThermoScan scan = QEThermoPwRunScanner.scan(runDir.toPath());
+        StringBuilder text = new StringBuilder();
+        List<String> csv = new ArrayList<>();
+        text.append("== thermo_pw run summary (directory census per user-guide §2.5;"
+                + " every value a verbatim extract - nothing re-derived) ==\n");
+        text.append("Picked file: ").append(source.getAbsolutePath()).append('\n');
+        text.append("Run directory: ").append(runDir.getAbsolutePath()).append('\n');
+        text.append(QEThermoPwRunScanner.describe(scan)).append('\n');
+        csv.add("thermo-run-summary,field,value");
+        csv.add(String.format(Locale.ROOT, "thermo-run-summary,what,%s",
+                csvCell(scan.getControl().getWhat())));
+        csv.add(String.format(Locale.ROOT, "thermo-run-summary,restart_tasks,%d",
+                scan.getRestartCount()));
+        csv.add(String.format(Locale.ROOT, "thermo-run-summary,series_artifacts,%d",
+                scan.getArtifacts().size()));
+
+        if (!scan.getArtifacts().isEmpty()) {
+            text.append("\nSeries census (role/file -> kind, tags):\n");
+            for (QEThermoPwRunScanner.Artifact artifact : scan.getArtifacts()) {
+                text.append("  ").append(artifact.getRole()).append('/')
+                        .append(artifact.getPath().getFileName());
+                if (artifact.getKind() == null) {
+                    text.append(" -> [control, enumerated not charted]");
+                } else {
+                    text.append(" -> ").append(artifact.getKind().getLabel());
+                    if (artifact.getGeometryTag() != null) {
+                        text.append(" [geometry ").append(artifact.getGeometryTag())
+                                .append(']');
+                    }
+                    if (artifact.isPhVariant()) {
+                        text.append(" [ph variant]");
+                    }
+                    if (artifact.getSuffixTag() != null) {
+                        text.append(" [verbatim plot-tag ").append(artifact.getSuffixTag())
+                                .append(']');
+                    }
+                }
+                text.append('\n');
+            }
+        }
+
+        if (scan.getStdoutSummaries().isEmpty()) {
+            text.append("\nNo top-level *.out stdout file in the run directory - the EOS"
+                    + " line-block extracts are simply absent, never assumed.\n");
+        } else {
+            text.append("\nStdout extracts (verbatim tokens with 1-based line numbers; the"
+                    + " EOS numbers are the run's own fit claim, NOT re-derived here):\n");
+            for (QEThermoPwRunScanner.StdoutSummary summary : scan.getStdoutSummaries()) {
+                String name = summary.getPath().getFileName().toString();
+                if (summary.isOversized()) {
+                    text.append("  ").append(name).append(": exceeds the ")
+                            .append(QEThermoPwRunScanner.MAX_STDOUT_BYTES)
+                            .append("-byte stdout bound - named, not parsed.\n");
+                    continue;
+                }
+                text.append("  ").append(name).append(": ")
+                        .append(summary.getUnitCellVolumeCount())
+                        .append(" 'unit-cell volume (a.u.)^3' print(s), EOS block ")
+                        .append(summary.getEosLineCount()).append("/4 lines.\n");
+                if (summary.getLatticeConstantToken() != null) {
+                    text.append(String.format(Locale.ROOT,
+                            "    line %d: equilibrium lattice constant %s a.u.%n",
+                            summary.getLatticeConstantLine(), summary.getLatticeConstantToken()));
+                    csv.add(String.format(Locale.ROOT, "thermo-run-summary,eos_lattice_au,%s",
+                            csvCell(summary.getLatticeConstantToken())));
+                }
+                if (summary.getBulkModulusToken() != null) {
+                    text.append(String.format(Locale.ROOT,
+                            "    line %d: bulk modulus %s kbar%n",
+                            summary.getBulkModulusLine(), summary.getBulkModulusToken()));
+                    csv.add(String.format(Locale.ROOT, "thermo-run-summary,eos_bulk_kbar,%s",
+                            csvCell(summary.getBulkModulusToken())));
+                }
+                if (summary.getDerivativeToken() != null) {
+                    text.append(String.format(Locale.ROOT,
+                            "    line %d: pressure derivative of the bulk modulus %s%n",
+                            summary.getDerivativeLine(), summary.getDerivativeToken()));
+                    csv.add(String.format(Locale.ROOT,
+                            "thermo-run-summary,eos_bulk_derivative,%s",
+                            csvCell(summary.getDerivativeToken())));
+                }
+                if (summary.getMinEnergyToken() != null) {
+                    text.append(String.format(Locale.ROOT,
+                            "    line %d: total energy at the minimum %s Ry%n",
+                            summary.getMinEnergyLine(), summary.getMinEnergyToken()));
+                    csv.add(String.format(Locale.ROOT, "thermo-run-summary,eos_min_energy_ry,%s",
+                            csvCell(summary.getMinEnergyToken())));
+                }
+                if (summary.getEosLineCount() < 4) {
+                    text.append("    (partial or absent EOS block - a live run is reported"
+                            + " as-is; nothing is completed by guesswork)\n");
+                }
+            }
+        }
+
+        if (!scan.getUninterpreted().isEmpty()) {
+            text.append("\nUninterpreted sidecars (named, never parsed): ");
+            int shown = 0;
+            for (String name : scan.getUninterpreted()) {
+                if (shown++ >= 12) {
+                    text.append("... (+").append(scan.getUninterpreted().size() - 12)
+                            .append(" more)");
+                    break;
+                }
+                if (shown > 1) {
+                    text.append(", ");
+                }
+                text.append(name);
+            }
+            text.append('\n');
+        }
+        boolean anyFact = scan.getControl().isPresent() || !scan.getArtifacts().isEmpty()
+                || scan.getRestartCount() > 0
+                || scan.getStdoutSummaries().stream().anyMatch(s -> !s.isOversized()
+                        && (s.getEosLineCount() > 0 || s.getUnitCellVolumeCount() > 0));
+        text.append("\nHonesty boundary: a directory census over pinned file NAME grammars"
+                + " plus verbatim control/stdout extracts. The EOS block is the run's own"
+                + " fit summary (ieos selection and fit quality belong to the run, not to"
+                + " this report); the pgrun dotted index tails are preserved verbatim"
+                + " without asserting band-vs-segment semantics; files outside the pinned"
+                + " set are named as uninterpreted; no thermodynamics review is implied.\n");
+        return new AnalysisReport(label, anyFact, text.toString(), csv, null);
     }
 
     /**

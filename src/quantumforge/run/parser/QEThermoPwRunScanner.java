@@ -32,9 +32,22 @@ import quantumforge.run.parser.QEThermoPwSeriesParser.SeriesKind;
  *   <li>{@code therm_files/output_therm.dat.gN[(.gN)_ph]} - per-geometry
  *       harmonic thermodynamics appearing as geometries complete;</li>
  *   <li>{@code anhar_files/output_anhar.dat[.therm|.bulk_mod|.heat|.gamma]} -
- *       the quasi-harmonic (mur_lc_t) result series;</li>
+ *       the quasi-harmonic (mur_lc_t) result series, plus the ph-route
+ *       {@code (_ph)} counterparts, {@code .dbulk_mod[(_ph)]},
+ *       {@code .aux_grun}, {@code .gamma_grun}, and the
+ *       {@code output_pgrun.dat[_freq].I[.J]} 2-column plot rows (their
+ *       dotted index tail is preserved verbatim; its band-vs-segment
+ *       semantics is deliberately not asserted);</li>
  *   <li>{@code restart/e_work_part.*} - one finished-task energy per file,
- *       the honest live task counter (never an ETA invented from nothing).</li>
+ *       the honest live task counter (never an ETA invented from nothing);</li>
+ *   <li>top-level {@code *.out} stdout files - scanned for VERBATIM extracts
+ *       only: the {@code unit-cell volume = ... (a.u.)^3} prints and the
+ *       dashed EOS summary block ('The equilibrium lattice constant is ..
+ *       a.u.', 'The bulk modulus is .. kbar', 'The pressure derivative of
+ *       the bulk modulus is ..', 'The total energy at the minimum is: ..
+ *       Ry'). Units come from the lines' own suffix text; a partially
+ *       written block (live run) is reported as n-of-4 lines, never
+ *       completed by guesswork. Oversized stdout is named, not parsed.</li>
  * </ul>
  *
  * <p>The scanner only ENUMERATES and never repairs: files outside the
@@ -50,6 +63,12 @@ public final class QEThermoPwRunScanner {
     public static final long MAX_CONTROL_BYTES = 256L * 1024L;
     /** Upper bound when listing any artifact directory. */
     public static final int MAX_DIR_ENTRIES = 100_000;
+    /** Upper bound per stdout file before it is named oversized and left unparsed. */
+    public static final long MAX_STDOUT_BYTES = 32L * 1024L * 1024L;
+    /** Upper bound on top-level *.out files scanned per run directory. */
+    public static final int MAX_STDOUT_FILES = 32;
+    /** Upper bound on unit-cell-volume values kept per stdout file. */
+    public static final int MAX_VOLUME_PRINTS = 10_000;
 
     private static final Pattern WHAT = Pattern.compile(
             "(?i)\\bwhat\\s*=\\s*['\"]([^'\"]+)['\"]");
@@ -64,6 +83,20 @@ public final class QEThermoPwRunScanner {
     private static final Pattern THERM_GEO = Pattern.compile(
             "output_therm\\.dat\\.g(\\d+)(_ph)?");
     private static final Pattern RESTART = Pattern.compile("e_work_part\\.(\\d+)\\.(\\d+)");
+    private static final Pattern PGRUN = Pattern.compile(
+            "output_pgrun\\.dat(_freq)?\\.(\\d+(?:\\.\\d+)?)");
+    // stdout extracts: case-sensitive on purpose - these phrases are thermo_pw's
+    // own verbatim prints (upstream example05 si.mur_lc.out, commit b73edd6d).
+    private static final Pattern VOLUME = Pattern.compile(
+            "unit-cell volume\\s*=\\s+([+-]?[0-9.EeDd+-]+)\\s+\\(a\\.u\\.\\)\\^3");
+    private static final Pattern EOS_LATTICE = Pattern.compile(
+            "The equilibrium lattice constant is\\s+([+-]?[0-9.EeDd+-]+)\\s+a\\.u\\.");
+    private static final Pattern EOS_BULK = Pattern.compile(
+            "The bulk modulus is\\s+([+-]?[0-9.EeDd+-]+)\\s+kbar");
+    private static final Pattern EOS_DERIV = Pattern.compile(
+            "The pressure derivative of the bulk modulus is\\s+([+-]?[0-9.EeDd+-]+)\\s*$");
+    private static final Pattern EOS_EMIN = Pattern.compile(
+            "The total energy at the minimum is:\\s+([+-]?[0-9.EeDd+-]+)\\s+Ry");
 
     private QEThermoPwRunScanner() {
         // Utility
@@ -122,14 +155,21 @@ public final class QEThermoPwRunScanner {
         private final SeriesKind kind;
         private final Integer geometryTag;
         private final boolean phVariant;
+        private final String suffixTag;
 
         private Artifact(Path path, String role, SeriesKind kind, Integer geometryTag,
                          boolean phVariant) {
+            this(path, role, kind, geometryTag, phVariant, null);
+        }
+
+        private Artifact(Path path, String role, SeriesKind kind, Integer geometryTag,
+                         boolean phVariant, String suffixTag) {
             this.path = path;
             this.role = role;
             this.kind = kind;
             this.geometryTag = geometryTag;
             this.phVariant = phVariant;
+            this.suffixTag = suffixTag;
         }
 
         public Path getPath() { return this.path; }
@@ -141,6 +181,12 @@ public final class QEThermoPwRunScanner {
         public Integer getGeometryTag() { return this.geometryTag; }
         /** The (.gN)_ph variant flag. */
         public boolean isPhVariant() { return this.phVariant; }
+        /**
+         * The verbatim dotted index tail of an output_pgrun.dat[_freq].I[.J] name
+         * (e.g. "1.1" or "5"); null for every other artifact. Whether the
+         * numbers are bands or path segments is deliberately NOT asserted.
+         */
+        public String getSuffixTag() { return this.suffixTag; }
     }
 
     /** One restart token: which file, which task value (the task energy in Ry). */
@@ -164,6 +210,109 @@ public final class QEThermoPwRunScanner {
         public double getValueRy() { return this.valueRy; }
     }
 
+    /**
+     * Verbatim stdout extracts of one top-level {@code *.out} file. Every
+     * captured value keeps BOTH the raw token (displayed verbatim) and the
+     * parsed double; line numbers are 1-based absolute inside the file. A
+     * live run appends the EOS block near the end, so a partial block is
+     * reported as the count of lines found so far - it is never completed
+     * by guesswork, and the LAST occurrence wins when a restarted run
+     * prints a block more than once.
+     */
+    public static final class StdoutSummary {
+        private final Path path;
+        private final boolean oversized;
+        private final int unitCellVolumeCount;
+        private final List<Double> unitCellVolumesAU;
+        private final String latticeConstantToken;
+        private final String bulkModulusToken;
+        private final String derivativeToken;
+        private final String minEnergyToken;
+        private final int latticeConstantLine;
+        private final int bulkModulusLine;
+        private final int derivativeLine;
+        private final int minEnergyLine;
+
+        private StdoutSummary(Path path, boolean oversized, int unitCellVolumeCount,
+                              List<Double> unitCellVolumesAU,
+                              String latticeConstantToken, String bulkModulusToken,
+                              String derivativeToken, String minEnergyToken,
+                              int latticeConstantLine, int bulkModulusLine,
+                              int derivativeLine, int minEnergyLine) {
+            this.path = path;
+            this.oversized = oversized;
+            this.unitCellVolumeCount = unitCellVolumeCount;
+            this.unitCellVolumesAU = unitCellVolumesAU;
+            this.latticeConstantToken = latticeConstantToken;
+            this.bulkModulusToken = bulkModulusToken;
+            this.derivativeToken = derivativeToken;
+            this.minEnergyToken = minEnergyToken;
+            this.latticeConstantLine = latticeConstantLine;
+            this.bulkModulusLine = bulkModulusLine;
+            this.derivativeLine = derivativeLine;
+            this.minEnergyLine = minEnergyLine;
+        }
+
+        public Path getPath() { return this.path; }
+        /** True when the file exceeded {@link #MAX_STDOUT_BYTES} and was left unparsed. */
+        public boolean isOversized() { return this.oversized; }
+        /** Count of the 'unit-cell volume = .. (a.u.)^3' prints (one per geometry). */
+        public int getUnitCellVolumeCount() { return this.unitCellVolumeCount; }
+        /** Captured unit-cell volumes in (a.u.)^3, in print order. */
+        public List<Double> getUnitCellVolumesAU() { return this.unitCellVolumesAU; }
+        /** Raw token of 'The equilibrium lattice constant is .. a.u.'; null when absent. */
+        public String getLatticeConstantToken() { return this.latticeConstantToken; }
+        /** Raw token of 'The bulk modulus is .. kbar'; null when absent. */
+        public String getBulkModulusToken() { return this.bulkModulusToken; }
+        /** Raw token of 'The pressure derivative of the bulk modulus is ..'; null when absent. */
+        public String getDerivativeToken() { return this.derivativeToken; }
+        /** Raw token of 'The total energy at the minimum is: .. Ry'; null when absent. */
+        public String getMinEnergyToken() { return this.minEnergyToken; }
+        /** 1-based line of the lattice-constant extract; -1 when absent. */
+        public int getLatticeConstantLine() { return this.latticeConstantLine; }
+        /** 1-based line of the bulk-modulus extract; -1 when absent. */
+        public int getBulkModulusLine() { return this.bulkModulusLine; }
+        /** 1-based line of the pressure-derivative extract; -1 when absent. */
+        public int getDerivativeLine() { return this.derivativeLine; }
+        /** 1-based line of the minimum-energy extract; -1 when absent. */
+        public int getMinEnergyLine() { return this.minEnergyLine; }
+
+        /** How many of the four EOS summary lines were found so far (0..4). */
+        public int getEosLineCount() {
+            int count = 0;
+            if (this.latticeConstantToken != null) {
+                count++;
+            }
+            if (this.bulkModulusToken != null) {
+                count++;
+            }
+            if (this.derivativeToken != null) {
+                count++;
+            }
+            if (this.minEnergyToken != null) {
+                count++;
+            }
+            return count;
+        }
+
+        /** All four EOS summary lines are present. */
+        public boolean isEosComplete() {
+            return getEosLineCount() == 4;
+        }
+
+        /** Lowest 1-based EOS block line found; -1 when none. */
+        public int getEosFirstLine() {
+            int first = Integer.MAX_VALUE;
+            for (int line : new int[] {this.latticeConstantLine, this.bulkModulusLine,
+                    this.derivativeLine, this.minEnergyLine}) {
+                if (line > 0) {
+                    first = Math.min(first, line);
+                }
+            }
+            return first == Integer.MAX_VALUE ? -1 : first;
+        }
+    }
+
     /** The whole census. */
     public static final class ThermoScan {
         private final Path runDir;
@@ -171,14 +320,17 @@ public final class QEThermoPwRunScanner {
         private final List<Artifact> artifacts;
         private final List<RestartToken> restartTokens;
         private final List<String> uninterpreted;
+        private final List<StdoutSummary> stdoutSummaries;
 
         private ThermoScan(Path runDir, ControlInfo control, List<Artifact> artifacts,
-                           List<RestartToken> restartTokens, List<String> uninterpreted) {
+                           List<RestartToken> restartTokens, List<String> uninterpreted,
+                           List<StdoutSummary> stdoutSummaries) {
             this.runDir = runDir;
             this.control = control;
             this.artifacts = artifacts;
             this.restartTokens = restartTokens;
             this.uninterpreted = uninterpreted;
+            this.stdoutSummaries = stdoutSummaries;
         }
 
         public Path getRunDir() { return this.runDir; }
@@ -188,6 +340,8 @@ public final class QEThermoPwRunScanner {
         public int getRestartCount() { return this.restartTokens.size(); }
         /** Files present but outside the pinned set: named, never parsed. */
         public List<String> getUninterpreted() { return this.uninterpreted; }
+        /** Verbatim extracts of the top-level *.out files (sorted by name). */
+        public List<StdoutSummary> getStdoutSummaries() { return this.stdoutSummaries; }
 
         public List<Artifact> artifactsOfKind(SeriesKind kind) {
             List<Artifact> selected = new ArrayList<>();
@@ -207,8 +361,10 @@ public final class QEThermoPwRunScanner {
         List<Artifact> artifacts = new ArrayList<>();
         List<RestartToken> restartTokens = new ArrayList<>();
         List<String> uninterpreted = new ArrayList<>();
+        List<StdoutSummary> stdoutSummaries = new ArrayList<>();
         if (runDir == null || !Files.isDirectory(runDir)) {
-            return new ThermoScan(runDir, control, artifacts, restartTokens, uninterpreted);
+            return new ThermoScan(runDir, control, artifacts, restartTokens, uninterpreted,
+                    stdoutSummaries);
         }
         if (Files.isRegularFile(runDir.resolve("thermo_control"))) {
             artifacts.add(new Artifact(runDir.resolve("thermo_control"), "control", null,
@@ -218,8 +374,11 @@ public final class QEThermoPwRunScanner {
         scanThermFiles(runDir.resolve("therm_files"), artifacts, uninterpreted);
         scanAnharFiles(runDir.resolve("anhar_files"), artifacts, uninterpreted);
         scanRestart(runDir.resolve("restart"), restartTokens, uninterpreted);
+        scanStdoutFiles(runDir, stdoutSummaries);
         artifacts.sort(Comparator.comparing(a -> a.getPath().toString()));
-        return new ThermoScan(runDir, control, artifacts, restartTokens, uninterpreted);
+        stdoutSummaries.sort(Comparator.comparing(s -> s.getPath().toString()));
+        return new ThermoScan(runDir, control, artifacts, restartTokens, uninterpreted,
+                stdoutSummaries);
     }
 
     /** Cheap change signature for live polling: size+mtime (-1/-1 when absent). */
@@ -277,13 +436,101 @@ public final class QEThermoPwRunScanner {
         for (Path file : listRegular(dir)) {
             String name = file.getFileName().toString();
             List<SeriesKind> kinds = QEThermoPwSeriesParser.candidateKinds(name);
-            if (!kinds.isEmpty() && name.startsWith("output_anhar.dat")) {
+            if (!kinds.isEmpty() && (name.startsWith("output_anhar.dat")
+                    || name.startsWith("output_pgrun.dat"))) {
+                Matcher pgrun = PGRUN.matcher(name);
+                String suffixTag = pgrun.matches() ? pgrun.group(2) : null;
                 artifacts.add(new Artifact(file, "anhar_files", kinds.get(0), null,
-                        name.endsWith("_ph")));
+                        name.endsWith("_ph"), suffixTag));
             } else {
                 uninterpreted.add("anhar_files/" + name);
             }
         }
+    }
+
+    /**
+     * Reads the top-level {@code *.out} files for the verbatim print
+     * extracts. Bounded on both ends: at most {@link #MAX_STDOUT_FILES}
+     * files (the rest are named in the summaries as unparsed would be a
+     * lie - they are simply not reached, so the bound is stated in the
+     * class docs and the census is name-sorted so the cut is stable), and
+     * one oversized file is recorded as oversized instead of read.
+     */
+    private static void scanStdoutFiles(Path runDir, List<StdoutSummary> summaries) {
+        List<Path> outs = new ArrayList<>();
+        for (Path file : listRegular(runDir)) {
+            if (file.getFileName().toString().endsWith(".out")) {
+                outs.add(file);
+            }
+        }
+        outs.sort(Comparator.comparing(p -> p.getFileName().toString()));
+        for (int i = 0; i < outs.size() && i < MAX_STDOUT_FILES; i++) {
+            summaries.add(readStdoutSummary(outs.get(i)));
+        }
+    }
+
+    private static StdoutSummary readStdoutSummary(Path file) {
+        long size;
+        try {
+            size = Files.size(file);
+        } catch (IOException ex) {
+            return new StdoutSummary(file, true, 0, List.of(), null, null, null, null,
+                    -1, -1, -1, -1);
+        }
+        if (size > MAX_STDOUT_BYTES) {
+            return new StdoutSummary(file, true, 0, List.of(), null, null, null, null,
+                    -1, -1, -1, -1);
+        }
+        List<String> lines;
+        try {
+            lines = Files.readAllLines(file); // UTF-8; a binary stdout fails loudly to empty
+        } catch (IOException | RuntimeException ex) {
+            return new StdoutSummary(file, false, 0, List.of(), null, null, null, null,
+                    -1, -1, -1, -1);
+        }
+        int volumeCount = 0;
+        List<Double> volumes = new ArrayList<>();
+        String lattice = null;
+        String bulk = null;
+        String deriv = null;
+        String emin = null;
+        int latticeLine = -1;
+        int bulkLine = -1;
+        int derivLine = -1;
+        int eminLine = -1;
+        for (int i = 0; i < lines.size(); i++) {
+            String line = lines.get(i);
+            Matcher volume = VOLUME.matcher(line);
+            if (volume.find()) {
+                double value = QEThermoPwSeriesParser.parseFortranDouble(volume.group(1));
+                volumeCount++;
+                if (!Double.isNaN(value) && volumes.size() < MAX_VOLUME_PRINTS) {
+                    volumes.add(Double.valueOf(value));
+                }
+            }
+            Matcher lat = EOS_LATTICE.matcher(line);
+            if (lat.find()) {
+                lattice = lat.group(1);
+                latticeLine = i + 1; // LAST occurrence wins (a restarted run reprints)
+            }
+            Matcher mod = EOS_BULK.matcher(line);
+            if (mod.find()) {
+                bulk = mod.group(1);
+                bulkLine = i + 1;
+            }
+            Matcher der = EOS_DERIV.matcher(line);
+            if (der.find()) {
+                deriv = der.group(1);
+                derivLine = i + 1;
+            }
+            Matcher em = EOS_EMIN.matcher(line);
+            if (em.find()) {
+                emin = em.group(1);
+                eminLine = i + 1;
+            }
+        }
+        return new StdoutSummary(file, false, volumeCount, List.copyOf(volumes),
+                lattice, bulk, deriv, emin, latticeLine, bulkLine, derivLine, eminLine);
     }
 
     private static void scanRestart(Path dir, List<RestartToken> restartTokens,
@@ -419,7 +666,34 @@ public final class QEThermoPwRunScanner {
         }
         text.append("restart tasks completed: ").append(scan.getRestartCount()).append('\n');
         text.append("series artifacts: ").append(scan.getArtifacts().size())
-                .append("; uninterpreted sidecars: ").append(scan.getUninterpreted().size());
+                .append("; uninterpreted sidecars: ").append(scan.getUninterpreted().size())
+                .append('\n');
+        text.append("stdout extracts: ");
+        if (scan.getStdoutSummaries().isEmpty()) {
+            text.append("no *.out file at the run-directory top level");
+        } else {
+            for (int i = 0; i < scan.getStdoutSummaries().size(); i++) {
+                StdoutSummary summary = scan.getStdoutSummaries().get(i);
+                if (i > 0) {
+                    text.append("; ");
+                }
+                text.append(summary.getPath().getFileName()).append(": ");
+                if (summary.isOversized()) {
+                    text.append("exceeds the ").append(MAX_STDOUT_BYTES)
+                            .append("-byte stdout bound (named, not parsed)");
+                } else {
+                    text.append("EOS block ")
+                            .append(summary.isEosComplete() ? "complete (lines "
+                                    + summary.getEosFirstLine() + "..)"
+                                    : summary.getEosLineCount() == 0
+                                            ? "not written yet"
+                                            : "partial, " + summary.getEosLineCount()
+                                                    + "/4 lines so far")
+                            .append(", ").append(summary.getUnitCellVolumeCount())
+                            .append(" unit-cell-volume print(s)");
+                }
+            }
+        }
         return text.toString();
     }
 }

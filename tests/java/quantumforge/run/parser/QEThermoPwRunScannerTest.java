@@ -5,6 +5,7 @@ package quantumforge.run.parser;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
@@ -18,6 +19,7 @@ import org.junit.jupiter.api.io.TempDir;
 import quantumforge.operation.OperationResult;
 import quantumforge.run.parser.QEThermoPwRunScanner.Artifact;
 import quantumforge.run.parser.QEThermoPwRunScanner.RestartToken;
+import quantumforge.run.parser.QEThermoPwRunScanner.StdoutSummary;
 import quantumforge.run.parser.QEThermoPwRunScanner.ThermoScan;
 import quantumforge.run.parser.QEThermoPwSeriesParser.Series;
 import quantumforge.run.parser.QEThermoPwSeriesParser.SeriesKind;
@@ -73,6 +75,22 @@ class QEThermoPwRunScannerTest {
                         + " 0.40000E+01   0.9223255093779E+03   0.9223255104033E+03   0.1025479718919E-05\n");
         write("anhar_files/output_anhar.dat.aux_grun", "1 2 3\n");
         write("anhar_files/output_grun.dat", " &plot nbnd= 6, nks= 2 /\n");
+        // [upstream] example09 pgrun row excerpt (verbatim first row of .1.1)
+        write("anhar_files/output_pgrun.dat.1.1", "     0.0000000     1.0467186\n"
+                + "     0.0250000     1.0467186\n");
+        write("anhar_files/output_pgrun.dat_freq.2.3", "     0.0000000     0.0000000\n"
+                + "     0.0250000    12.5829173\n");
+        // [upstream] example05 si.mur_lc.out EOS block (verbatim, dashes kept)
+        write("si.mur_lc.out", "  ----- header -----\n"
+                + "     unit-cell volume          =     250.0000 (a.u.)^3\n"
+                + "     unit-cell volume          =     253.7688 (a.u.)^3\n"
+                + "  ----------------------------------------------------------------------------\n"
+                + "\n"
+                + "     The equilibrium lattice constant is               10.2087 a.u.\n"
+                + "     The bulk modulus is                              941.833  kbar\n"
+                + "     The pressure derivative of the bulk modulus is     4.127\n"
+                + "     The total energy at the minimum is:                -15.852190733 Ry\n"
+                + "  ----------------------------------------------------------------------------\n");
         // [upstream] example05 restart token value
         write("restart/e_work_part.1.1", "  -15.848773111000199     \n");
         write("restart/e_work_part.2.1", "  -15.850239743795000     \n");
@@ -108,13 +126,25 @@ class QEThermoPwRunScannerTest {
         assertEquals(1, scan.artifactsOfKind(SeriesKind.MUR_FIT).size());
         assertEquals(1, scan.artifactsOfKind(SeriesKind.ANHARM_MAIN).size());
         assertEquals(1, scan.artifactsOfKind(SeriesKind.ANHARM_BULK).size());
+        assertEquals(1, scan.artifactsOfKind(SeriesKind.ANHARM_AUX_GRUN).size(),
+                "aux_grun joined the interpreted set in batch 166");
+        assertEquals(1, scan.artifactsOfKind(SeriesKind.PGRUN_GAMMA).size());
+        assertEquals(1, scan.artifactsOfKind(SeriesKind.PGRUN_FREQ).size());
         assertEquals(1, scan.artifactsOfKind(null).size(), "the control artifact is kind-less");
 
+        Artifact pgrunGamma = scan.artifactsOfKind(SeriesKind.PGRUN_GAMMA).get(0);
+        assertEquals("1.1", pgrunGamma.getSuffixTag(),
+                "the dotted tail is preserved verbatim without band/segment claims");
+        assertFalse(pgrunGamma.isPhVariant());
+        Artifact pgrunFreq = scan.artifactsOfKind(SeriesKind.PGRUN_FREQ).get(0);
+        assertEquals("2.3", pgrunFreq.getSuffixTag());
+
         List<String> uninterpreted = scan.getUninterpreted();
-        assertTrue(uninterpreted.contains("anhar_files/output_anhar.dat.aux_grun"),
-                uninterpreted.toString());
+        assertFalse(uninterpreted.contains("anhar_files/output_anhar.dat.aux_grun"),
+                "aux_grun is interpreted since batch 166: " + uninterpreted);
         assertTrue(uninterpreted.contains("anhar_files/output_grun.dat"),
-                uninterpreted.toString());
+                "the &plot row-matrix stays enumerated, never parsed: "
+                        + uninterpreted);
         assertTrue(uninterpreted.contains("energy_files/output_ev.dat.ev.out.xml"),
                 uninterpreted.toString());
     }
@@ -186,5 +216,58 @@ class QEThermoPwRunScannerTest {
         String description = QEThermoPwRunScanner.describe(scan);
         assertTrue(description.contains("explicit product 45"), description);
         assertTrue(description.contains("pressure=12.5000 kbar"), description);
+    }
+
+    @Test
+    void testStdoutEosExtractsAreVerbatimWithLineNumbers() throws IOException {
+        ThermoScan scan = buildMurLcTree();
+        assertEquals(1, scan.getStdoutSummaries().size(), "exactly one top-level *.out");
+        StdoutSummary summary = scan.getStdoutSummaries().get(0);
+        assertEquals("si.mur_lc.out", summary.getPath().getFileName().toString());
+        assertFalse(summary.isOversized());
+        assertEquals(2, summary.getUnitCellVolumeCount());
+        assertEquals(250.0, summary.getUnitCellVolumesAU().get(0), 1e-9);
+        assertEquals(253.7688, summary.getUnitCellVolumesAU().get(1), 1e-9);
+        assertTrue(summary.isEosComplete(), "all four EOS lines found");
+        assertEquals(4, summary.getEosLineCount());
+        assertEquals("10.2087", summary.getLatticeConstantToken(),
+                "the raw token survives verbatim - %.6g would lose digits on Emin");
+        assertEquals("941.833", summary.getBulkModulusToken());
+        assertEquals("4.127", summary.getDerivativeToken());
+        assertEquals("-15.852190733", summary.getMinEnergyToken());
+        assertEquals(6, summary.getLatticeConstantLine(), "1-based absolute line number");
+        assertEquals(7, summary.getBulkModulusLine());
+        assertEquals(8, summary.getDerivativeLine());
+        assertEquals(9, summary.getMinEnergyLine());
+        assertEquals(6, summary.getEosFirstLine());
+        String description = QEThermoPwRunScanner.describe(scan);
+        assertTrue(description.contains("EOS block complete"), description);
+        assertTrue(description.contains("2 unit-cell-volume print(s)"), description);
+    }
+
+    @Test
+    void testLivePartialEosBlockReportedAsIs() throws IOException {
+        write("thermo_control", "&INPUT_THERMO\n what='mur_lc_t',\n /\n");
+        // A live block: the dashed header + only 2 of 4 lines appended so far.
+        write("pw.grun.out", "some scf noise\n"
+                + "     The equilibrium lattice constant is               10.2087 a.u.\n"
+                + "     The bulk modulus is                              941.833  kbar\n");
+        ThermoScan scan = QEThermoPwRunScanner.scan(this.tempDir);
+        StdoutSummary summary = scan.getStdoutSummaries().get(0);
+        assertFalse(summary.isEosComplete());
+        assertEquals(2, summary.getEosLineCount(), "n-of-4 is stated, never completed");
+        assertEquals("10.2087", summary.getLatticeConstantToken());
+        assertNull(summary.getDerivativeToken());
+        assertEquals(0, summary.getUnitCellVolumeCount());
+        assertTrue(QEThermoPwRunScanner.describe(scan).contains("partial, 2/4 lines"),
+                QEThermoPwRunScanner.describe(scan));
+
+        // A directory without any *.out states the absence explicitly.
+        Path bare = Files.createDirectories(this.tempDir.resolve("bare"));
+        write("bare/thermo_control", "&INPUT_THERMO\n what='mur_lc',\n /\n");
+        ThermoScan bareScan = QEThermoPwRunScanner.scan(bare);
+        assertTrue(bareScan.getStdoutSummaries().isEmpty());
+        assertTrue(QEThermoPwRunScanner.describe(bareScan)
+                .contains("no *.out file"), QEThermoPwRunScanner.describe(bareScan));
     }
 }

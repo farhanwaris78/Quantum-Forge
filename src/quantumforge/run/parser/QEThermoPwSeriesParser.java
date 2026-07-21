@@ -38,8 +38,39 @@ import quantumforge.operation.OperationResult;
  *       "10^(-6) K^(-1)", isothermal/isoentropic bulk moduli in kbar,
  *       electronic and C_P-C_V heat terms in Ry/cell/K, average Grüneisen
  *       gamma dimensionless) and the QHA E/F/S/Cv table in the same grammar
- *       as the harmonic files.</li>
+ *       as the harmonic files;</li>
+ *   <li>{@code anhar_files/output_anhar.dat[(_ph)|.therm_ph|.bulk_mod_ph|
+ *       .heat_ph|.gamma_ph|.dbulk_mod_ph]} - the ph-route counterparts of
+ *       the anhar families, which share the base files' grammar verbatim
+ *       (ground truth: the upstream example09 reference rows), plus
+ *       {@code .dbulk_mod[(_ph)]} (the 2-column T / dB/dp(T) table whose
+ *       header carries no unit - the derivative ratio is dimensionless by
+ *       header silence, stated not assumed), {@code .aux_grun} (the
+ *       Grüneisen-route auxiliaries: beta(T)x10^6, (C_p - C_v)(T),
+ *       (B_S - B_T)(T) in kbar) and {@code .gamma_grun} (the Grüneisen-route
+ *       average gamma, same 4-column grammar as .gamma);</li>
+ *   <li>{@code anhar_files/output_pgrun.dat[.I[.J]]} and
+ *       {@code output_pgrun.dat_freq.[I[.J]]} - the 2-column header-less
+ *       plot rows (flgrun/flpgrun family of user-guide §3.19): the mode
+ *       Grüneisen parameter gamma (dimensionless per the upstream plot
+ *       script's own ylabel 'Mode-Grüneisen parameters gamma_nu(q)') and
+ *       the mode frequency in cm^{-1} (pinned verbatim from the upstream
+ *       dispersion script ylabel 'Frequency (cm^{-1})'). The k-path x
+ *       coordinate carries NO unit by design - the script's own k-axis
+ *       label line is commented out, so none is invented here either. The
+ *       dotted [.I[.J]] index tail is preserved verbatim by the scanner;
+ *       whether an index is a band or a path segment is deliberately NOT
+ *       asserted (the upstream example09 reference set contains a
+ *       '.7.1' index next to a 6-band &plot declaration - asserting the
+ *       semantics would be guessing).</li>
  * </ul>
+ *
+ * <p>Deliberate grammar boundary: {@code output_grun.dat} /
+ * {@code output_grun.dat_freq} (the {@code &plot nbnd=.., nks=.. /}
+ * k/band row-matrix written by flpgrun) are ENUMERATED by the scanner but
+ * never parsed by this class - their content is plotted by thermo_pw's own
+ * scripts from the pgrun per-segment siblings, which this parser reads in
+ * full, so no physics is hidden, only the duplicate layout is refused.</p>
  *
  * <p>Units are taken VERBATIM from each file's own header (or the two
  * cross-pinned sources for the header-less ev table); nothing is converted or
@@ -87,7 +118,21 @@ public final class QEThermoPwSeriesParser {
         /** anhar_files/output_anhar.dat.heat: electronic + C_P-C_V terms. */
         ANHARM_HEAT("heat-capacity terms vs T", 4, "C_e(T)", null),
         /** anhar_files/output_anhar.dat.gamma: average Grüneisen + helpers. */
-        ANHARM_GAMMA("average Grüneisen parameter vs T", 4, "gamma(T)", null);
+        ANHARM_GAMMA("average Grüneisen parameter vs T", 4, "gamma(T)", null),
+        /** anhar_files/output_anhar.dat.dbulk_mod[(_ph)]: T, dB/dp(T). */
+        ANHARM_DBULK("pressure derivative of the bulk modulus vs T", 2,
+                "dB/dp (T)", null),
+        /** anhar_files/output_anhar.dat.aux_grun: Grüneisen-route auxiliaries. */
+        ANHARM_AUX_GRUN("thermal-expansion auxiliaries (Grüneisen route) vs T", 4,
+                "gamma is the average gruneisen parameter", "(B_S - B_T)"),
+        /** anhar_files/output_anhar.dat.gamma_grun: gamma from the Grüneisen route. */
+        ANHARM_GAMMA_GRUN("average Grüneisen parameter vs T (Grüneisen route)", 4,
+                "gamma(T)", "beta B_T (kbar/K)"),
+        /** anhar_files/output_pgrun.dat[.I[.J]]: header-less gamma plot rows. */
+        PGRUN_GAMMA("mode Grüneisen parameter along the k-path (plot rows)", 2,
+                null, null),
+        /** anhar_files/output_pgrun.dat_freq.[I[.J]]: header-less frequency rows. */
+        PGRUN_FREQ("mode frequency along the k-path (plot rows)", 2, null, null);
 
         private final String label;
         private final int columnCount;
@@ -174,14 +219,30 @@ public final class QEThermoPwSeriesParser {
             case "output_ev.dat" -> kinds.add(SeriesKind.EV_CURVE);
             case "output_ev.dat_mur" -> kinds.add(SeriesKind.MUR_FIT);
             case "output_anhar.dat" -> kinds.add(SeriesKind.ANHARM_MAIN);
-            case "output_anhar.dat.therm" -> kinds.add(SeriesKind.ANHARM_THERM);
-            case "output_anhar.dat.bulk_mod" -> kinds.add(SeriesKind.ANHARM_BULK);
-            case "output_anhar.dat.heat" -> kinds.add(SeriesKind.ANHARM_HEAT);
-            case "output_anhar.dat.gamma" -> kinds.add(SeriesKind.ANHARM_GAMMA);
+            case "output_anhar.dat_ph" -> kinds.add(SeriesKind.ANHARM_MAIN);
+            case "output_anhar.dat.therm", "output_anhar.dat.therm_ph" ->
+                    kinds.add(SeriesKind.ANHARM_THERM);
+            case "output_anhar.dat.bulk_mod", "output_anhar.dat.bulk_mod_ph" ->
+                    kinds.add(SeriesKind.ANHARM_BULK);
+            case "output_anhar.dat.heat", "output_anhar.dat.heat_ph" ->
+                    kinds.add(SeriesKind.ANHARM_HEAT);
+            case "output_anhar.dat.gamma", "output_anhar.dat.gamma_ph" ->
+                    kinds.add(SeriesKind.ANHARM_GAMMA);
+            case "output_anhar.dat.dbulk_mod", "output_anhar.dat.dbulk_mod_ph" ->
+                    kinds.add(SeriesKind.ANHARM_DBULK);
+            case "output_anhar.dat.aux_grun" -> kinds.add(SeriesKind.ANHARM_AUX_GRUN);
+            case "output_anhar.dat.gamma_grun" -> kinds.add(SeriesKind.ANHARM_GAMMA_GRUN);
             default -> {
                 if (fileName.matches("output_therm\\.dat\\.g[0-9]+(_ph)?")) {
                     kinds.add(SeriesKind.THERMO_HARMONIC);
+                } else if (fileName.matches("output_pgrun\\.dat\\.[0-9]+(\\.[0-9]+)?")) {
+                    kinds.add(SeriesKind.PGRUN_GAMMA);
+                } else if (fileName.matches("output_pgrun\\.dat_freq\\.[0-9]+(\\.[0-9]+)?")) {
+                    kinds.add(SeriesKind.PGRUN_FREQ);
                 }
+                // output_grun.dat / output_grun.dat_freq stay unmapped on purpose:
+                // the &plot k/band row-matrix is enumerated, never parsed - the
+                // pgrun per-segment siblings carry the plotted physics.
             }
         }
         return kinds;
@@ -365,6 +426,23 @@ public final class QEThermoPwSeriesParser {
                     + "  (C_P-C_V)(T) (Ry/cell/K)  C_e+C_P-C_V(T) (Ry/cell/K)'";
             case ANHARM_GAMMA -> "'#' header: 'gamma(T)  C_V(T) (Ry/cell/K)"
                     + "  beta B_T (kbar/K)'";
+            case ANHARM_DBULK -> "'#' header: 'T (K)  dB/dp (T)' - the header carries"
+                    + " no unit for dB/dp (a pressure-derivative ratio); none is invented";
+            case ANHARM_AUX_GRUN -> "'#' header: 'T (K)  beta(T)x10^6  (C_p - C_v)(T)"
+                    + "  (B_S - B_T) (T) (kbar)' verbatim - only (kbar) is header-stated;"
+                    + " the blank units elsewhere are header silence, stated not guessed"
+                    + " (the x10^6 on beta is part of the column name verbatim)";
+            case ANHARM_GAMMA_GRUN -> "'#' header: 'gamma(T)  C_V(T) (Ry/cell/K)"
+                    + "  beta B_T (kbar/K)' (Grüneisen-route counterpart of .gamma)";
+            case PGRUN_GAMMA -> "header-less 2-column plot rows; gamma is dimensionless"
+                    + " per the upstream plot script's own ylabel 'Mode-Grüneisen"
+                    + " parameters gamma_nu(q)' (gnuplot_files/gnuplot.tmp_grun,"
+                    + " commit b73edd6d); the k-axis carries no unit by design - the"
+                    + " script's k-label line is commented out";
+            case PGRUN_FREQ -> "header-less 2-column plot rows; the frequency unit"
+                    + " 'cm^{-1}' is pinned verbatim from the upstream dispersion plot"
+                    + " script ylabel 'Frequency (cm^{-1})'"
+                    + " (gnuplot_files/gnuplot.tmp.g1_disp, commit b73edd6d)";
         };
     }
 
@@ -406,11 +484,29 @@ public final class QEThermoPwSeriesParser {
                 columns.add(new Column("(C_P-C_V)(T)", "Ry/cell/K"));
                 columns.add(new Column("C_e+C_P-C_V(T)", "Ry/cell/K"));
             }
-            case ANHARM_GAMMA -> {
+            case ANHARM_GAMMA, ANHARM_GAMMA_GRUN -> {
                 columns.add(new Column("T", "K"));
                 columns.add(new Column("gamma(T)", ""));
                 columns.add(new Column("C_V(T)", "Ry/cell/K"));
                 columns.add(new Column("beta B_T", "kbar/K"));
+            }
+            case ANHARM_DBULK -> {
+                columns.add(new Column("T", "K"));
+                columns.add(new Column("dB/dp(T)", ""));
+            }
+            case ANHARM_AUX_GRUN -> {
+                columns.add(new Column("T", "K"));
+                columns.add(new Column("beta(T)x10^6", ""));
+                columns.add(new Column("(C_p - C_v)(T)", ""));
+                columns.add(new Column("(B_S - B_T)(T)", "kbar"));
+            }
+            case PGRUN_GAMMA -> {
+                columns.add(new Column("k-path coordinate", ""));
+                columns.add(new Column("mode Grüneisen gamma", ""));
+            }
+            case PGRUN_FREQ -> {
+                columns.add(new Column("k-path coordinate", ""));
+                columns.add(new Column("mode frequency", "cm^{-1}"));
             }
             default -> throw new IllegalStateException("unmapped kind " + kind);
         }

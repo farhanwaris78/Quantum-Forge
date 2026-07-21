@@ -1047,6 +1047,33 @@ def main() -> int:
             or not (ROOT / "tests/java/quantumforge/run/parser/QEThermoPwRunScannerTest.java").is_file():
         error("batch-165 parser/scanner tests missing")
 
+    # --- batch 166: thermo_pw anhar-family closure + stdout EOS extracts + run-summary kind ---
+    tpwSeries = SRC / "quantumforge/run/parser/QEThermoPwSeriesParser.java"
+    tpwSeriesText = tpwSeries.read_text(encoding="utf-8")
+    for needle in ("ANHARM_DBULK", "ANHARM_AUX_GRUN", "ANHARM_GAMMA_GRUN",
+                   "PGRUN_GAMMA", "PGRUN_FREQ",
+                   'matches("output_pgrun', "dB/dp (T)",
+                   "gamma is the average gruneisen parameter",
+                   "output_grun.dat_freq stay unmapped on purpose"):
+        if needle not in tpwSeriesText:
+            error("QEThermoPwSeriesParser lost the batch-166 anhar/pgrun kinds: " + needle)
+    tpwScannerText166 = (SRC / "quantumforge/run/parser/QEThermoPwRunScanner.java").read_text(encoding="utf-8")
+    for needle in ("StdoutSummary", "MAX_STDOUT_BYTES", "The equilibrium lattice constant is",
+                   "The total energy at the minimum is:", "unit-cell volume",
+                   "getEosLineCount", "getSuffixTag", "output_pgrun", "EOS block"):
+        if needle not in tpwScannerText166:
+            error("QEThermoPwRunScanner lost the batch-166 stdout/suffix census: " + needle)
+    if "THERMO_PW_RUN_SUMMARY" not in rasText \
+            or "analyzeThermoPwRunSummary" not in rasText \
+            or "QEThermoPwRunScanner.scan" not in rasText:
+        error("ResultAnalysisService lost the batch-166 THERMO_PW_RUN_SUMMARY kind")
+    tpwDialogText166 = (SRC / "quantumforge/app/project/viewer/thermopw/QEFXThermoPwLiveDialog.java").read_text(encoding="utf-8")
+    if "renderEosCard" not in tpwDialogText166 or "eosLabel" not in tpwDialogText166 \
+            or "plot-tag" not in tpwDialogText166:
+        error("QEFXThermoPwLiveDialog lost the batch-166 EOS summary card / plot-tag rows")
+    if not (ROOT / "tests/java/quantumforge/run/parser/QEThermoPwSeriesParserTest.java").is_file():
+        error("batch-166 parser/scanner/stdout tests missing")
+
     cap = (SRC / "quantumforge/capability/CapabilityRegistry.java").read_text(encoding="utf-8")
     if "Strict known_hosts" not in cap:
         error("CapabilityRegistry SSH status not updated")
