@@ -32,6 +32,7 @@ public class ViewerItemSet {
     private ViewerItem auxDeckItem;
     private ViewerItem tensorSurfaceItem;
     private ViewerItem transportChartItem;
+    private ViewerItem roCratePackItem;
     private ViewerItem diagnoseLogItem;
     private ViewerItem bandGapItem;
     private ViewerItem finalGeometryItem;
@@ -59,6 +60,7 @@ public class ViewerItemSet {
         this.auxDeckItem = new ViewerItem(SVGData.TOOL, "Auxiliary deck builder ...");
         this.tensorSurfaceItem = new ViewerItem(SVGData.RESULT, "Tensor surface viewer ...");
         this.transportChartItem = new ViewerItem(SVGData.RESULT, "Transport chart viewer ...");
+        this.roCratePackItem = new ViewerItem(SVGData.RESULT, "Pack RO-Crate folder ...");
         this.diagnoseLogItem = new ViewerItem(SVGData.RESULT, "Diagnose QE log");
         this.bandGapItem = new ViewerItem(SVGData.RESULT, "Analyze band gap from QE log");
         this.finalGeometryItem = new ViewerItem(SVGData.ATOMS, "Preview final geometry");
@@ -88,6 +90,7 @@ public class ViewerItemSet {
                 this.auxDeckItem,
                 this.tensorSurfaceItem,
                 this.transportChartItem,
+                this.roCratePackItem,
                 this.diagnoseLogItem,
                 this.bandGapItem,
                 this.finalGeometryItem,
@@ -167,6 +170,10 @@ public ViewerItem getSaveAsFileItem() {
 
     public ViewerItem getTransportChartItem() {
         return this.transportChartItem;
+    }
+
+    public ViewerItem getRoCratePackItem() {
+        return this.roCratePackItem;
     }
 
     public ViewerItem getDiagnoseLogItem() {

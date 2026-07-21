@@ -971,6 +971,43 @@ def main() -> int:
     if "smoke-portable.sh" not in tutorialText or "QUANTUMFORGE_UPDATE_API_BASE" not in tutorialText:
         error("TUTORIAL_INSTALL lost the packaging smoke / mirror override documentation (batch 163)")
 
+    # Batch 164 (Roadmap #135 pack arc): RO-Crate payload packer - staged copy +
+    # post-copy re-hash against the draft pins + atomic rename activation, an
+    # explicit-only licence/author metadata policy, one JSON owner shared by
+    # draft and packer, and the consent-gated viewer dialog.
+    packer = SRC / "quantumforge/export/RoCratePacker.java"
+    if not packer.is_file():
+        error("batch-164 RoCratePacker missing (#135 pack layer)")
+    else:
+        packerText = packer.read_text(encoding="utf-8")
+        for needle in ("ROCRATE_EMPTY", "ROCRATE_TARGET", "ROCRATE_VERIFY", "ROCRATE_ACTIVATE",
+                       "Source drift detected", "Nothing was activated", "METADATA_FILE",
+                       "PackSummary"):
+            if needle not in packerText:
+                error(f"RoCratePacker lost a pinned verdict: {needle} (batch 164)")
+    exporterText = (SRC / "quantumforge/export/RoCrateExporter.java").read_text(encoding="utf-8")
+    if "CrateAuthor" not in exporterText or "composeJson" not in exporterText \
+            or "getProjectName" not in exporterText:
+        error("RoCrateExporter lost the shared composer / author record / draft name (batch 164)")
+    rasText = (SRC / "quantumforge/run/ResultAnalysisService.java").read_text(encoding="utf-8")
+    if "collectRoCrateCandidates" not in rasText or "Pack RO-Crate folder ..." not in rasText:
+        error("ResultAnalysisService lost the single artifact-set owner / pack pointer (batch 164)")
+    packDialog = SRC / "quantumforge/app/project/viewer/rocrate/QEFXRoCratePackDialog.java"
+    if not packDialog.is_file():
+        error("batch-164 QEFXRoCratePackDialog missing")
+    else:
+        packDialogText = packDialog.read_text(encoding="utf-8")
+        if "PackRequest" not in packDialogText or "Pack crate" not in packDialogText \
+                or "RoCratePacker" not in packDialogText:
+            error("QEFXRoCratePackDialog lost the consent surface (batch 164)")
+    if "getRoCratePackItem" not in itemSetText or "Pack RO-Crate folder ..." not in itemSetText:
+        error("ViewerItemSet lost the batch-164 RO-Crate pack menu item")
+    if "actionRoCratePack" not in vactText2 or "QEFXRoCratePackDialog" not in vactText2 \
+            or "collectRoCrateCandidates" not in vactText2:
+        error("ViewerActions lost the batch-164 RO-Crate pack action wiring")
+    if not (ROOT / "tests/java/quantumforge/export/RoCratePackerTest.java").is_file():
+        error("batch-164 packer test missing")
+
     cap = (SRC / "quantumforge/capability/CapabilityRegistry.java").read_text(encoding="utf-8")
     if "Strict known_hosts" not in cap:
         error("CapabilityRegistry SSH status not updated")

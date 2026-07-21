@@ -26,6 +26,7 @@ import quantumforge.app.project.ProjectActions;
 import quantumforge.app.project.QEFXProjectController;
 import quantumforge.app.project.viewer.atoms.AtomsAction;
 import quantumforge.app.project.viewer.auxdeck.QEFXAuxDeckDialog;
+import quantumforge.app.project.viewer.rocrate.QEFXRoCratePackDialog;
 import quantumforge.app.project.viewer.designer.DesignerAction;
 import quantumforge.app.project.viewer.inputfile.QEFXInputFile;
 import quantumforge.app.project.viewer.modeler.ModelerAction;
@@ -40,6 +41,8 @@ import quantumforge.app.project.viewer.screenshot.QEFXScreenshotDialog;
 import quantumforge.app.project.viewer.tensor.QEFXTensorSurfaceDialog;
 import quantumforge.app.project.viewer.transport.QEFXTransportChartDialog;
 import quantumforge.export.AtomicExporter;
+import quantumforge.export.RoCrateExporter;
+import quantumforge.export.RoCratePacker;
 import quantumforge.operation.OperationResult;
 import quantumforge.input.QEInput;
 import quantumforge.input.schema.QENamelistSchema;
@@ -47,6 +50,7 @@ import quantumforge.input.validation.QEInputValidator;
 import quantumforge.input.validation.QESchemaValidator;
 import quantumforge.input.validation.ValidationIssue;
 import quantumforge.project.Project;
+import quantumforge.run.ResultAnalysisService;
 import quantumforge.run.parser.BandGapParser;
 import quantumforge.run.parser.FinalGeometryUpdater;
 import quantumforge.run.parser.QEErrorKnowledgeBase;
@@ -205,6 +209,9 @@ public class ViewerActions extends ProjectActions<Node> {
 
             } else if (item == this.itemSet.getTransportChartItem()) {
                 this.actions.put(item, controller2 -> this.actionTransportChartViewer(controller2));
+
+            } else if (item == this.itemSet.getRoCratePackItem()) {
+                this.actions.put(item, controller2 -> this.actionRoCratePack(controller2));
 
             } else if (item == this.itemSet.getDiagnoseLogItem()) {
                 this.actions.put(item, controller2 -> this.actionDiagnoseLog(controller2));
@@ -650,6 +657,70 @@ public class ViewerActions extends ProjectActions<Node> {
             dialog.initOwner(controller.getStage());
         }
         dialog.showAndWait();
+    }
+
+    /**
+     * Roadmap #135 pack arc: materializes the reviewed RO-Crate metadata draft
+     * into a real crate folder. The draft is rebuilt from the SAME
+     * {@link ResultAnalysisService#collectRoCrateCandidates} artifact set the
+     * analysis report shows, so the checksums a user reviewed are exactly the
+     * ones the packer pins. Consent doctrine: the dialog renders only; the
+     * copy+verify+rename runs strictly after an explicit "Pack crate", and the
+     * packer fail-closes on existing targets, vanished/drifted sources and
+     * empty drafts. Nothing is written from any other path.
+     */
+    private void actionRoCratePack(QEFXProjectController controller) {
+        if (controller == null) {
+            return;
+        }
+        if (this.project == null || this.project.getDirectory() == null) {
+            showRoCratePack("The project has no on-disk directory; save the project before "
+                    + "packing a crate.", AlertType.WARNING, "Nothing to pack");
+            return;
+        }
+        List<Path> candidates = ResultAnalysisService.collectRoCrateCandidates(this.project);
+        if (candidates.isEmpty()) {
+            showRoCratePack("No project artifacts were found to pack (looked for the input "
+                    + "file, the log file, and the run manifest). Run or save something first.",
+                    AlertType.WARNING, "Nothing to pack");
+            return;
+        }
+        RoCrateExporter.CrateDraft draft = RoCrateExporter.build(
+                this.project.getPrefixName(), this.project.getDirectory().toPath(), candidates);
+        String defaultName = (this.project.getPrefixName() == null
+                || this.project.getPrefixName().isBlank() ? "quantumforge"
+                        : this.project.getPrefixName().trim()) + "-ro-crate";
+        QEFXRoCratePackDialog dialog = new QEFXRoCratePackDialog(draft, defaultName);
+        if (controller.getStage() != null) {
+            dialog.initOwner(controller.getStage());
+        }
+        Optional<QEFXRoCratePackDialog.PackRequest> request = dialog.showAndWait();
+        if (request.isEmpty()) {
+            return;
+        }
+        OperationResult<RoCratePacker.PackSummary> result = RoCratePacker.pack(draft,
+                this.project.getDirectory().toPath(), request.get().getTargetDir(),
+                request.get().getLicence(), request.get().getAuthors());
+        if (result.isSuccess() && result.getValue().isPresent()) {
+            RoCratePacker.PackSummary summary = result.getValue().orElseThrow();
+            showRoCratePack(result.getMessage() + "\n\nCrate folder: "
+                    + summary.getTargetDir().toAbsolutePath()
+                    + "\nMetadata: " + RoCratePacker.METADATA_FILE + " ("
+                    + summary.getMetadataBytes() + " bytes)"
+                    + (summary.getSkipped().isEmpty() ? "" : "\nSkipped (from the draft):\n  "
+                            + String.join("\n  ", summary.getSkipped())),
+                    AlertType.INFORMATION, "Crate packed");
+        } else {
+            showRoCratePack(result.getMessage(), AlertType.ERROR, "Pack refused");
+        }
+    }
+
+    private void showRoCratePack(String message, AlertType type, String header) {
+        Alert alert = new Alert(type);
+        alert.setTitle("RO-Crate payload packer (Roadmap #135)");
+        alert.setHeaderText(header);
+        alert.setContentText(message);
+        alert.showAndWait();
     }
 
     /** Parses an explicit QE gap summary; it never infers directness from a total DOS. */

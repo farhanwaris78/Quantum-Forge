@@ -11883,24 +11883,40 @@ public final class ResultAnalysisService {
      * composes a deterministic JSON-LD skeleton. Payload packaging is explicit
      * future work; saving the draft is an explicit user action.
      */
-    private static AnalysisReport analyzeRoCrate(Project project) {
-        String label = AnalysisKind.RO_CRATE.getLabel();
-        File directory = project.getDirectory();
-        if (directory == null) {
-            return failure(label, "The project has no on-disk directory to describe.");
-        }
+    /**
+     * The single owner of the RO_CRATE artifact set (Roadmap #135): the
+     * project's own input copy, its log, and the run-manifest file, resolved
+     * against the on-disk project directory. The metadata-draft analysis and
+     * the pack-RO-Crate dialog BOTH build their drafts from this list, so the
+     * checksums a user reviews and the bytes the packer pins can never diverge.
+     * Returns an empty list when no artifacts exist (callers fail closed).
+     */
+    public static List<Path> collectRoCrateCandidates(Project project) {
         List<Path> candidates = new ArrayList<>();
+        if (project == null || project.getDirectory() == null) {
+            return candidates;
+        }
         String[] names = {project.getInpFileName(null), project.getLogFileName(null),
                 RunManifest.FILE_NAME};
         for (String name : names) {
             if (name == null || name.isBlank()) {
                 continue;
             }
-            Path candidate = directory.toPath().resolve(name);
+            Path candidate = project.getDirectory().toPath().resolve(name);
             if (Files.isRegularFile(candidate)) {
                 candidates.add(candidate);
             }
         }
+        return candidates;
+    }
+
+    private static AnalysisReport analyzeRoCrate(Project project) {
+        String label = AnalysisKind.RO_CRATE.getLabel();
+        File directory = project.getDirectory();
+        if (directory == null) {
+            return failure(label, "The project has no on-disk directory to describe.");
+        }
+        List<Path> candidates = collectRoCrateCandidates(project);
         if (candidates.isEmpty()) {
             return failure(label, "No project artifacts were found to describe (looked for "
                     + "the input file, the log file, and " + RunManifest.FILE_NAME + ").");
@@ -11920,8 +11936,11 @@ public final class ResultAnalysisService {
         }
         text.append("\nThe JSON-LD draft below (explicitly savable) carries checksums of the "
                 + "artifacts as they exist now; re-running a calculation invalidates them. "
-                + "Payload packaging, licence metadata and author records are not automated "
-                + "here (Roadmap #135 remainder).");
+                + "Payload packaging is now the viewer action \"Pack RO-Crate folder ...\": it "
+                + "materializes exactly these files into a new crate folder, re-hashing every "
+                + "byte AFTER copying against the checksums above (any drift aborts before "
+                + "anything is activated - the draft would be invalid), and licence/author "
+                + "metadata is added only when you type it explicitly; it invents none.");
         return new AnalysisReport(label, !crate.getEntries().isEmpty(), text.toString(),
                 List.of(), crate.getJson());
     }
