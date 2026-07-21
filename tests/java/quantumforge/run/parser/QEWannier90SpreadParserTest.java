@@ -23,8 +23,10 @@ class QEWannier90SpreadParserTest {
         try (FileWriter writer = new FileWriter(tempFile)) {
             writer.write("  CYCLE      10    Spreads: (  1.24120,  0.81240,  0.51230 ) Total:    2.56590\n");
             writer.write("  CYCLE      20    Spreads: (  1.23120,  0.80120,  0.50110 ) Total:    2.53350\n");
-            // Delta from cycle 20 to 30 is 2.53350 - 2.53349 = 0.00001 (<= 1e-5 threshold)
-            writer.write("  CYCLE      30    Spreads: (  1.23119,  0.80119,  0.50111 ) Total:    2.53349\n");
+            // Delta from cycle 20 to 30 is 2.53350 - 2.533495 = 5e-6 (< 1e-5 threshold,
+            // and strictly inside it in IEEE double arithmetic - a borderline 1e-5
+            // decimal pair can round just ABOVE the threshold and become a flake)
+            writer.write("  CYCLE      30    Spreads: (  1.23119,  0.80119,  0.50111 ) Total:    2.533495\n");
         }
 
         ProjectProperty property = new ProjectProperty();

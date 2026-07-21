@@ -8,7 +8,7 @@ import quantumforge.input.QEInput;
 /**
  * Car-Parrinello Molecular Dynamics (CPMD) input corrector.
  * 
- * NanoLabo supports CPMD calculations through QE's CP code.
+ * Car-Parrinello molecular dynamics through QE's cp.x engine.
  * This enables:
  * - First-principles MD with CP dynamics
  * - NVE and NVT ensembles

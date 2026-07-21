@@ -40,10 +40,10 @@ class TrajectoryIndexReaderTest {
         assertFalse(index.isTruncatedTail());
         assertTrue(index.isOffsetsComplete());
         assertEquals(3, index.getOffsets().size());
-        assertEquals(0L, index.getOffsets().get(0));
+        assertEquals(0L, index.getOffsets().get(0).longValue());
         int frameBytes = FRAME.getBytes(StandardCharsets.UTF_8).length;
-        assertEquals((long) frameBytes, index.getOffsets().get(1));
-        assertEquals(2L * frameBytes, index.getOffsets().get(2));
+        assertEquals((long) frameBytes, index.getOffsets().get(1).longValue());
+        assertEquals(2L * frameBytes, index.getOffsets().get(2).longValue());
     }
 
     @Test

@@ -3383,13 +3383,23 @@ class ResultAnalysisServiceTest {
         assertTrue(report.getCsvLines().stream().anyMatch(line ->
                         line.contains("input_dft") && line.contains("NOT_IN_CURATED")),
                 String.join("\n", report.getCsvLines()));
+        // batch 150: the mined schema audit section rides on the same report
+        assertTrue(report.getText().contains("Mined schema audit (QE 7.4 grammar"),
+                report.getText());
+        assertTrue(report.getText().contains("SCHEMA_VALUE_REJECTED"),
+                "calculation='cp' is a cp.x value, rejected by the pw.x grammar: "
+                        + report.getText());
+        assertTrue(report.getCsvLines().stream().anyMatch(line ->
+                        line.startsWith("mined-schema-audit,ERROR,SCHEMA_VALUE_REJECTED")),
+                String.join("\n", report.getCsvLines()));
 
         AnalysisReport uniform = ResultAnalysisService.analyze(
                 AnalysisKind.QE_VERSION_CHECK, stubProjectWithInput(this.tempDir, input,
                         cell), new AnalysisParameters().withSeriesKeyword(""));
         assertTrue(uniform.isSuccess(), uniform.getText());
         assertTrue(uniform.getText().contains(
-                "(none - auditing against the uniform 7.2-7.5 window)"),
+                "(none - the curated snapshot audits the uniform 7.2-7.5 window; "
+                        + "the mined schema audits 7.6, its newest)"),
                 uniform.getText());
 
         AnalysisReport unsupported = ResultAnalysisService.analyze(
@@ -5005,7 +5015,7 @@ class ResultAnalysisServiceTest {
         assertTrue(block.contains("excluded = *.core\n"), block);
         assertTrue(block.contains("UNKNOWN until first fetch"), block);
         String csv = String.join("\n", report.getCsvLines());
-        assertTrue(csv.contains("required,"pw.out xml/data-file-schema.xml",2")
+        assertTrue(csv.contains("required,\"pw.out xml/data-file-schema.xml\",2")
                 || csv.contains("required,pw.out xml/data-file-schema.xml,2"), csv);
         assertTrue(csv.contains("excluded,*.core,1"), csv);
     }
@@ -6260,7 +6270,7 @@ class ResultAnalysisServiceTest {
         String text = report.getText();
         assertTrue(text.contains("Per-task run intents (the #28 provenance seam):"), text);
         assertTrue(text.contains("[TASK_INTENT_OK] 3 intent(s)"), text);
-        assertTrue(text.contains(""task_index\":1,\"keyword\":\"ecutwfc\","
+        assertTrue(text.contains("\"task_index\":1,\"keyword\":\"ecutwfc\","
                 + "\"value_exact\":\"30.0\",\"directory\":\"si-cut-001\""), text);
         assertTrue(text.contains("\"stage\":\"rendered-deck-only\"}"), text,
                 "the stage pin keeps intents from masquerading as run records");

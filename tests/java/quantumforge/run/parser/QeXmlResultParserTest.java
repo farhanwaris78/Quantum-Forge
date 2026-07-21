@@ -24,7 +24,8 @@ class QeXmlResultParserTest {
         // 0.2405 Ha * 27.211... ≈ 6.54 eV
         assertEquals(0.2405 * 27.211386245988, data.getFermiEnergyEv().get(), 1.0e-6);
         assertTrue(data.getScfConverged().orElse(false));
-        assertEquals(2, data.getNat().orElse(-1));
+        int nat = data.getNat().orElse(-1);
+        assertEquals(2, nat);
         assertTrue(data.getTotalForce().isPresent());
         assertEquals(0.00012, data.getTotalForce().get(), 1e-12);
         assertTrue(data.getStressRyBohr3().isPresent());

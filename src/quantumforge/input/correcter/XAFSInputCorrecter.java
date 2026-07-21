@@ -8,7 +8,7 @@ import quantumforge.input.QEInput;
 /**
  * XAFS (X-ray Absorption Fine Structure) input corrector.
  * 
- * NanoLabo provides XAFS/EELS calculation support with:
+ * Provides XAFS/EELS calculation support with:
  * - Core-hole pseudopotential selection
  * - Supercell generation for isolated excited atom
  * - GIPAW pseudopotential integration

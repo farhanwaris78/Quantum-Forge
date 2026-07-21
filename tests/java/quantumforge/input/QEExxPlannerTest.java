@@ -21,10 +21,9 @@ class QEExxPlannerTest {
         ExxGuidance guidance = QEExxPlanner.plan(8, 8, 8, 2, 2, 2);
         assertTrue(guidance.isUsable(), guidance.getIssues().toString());
         assertEquals(0L, guidance.errors().size());
-        assertEquals(512L * 16L, guidance.getKqPairCount(),
-                "8^3 k x 2^3+? pair count is nk_total*nq_total exactly");
-        // Explicit recompute: nk_total = 512, nq_total = 8, pairs = 4096.
-        assertEquals(4096L, guidance.getKqPairCount());
+        // Explicit recompute: nk_total = 512, nq_total = 8, pairs = 512*8 = 4096 exactly.
+        assertEquals(4096L, guidance.getKqPairCount(),
+                "8^3 k x 2^3 q pair count is nk_total*nq_total exactly");
         assertTrue(hasCode(guidance, "EXX_COST_COUNT_ONLY"),
                 "The pre-symmetry count caveat must be present");
         assertTrue(hasCode(guidance, "EXX_SETTINGS_MANUAL"),
@@ -35,7 +34,8 @@ class QEExxPlannerTest {
     void testQunitGridIsAlwaysCompatible() {
         ExxGuidance guidance = QEExxPlanner.plan(6, 4, 2, 1, 1, 1);
         assertTrue(guidance.isUsable());
-        assertEquals(24L, guidance.getKqPairCount());
+        // nk_total = 6*4*2 = 48, nq_total = 1 -> 48 pairs.
+        assertEquals(48L, guidance.getKqPairCount());
     }
 
     @Test

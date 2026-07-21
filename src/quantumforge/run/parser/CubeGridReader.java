@@ -87,7 +87,7 @@ public final class CubeGridReader {
             return OperationResult.success("CUBE_OK", "Read " + total + " CUBE voxels ("
                     + (angstromAxes ? "Angstrom" : "bohr converted to Angstrom") + ").",
                     new QEGridDensityDifference.Grid3D(lattice, n[0], n[1], n[2], grid));
-        } catch (IOException | NumberFormatException | IllegalArgumentException ex) {
+        } catch (IOException | IllegalArgumentException ex) {
             return OperationResult.failed("CUBE_PARSE", "Could not parse CUBE file: " + ex.getMessage(), ex);
         }
     }

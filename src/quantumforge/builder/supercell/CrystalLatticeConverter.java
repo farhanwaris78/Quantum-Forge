@@ -11,12 +11,12 @@ import quantumforge.com.math.Matrix3D;
 
 /**
  * Crystal lattice conversion utilities.
- * 
- * NanoLabo provides conversion between:
+ *
+ * Provides conversion between:
  * - Primitive cell ↔ Conventional cell
  * - Standard cell representation
  * - Niggli-reduced cell
- * 
+ *
  * These are essential for matching experimental data
  * and ensuring correct symmetry analysis.
  */

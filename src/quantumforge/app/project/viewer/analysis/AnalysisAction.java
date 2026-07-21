@@ -1268,8 +1268,9 @@ public final class AnalysisAction {
             break;
         }
         case QE_VERSION_CHECK: {
-            String version = askText("Target QE minor version (curated window: 7.2, 7.3, "
-                    + "7.4 or 7.5; blank audits against the uniform window)", "");
+            String version = askText("Target QE minor version (mined schema window 7.2-7.6; "
+                    + "blank audits the curated snapshot across 7.2-7.5 and the mined schema "
+                    + "against 7.6, its newest)", "");
             if (version == null) {
                 return null;
             }

@@ -6,7 +6,7 @@ package quantumforge.lammps;
 /**
  * LAMMPS Molecular Dynamics integration.
  * 
- * NanoLabo supports LAMMPS for classical MD with:
+ * Bridges to LAMMPS for classical MD with:
  * - Multiple force fields (ReaxFF, AIREBO, EAM, etc.)
  * - GNN force field interface (M3GNet, CHGNet via LAMMPS)
  * - NVE, NVT, NPT ensembles

@@ -6,7 +6,7 @@ package quantumforge.matapi.smiles;
 /**
  * SMILES-based molecule importer.
  * 
- * NanoLabo supports SMILES notation for molecule searching
+ * Supports SMILES notation for molecule importing and searching
  * in PubChem and importing molecular structures from
  * SMILES strings.
  * 

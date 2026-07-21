@@ -512,6 +512,22 @@ def main() -> int:
             if stale in strip_strings_and_comments(raw):
                 error(f"stale pre-rename name {stale} remains in {path.relative_to(ROOT)}")
                 break
+    # Maintainer requirement: the name of the premium commercial reference product
+    # must never appear in code, tests, docs, or packaging. The software competes on
+    # capability and scientific honesty, never on another product's brand.
+    forbidden_brand = "Nano" + "Labo"
+    brand_paths = [p for p in list(SRC.rglob("*.java")) + list(TESTS.rglob("*.java"))
+                   + list(ROOT.glob("*.md")) + list((ROOT / "docs").rglob("*.md"))
+                   + list((ROOT / "packaging").rglob("*")) + list((ROOT / "scripts").rglob("*.py"))]
+    for path in brand_paths:
+        if path.is_file() and path.name != "compile_check.py":
+            try:
+                raw = path.read_text(encoding="utf-8", errors="replace")
+            except (UnicodeDecodeError, OSError):
+                continue
+            if forbidden_brand.lower() in raw.lower():
+                error(f"reference-product brand name remains in {path.relative_to(ROOT)}")
+                break
     node = (SRC / "quantumforge/run/RunningNode.java").read_text(encoding="utf-8")
     if "DryRunPreflight" not in node or "ArtifactScanner" not in node or "QECommandDag" not in node:
         error("RunningNode is not wired to dry-run/DAG/artifact scanning")
@@ -609,6 +625,62 @@ def main() -> int:
                 error("NEBPathCreator lattice loop appears broken")
 
     
+    # Batch 150: machine-mined QE namelist grammar (7.2-7.6) + audits.
+    schemaDir = SRC / "quantumforge/input/schema"
+    if not (schemaDir / "QENamelistSchema.java").is_file() \
+            or not (schemaDir / "QESchemaData.java").is_file():
+        error("batch-150 mined schema classes missing")
+    else:
+        schemaText = (schemaDir / "QENamelistSchema.java").read_text(encoding="utf-8")
+        dataText = (schemaDir / "QESchemaData.java").read_text(encoding="utf-8")
+        if "getAcceptedValuesIn" not in schemaText or "getToleratedValueDetails" not in schemaText:
+            error("QENamelistSchema lost the hard/soft version-masked accessors (batch 150)")
+        if "diago_ppcg_maxiter" not in dataText or "sha256" not in dataText:
+            error("QESchemaData lost mined drift entries or sha256 provenance (batch 150)")
+    audit = SRC / "quantumforge/input/validation/QESchemaAudit.java"
+    validator = SRC / "quantumforge/input/validation/QESchemaValidator.java"
+    if not audit.is_file() or "SCHEMA_VALUE_REJECTED" not in audit.read_text(encoding="utf-8"):
+        error("QESchemaAudit (batch-150 pair-level core) missing its rejection codes")
+    if not validator.is_file() or "validatePairs" not in validator.read_text(encoding="utf-8"):
+        error("QESchemaValidator (batch-150 QEInput adapter) missing its core delegation")
+    if "Mined schema audit" not in svcText:
+        error("ResultAnalysisService lost the batch-150 mined-schema report section")
+
+    # Batch 151: chunked verified download with per-chunk pins.
+    transferRaw = (SRC / "quantumforge/ssh/SSHFileTransfer.java").read_text(encoding="utf-8")
+    if "downloadChunkedVerifiedResult" not in transferRaw:
+        error("SSHFileTransfer lost the batch-151 chunked verified download")
+    if "TRANSFER_PART_MISMATCH" not in transferRaw:
+        error("SSHFileTransfer lost the batch-151 per-chunk pin mismatch verdict")
+
+    # Batch 152: BoltzTraP2 transport tables (.trace/.condtens), Fortran grammar.
+    boltz = SRC / "quantumforge/run/parser/BoltzTrap2TraceParser.java"
+    if not boltz.is_file():
+        error("BoltzTrap2TraceParser (batch 152) missing")
+    else:
+        boltzRaw = boltz.read_text(encoding="utf-8")
+        if "TENSOR_OTHER" not in boltzRaw or "Fortran" not in boltzRaw:
+            error("BoltzTrap2TraceParser lost the tensor-family refusal / Fortran grammar (batch 152)")
+    if "BOLTZTRAP2_TRANSPORT" not in svcText or "analyzeBoltzTrap2Transport" not in svcText:
+        error("ResultAnalysisService lost the batch-152 BoltzTraP2 transport wiring")
+
+    # Batch 153: eigen solver + latent master compile defects resurrected green.
+    eigen = (SRC / "quantumforge/com/math/SymmetricEigen3.java").read_text(encoding="utf-8")
+    if "double[] rotation = rotate(a, p, q);" not in eigen:
+        error("SymmetricEigen3 lost the batch-153 rotation/accumulate call fix")
+    bz = (SRC / "quantumforge/symmetry/QEBrillouinZoneGeometry.java").read_text(encoding="utf-8")
+    if "faceCentroid" not in bz:
+        error("QEBrillouinZoneGeometry lost the batch-153 index-order fix (sort before faces)")
+    prop = (SRC / "quantumforge/project/property/ProjectProperty.java").read_text(encoding="utf-8")
+    if "public ProjectProperty()" not in prop:
+        error("ProjectProperty lost the batch-153 explicit blank-context ctor")
+    dynmat = (SRC / "quantumforge/run/parser/QEDynmatModesParser.java").read_text(encoding="utf-8")
+    if "\\\\*+" not in dynmat and '"\\\\*+"' not in dynmat:
+        error("QEDynmatModesParser lost the batch-153 decoration-line tolerance")
+    wa = (SRC / "quantumforge/run/WorkflowAudit.java").read_text(encoding="utf-8")
+    if "private final boolean setOptions;" not in wa:
+        error("WorkflowAudit lost the batch-153 setOptions field declaration")
+
     cap = (SRC / "quantumforge/capability/CapabilityRegistry.java").read_text(encoding="utf-8")
     if "Strict known_hosts" not in cap:
         error("CapabilityRegistry SSH status not updated")

@@ -46,7 +46,9 @@ class QEErrorSignatureCatalogTest {
                 + "     Error in routine charge is wrong (1):\n";
         ScanResult result = QEErrorSignatureCatalog.scanText(log);
         assertEquals(7, result.getLineCount());
-        assertEquals(3, result.distinctSignatures());
+        // 4 hits with 4 distinct ids: scf-not-converged, generic-error-routine,
+        // cholesky, and charge-wrong (specific precedence does not merge ids).
+        assertEquals(4, result.distinctSignatures());
         assertEquals(4, result.getHits().size());
 
         Hit scf = result.getHits().get(0);

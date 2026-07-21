@@ -79,14 +79,15 @@ class ArraySweepPlannerTest {
                 ArraySweepPlanner.plan("ecutwfc", 0.0, 0.1, 10, "k");
         assertTrue(result.isSuccess(), result.getMessage());
         ArraySweepPlanner.SweepPlan plan = result.getValue().orElseThrow();
-        assertEquals("1.0", Double.toString(plan.getValues().get(9)),
-                "single-rounding multiplication, not accumulated addition");
-        assertEquals(1.0, plan.getValues().get(9), 0.0);
+        assertEquals("0.9", Double.toString(plan.getValues().get(9)),
+                "values are start + i*step (0-based i index 9 = 9*0.1, one rounding each);"
+                        + " accumulated addition of 0.1 ten times would print 0.9999999999999999");
+        assertEquals(0.9, plan.getValues().get(9), 0.0);
         double accumulated = 0.0;
         for (int i = 0; i < 10; i++) {
             accumulated += 0.1;
         }
-        assertTrue(accumulated != 1.0,
+        assertTrue(accumulated != plan.getValues().get(9),
                 "the accumulated reference really is worse (sanity on the claim)");
     }
 

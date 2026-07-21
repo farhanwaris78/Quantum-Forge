@@ -149,7 +149,14 @@ public final class QEDynmatModesParser extends LogParser {
             List<double[]> rows = new ArrayList<>();
             int look = cursor + 1;
             while (look < lines.size()) {
-                Matcher row = DISPLACEMENT_ROW.matcher(lines.get(look));
+                String candidate = lines.get(look);
+                // Decoration lines (asterisk banners / blanks) carry no data:
+                // skipping them never invents or alters a displacement value.
+                if (candidate.trim().isEmpty() || candidate.trim().matches("\\*+")) {
+                    look++;
+                    continue;
+                }
+                Matcher row = DISPLACEMENT_ROW.matcher(candidate);
                 if (!row.matches()) {
                     break;
                 }

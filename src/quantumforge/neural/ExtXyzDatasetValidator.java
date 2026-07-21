@@ -237,6 +237,11 @@ public final class ExtXyzDatasetValidator {
             }
             if (report.propertiesSchema.isEmpty()) {
                 String props = extractQuoted(comment, "Properties");
+                if (props == null) {
+                    // The ASE extXYZ convention writes the Properties schema as a BARE
+                    // token (Properties=species:S:1:pos:R:3), unlike Lattice/pbc.
+                    props = extractBare(comment, "Properties");
+                }
                 if (props != null) {
                     report.propertiesSchema = props;
                 }

@@ -272,16 +272,19 @@ public final class SdfStructureReader {
                             + "record at a time.",
                     null);
         }
-        int meaningful = 0;
-        for (String line : lines) {
-            if (!line.isBlank()) {
-                meaningful += 1;
-            }
+        // A MOL record has exactly 4 header fields (title / program / comment / counts)
+        // and the comment line is LEGITIMATELY blank, so the gate counts PHYSICAL lines:
+        // a blank-comment V3000 record must reach the V3000 refusal below, not be
+        // mis-rejected as generic syntax. Terminal split artefacts (the empty strings a
+        // trailing newline produces) are not record lines.
+        int physical = lines.length;
+        while (physical > 0 && lines[physical - 1].isEmpty()) {
+            physical--;
         }
-        if (meaningful < 4) {
+        if (physical < 4) {
             return OperationResult.failed("SDF_SYNTAX",
                     "A MOL record needs 3 header lines plus a counts line; only "
-                            + meaningful + " non-blank line(s) were found.",
+                            + physical + " line(s) were found.",
                     null);
         }
         // Header lines 1-3 are verbatim-only (title / program / comment).

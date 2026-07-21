@@ -31,9 +31,8 @@ import quantumforge.com.math.Matrix3D;
  * - XYZ (Extended XYZ format)
  * - POSCAR (VASP input format)
  * - Quantum ESPRESSO input format
- * 
- * This provides interoperability with other software packages,
- * matching NanoLabo's export functionality.
+ *
+ * This provides interoperability with other software packages.
  */
 public class AtomicExporter {
 

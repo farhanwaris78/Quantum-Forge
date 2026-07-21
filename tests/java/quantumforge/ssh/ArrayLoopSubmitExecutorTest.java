@@ -195,8 +195,8 @@ class ArrayLoopSubmitExecutorTest {
         assertEquals("SSH_EXEC_FAILED", result.getCode(),
                 "the wire's own typed code passes through, never re-labelled");
         ArrayLoopSubmitExecutor.LoopSubmitReport partial =
-                result.getValue().orElseThrow(
-                        "partial truth MUST travel with the failure");
+                result.getValue().orElseThrow(() -> new AssertionError(
+                        "partial truth MUST travel with the failure"));
         assertEquals(2, partial.getRecords().size(), "task 3 was never attempted");
         assertEquals(1, partial.getSubmittedCount());
         assertEquals("201", partial.getRecords().get(0).getSchedulerJobId());

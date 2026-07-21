@@ -20,19 +20,19 @@ class QEHullThermodynamicsTest {
         // Pure Element B: x=1.0, E = 0.0 eV/atom
         hull.addPhase("B", 1.0, 0.0);
 
-        // Competing stable phase: AB2 at x=0.6667, E = -1.50 eV/atom (highly stable, on the hull!)
-        hull.addPhase("AB2", 0.6667, -1.50);
+        // Competing stable phase: AB2 at x=2/3, E = -1.50 eV/atom (highly stable, on the hull!)
+        hull.addPhase("AB2", 2.0 / 3.0, -1.50);
 
-        // 1. Evaluate stability of a target on the hull (AB2 at x=0.6667, E = -1.50)
-        StabilityResult resStable = hull.evaluateStability(0.6667, -1.50);
+        // 1. Evaluate stability of a target on the hull (AB2 at x=2/3, E = -1.50)
+        StabilityResult resStable = hull.evaluateStability(2.0 / 3.0, -1.50);
         assertNotNull(resStable);
         assertTrue(resStable.isStable());
         assertEquals(0.0, resStable.getDistanceToHullEv(), 1e-6);
 
         // 2. Evaluate stability of a metastable phase: AB at x=0.50, E = -0.50 eV/atom.
-        // The stable tie-line connects A (0.0, 0.0) and AB2 (0.6667, -1.50).
+        // The stable tie-line connects A (0.0, 0.0) and AB2 (x=2/3, -1.50).
         // At x = 0.50, the interpolated hull energy is:
-        // E_hull = 0.0 + (0.50 - 0.0) * (-1.50 - 0.0) / (0.6667 - 0.0) = 0.5 * (-1.50) / 0.6667 = -1.125 eV/atom.
+        // E_hull = 0.0 + (0.50 - 0.0) * (-1.50 - 0.0) / (2/3 - 0.0) = -1.125 eV/atom.
         // Since target E is -0.50, it is above the hull by: -0.50 - (-1.125) = +0.625 eV/atom!
         StabilityResult resMetastable = hull.evaluateStability(0.50, -0.50);
         assertNotNull(resMetastable);

@@ -21,9 +21,9 @@ class QEAcousticSumRuleValidatorTest {
         tempFile.deleteOnExit();
 
         try (FileWriter writer = new FileWriter(tempFile)) {
-            // First line represents Gamma point (q=0)
-            writer.write("   0.0000000       2.5000       4.2000      6.1000     150.0000\n");
-            writer.write("   0.1000000      12.0000      14.2000     16.1000     152.0000\n");
+            // First line represents Gamma point (q=0), then 5 mode frequencies
+            writer.write("   0.0000000       2.5000       4.2000      6.1000     150.0000   240.0000\n");
+            writer.write("   0.1000000      12.0000      14.2000     16.1000     152.0000   241.0000\n");
         }
 
         ProjectProperty property = new ProjectProperty();

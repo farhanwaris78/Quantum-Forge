@@ -107,6 +107,8 @@ import quantumforge.input.QEVersionRuleCatalog;
 import quantumforge.input.card.QEKPoints;
 import quantumforge.input.namelist.QENamelist;
 import quantumforge.input.namelist.QEValue;
+import quantumforge.input.schema.QENamelistSchema;
+import quantumforge.input.validation.QESchemaValidator;
 import quantumforge.input.validation.ValidationIssue;
 import quantumforge.input.validation.ValidationSeverity;
 import quantumforge.operation.OperationResult;
@@ -117,6 +119,7 @@ import quantumforge.project.property.ProjectGeometryList;
 import quantumforge.project.property.ProjectProperty;
 import quantumforge.pseudo.PseudoFamilyValidator;
 import quantumforge.run.parser.BandGapParser;
+import quantumforge.run.parser.BoltzTrap2TraceParser;
 import quantumforge.run.parser.CubeGridReader;
 import quantumforge.run.parser.ElasticParser;
 import quantumforge.run.parser.FinalGeometryTransaction;
@@ -208,6 +211,7 @@ public final class ResultAnalysisService {
         WANNIER90_SPREAD("Wannier90 spread convergence"),
         THERMOPW_EOS("thermo_pw equation of state"),
         PHONO3PY_KAPPA("phono3py lattice thermal conductivity"),
+        BOLTZTRAP2_TRANSPORT("BoltzTraP2 transport tables (.trace/.condtens)"),
         ELIASHBERG_TC("Allen-Dynes Tc from alpha2F"),
         DRY_RUN_PREFLIGHT("Dry-run preflight check"),
         RESTART_ASSESSMENT("Restart safety assessment"),
@@ -1387,6 +1391,9 @@ public final class ResultAnalysisService {
             return name.contains("eos") || name.contains("thermo");
         case PHONO3PY_KAPPA:
             return name.startsWith("kappa") || name.contains("thermal_conductivity");
+        case BOLTZTRAP2_TRANSPORT:
+            return name.endsWith(".trace") || name.contains("condtens")
+                    || name.contains("seebeck");
         case ELIASHBERG_TC:
             return name.endsWith(".a2f") || name.contains("alpha2f") || name.contains("a2f");
         case MD_MSD:
@@ -1586,6 +1593,8 @@ public final class ResultAnalysisService {
                 return analyzeEos(property, source);
             case PHONO3PY_KAPPA:
                 return analyzeKappa(property, source);
+            case BOLTZTRAP2_TRANSPORT:
+                return analyzeBoltzTrap2Transport(property, source);
             case ELIASHBERG_TC:
                 return analyzeTc(property, source, params);
             case HULL_STABILITY:
@@ -2865,6 +2874,93 @@ public final class ResultAnalysisService {
                 + "convergence evidence is not inferred from this table.");
         return new AnalysisReport(AnalysisKind.PHONO3PY_KAPPA.getLabel(),
                 parser.isPhysicalScaling(), text.toString(), csv, null);
+    }
+
+    /**
+     * Roadmap #109 (output side): reads a BoltzTraP2 transport table through
+     * {@link BoltzTrap2TraceParser} and reports the isotropic Seebeck/conductivity
+     * screening state. Units surface VERBATIM from the file's own header tokens;
+     * nothing is executed and no scattering model is re-derived.
+     */
+    private static AnalysisReport analyzeBoltzTrap2Transport(ProjectProperty property,
+            File source) throws IOException {
+        String label = AnalysisKind.BOLTZTRAP2_TRANSPORT.getLabel();
+        BoltzTrap2TraceParser parser = new BoltzTrap2TraceParser(property);
+        parser.parse(source);
+        BoltzTrap2TraceParser.FileKind kind = parser.getFileKind();
+        if (kind == BoltzTrap2TraceParser.FileKind.TENSOR_OTHER) {
+            return failure(label, source.getName() + " is a 30-column tensor file whose header "
+                    + "names RH[...] (a Hall tensor file), not sigma. It is NOT transport data, "
+                    + "so no Seebeck/conductivity screening was derived from it.\n"
+                    + "Provenance: " + parser.getFamilyNote());
+        }
+        List<BoltzTrap2TraceParser.TransportRow> rows = parser.getRows();
+        if (rows.size() < 2) {
+            return failure(label, "Fewer than two clean transport rows were parsed from "
+                    + source.getName() + " (clean rows: " + rows.size() + ", skipped rows: "
+                    + parser.getSkippedRowCount() + "). A single point is not a curve, and "
+                    + "ragged rows are never silently healed.\nProvenance: "
+                    + (parser.getFamilyNote().isEmpty() ? "file empty or grammar foreign"
+                            : parser.getFamilyNote()));
+        }
+
+        BoltzTrap2TraceParser.TransportRow best = parser.maxAbsSeebeck();
+        BoltzTrap2TraceParser.TransportRow bestPf = rows.get(0);
+        for (BoltzTrap2TraceParser.TransportRow row : rows) {
+            if (BoltzTrap2TraceParser.powerFactor(row) > BoltzTrap2TraceParser.powerFactor(bestPf)) {
+                bestPf = row;
+            }
+        }
+
+        StringBuilder text = new StringBuilder();
+        text.append("Source: ").append(source.getName()).append('\n');
+        text.append("File family: ").append(kind)
+                .append(kind == BoltzTrap2TraceParser.FileKind.CONDTENS
+                        ? " (full 3x3 tensors, Fortran-ordered blocks; isotropic = trace/3)"
+                        : " (isotropic columns as written)").append('\n');
+        text.append("Scattering model (header-legible): ").append(parser.getScatteringModel())
+                .append('\n');
+        text.append("sigma units verbatim: ")
+                .append(parser.getSigmaUnits().isEmpty() ? "(no header token)" : parser.getSigmaUnits())
+                .append(" / kappa units verbatim: ")
+                .append(parser.getKappaUnits().isEmpty() ? "(no header token)" : parser.getKappaUnits())
+                .append('\n');
+        text.append("Provenance: ").append(parser.getFamilyNote()).append('\n');
+        text.append("Clean rows: ").append(rows.size())
+                .append(" | skipped ragged/foreign rows: ").append(parser.getSkippedRowCount())
+                .append(" | temperatures: ").append(parser.getTemperatures().size()).append(" K values\n\n");
+
+        text.append(String.format(Locale.ROOT,
+                "Peak |Seebeck| (isotropic): %.4g V/K at T=%.3g K, mu=%.6g Ry (%.6g eV, 1 Ry = 13.605693122994 eV)%n",
+                best.getSeebeckVK(), best.getTemperatureK(), best.getMuRy(), best.getMuEv()));
+        text.append(String.format(Locale.ROOT,
+                "Peak power factor S^2.sigma (isotropic-average approximation): %.4g at T=%.3g K, mu=%.6g Ry%n",
+                BoltzTrap2TraceParser.powerFactor(bestPf), bestPf.getTemperatureK(),
+                bestPf.getMuRy()));
+        if (kind == BoltzTrap2TraceParser.FileKind.CONDTENS) {
+            double[] spread = parser.seebeckDiagonalSpread(best);
+            if (spread != null) {
+                text.append(String.format(Locale.ROOT,
+                        "Seebeck diagonal anisotropy at that point: min=%.4g, max=%.4g, spread=%.4g V/K (xx/yy/zz diagonal of the tensor)%n",
+                        spread[0], spread[1], spread[2]));
+            }
+        }
+        text.append("\nHonesty block: units come VERBATIM from the header tokens (the custom_tau "
+                + "writer's 1e-9 factor is already inside the written numbers; nothing is "
+                + "re-scaled here). The power factor above is the isotropic-average "
+                + "approximation S^2.sigma, NOT the tensor-consistent tr(S^2.sigma)/3; "
+                + "convergence in k-mesh, scattering model and chemical-potential grid is the "
+                + "publication burden left to the user - a table alone never proves it.");
+
+        List<String> csv = new ArrayList<>();
+        csv.add("mu_ry,mu_ev,temperature_k,carriers_e_per_uc,seebeck_iso_v_k,sigma_iso,kappa_iso,power_factor_iso");
+        for (BoltzTrap2TraceParser.TransportRow row : rows) {
+            csv.add(String.format(Locale.ROOT, "%.8g,%.8g,%.8g,%.8g,%.8g,%.8g,%.8g,%.8g",
+                    row.getMuRy(), row.getMuEv(), row.getTemperatureK(), row.getCarriersPerCell(),
+                    row.getSeebeckVK(), row.getSigmaOverTau(), row.getKappaOverTau(),
+                    BoltzTrap2TraceParser.powerFactor(row)));
+        }
+        return new AnalysisReport(label, true, text.toString(), csv, null);
     }
 
     private static AnalysisReport analyzeTc(ProjectProperty property, File source, AnalysisParameters params)
@@ -4669,8 +4765,52 @@ public final class ResultAnalysisService {
         }
         Optional<QEKeywordHelp.KeywordEntry> found = QEKeywordHelp.lookup(keyword);
         if (found.isEmpty()) {
+            // Batch 150 deepened: outside the curated subset falls back to the
+            // machine-mined schema (QE 7.2-7.6) before failing closed.
+            Optional<QENamelistSchema.Entry> mined =
+                    QENamelistSchema.lookup(QENamelistSchema.Kind.PW, keyword);
+            if (mined.isPresent()) {
+                QENamelistSchema.Entry row = mined.get();
+                StringBuilder text = new StringBuilder();
+                text.append(String.format(Locale.ROOT,
+                        "Keyword: %s   (namelist &%s, pw.x)%n", row.getName(), row.getNamelist()));
+                text.append("Source: machine-mined namelist schema, QE tags qe-7.2 .. qe-7.6 "
+                        + "(scripts/qe_schema_miner.py); NOT the curated comments of the "
+                        + covered.size() + "-keyword offline table.\n\n");
+                text.append("Type: ").append(row.getType())
+                        .append(row.isArray() ? " (indexed array)" : "").append('\n');
+                text.append("Present in QE: ").append(row.versionRange()).append('\n');
+                text.append("Required by the schema: ").append(row.isRequired() ? "yes" : "no")
+                        .append('\n');
+                text.append("Documented default: ")
+                        .append(row.getDefaultText() == null ? "(none recorded)" : row.getDefaultText())
+                        .append('\n');
+                if (!row.getAcceptedValues().isEmpty()) {
+                    text.append("Runtime-accepted values (pw.x aborts otherwise): ")
+                            .append(String.join(", ", row.getAcceptedValues())).append('\n');
+                }
+                if (!row.getDocumentedValues().isEmpty()) {
+                    text.append("Documented values (silently remapped otherwise): ")
+                            .append(String.join(", ", row.getDocumentedValues())).append('\n');
+                }
+                if (row.getDescription() != null) {
+                    text.append("\nSchema doc: ").append(row.getDescription()).append('\n');
+                }
+                text.append("\nUpstream reference (match your QE version): ")
+                        .append(row.getDocsUrl()).append('\n');
+                return new AnalysisReport(label, true, text.toString(), List.of(
+                        "field,value",
+                        "keyword," + csvCell(row.getName()),
+                        "namelist," + csvCell(row.getNamelist()),
+                        "type," + row.getType(),
+                        "versions," + csvCell(row.versionRange()),
+                        "required," + row.isRequired(),
+                        "default," + csvCell(row.getDefaultText() == null
+                                ? "(none recorded)" : row.getDefaultText())), null);
+            }
             return failure(label, "\"" + keyword + "\" is outside the curated offline "
-                    + "table (" + covered.size() + " keywords). Nothing is improvised; "
+                    + "table (" + covered.size() + " keywords) AND outside the machine-mined "
+                    + "QE 7.2-7.6 schema (430 pw.x namelist keywords). Nothing is improvised; "
                     + "consult the version-matched upstream docs: "
                     + QEKeywordHelp.INPUT_PW_URL + ". Covered keywords: " + covered);
         }
@@ -6786,9 +6926,10 @@ public final class ResultAnalysisService {
     }
 
     /**
-     * Roadmap #22: version-aware keyword audit against the curated 7.2-7.5
-     * snapshot. Values stay verbatim; absence from the curated slice is
-     * reported as NOT-IN-CURATED, never judged invalid.
+     * Roadmap #22: version-aware keyword audit. The curated 7.2-7.5 snapshot
+     * stays as the baseline (absence there is NOT-IN-CURATED, never judged
+     * invalid); batch 150 appends the full machine-mined schema audit
+     * (QE 7.2-7.6) that completes the #22 completeness work.
      */
     private static AnalysisReport analyzeQeVersionCheck(Project project,
             AnalysisParameters params) {
@@ -6807,14 +6948,19 @@ public final class ResultAnalysisService {
         }
         String version = params.getSeriesKeyword() == null
                 ? "" : params.getSeriesKeyword().trim();
-        if (!version.isEmpty() && !QEVersionRuleCatalog.isSupportedVersion(version)) {
+        // Batch 150 deepened: the machine-mined schema window is 7.2-7.6; the
+        // curated snapshot audit below stays frozen as the batch-#22 baseline.
+        if (!version.isEmpty() && QENamelistSchema.indexOfVersion(version) < 0) {
             return failure(label, "[VERSION_UNSUPPORTED] \"" + version + "\" is outside "
-                    + "the curated window " + QEVersionRuleCatalog.SUPPORTED_VERSIONS
-                    + "; other minor versions are not judged by this slice.");
+                    + "the mined schema window " + QENamelistSchema.VERSIONS
+                    + "; other minor versions are not judged.");
         }
+        String schemaVersion = version.isEmpty()
+                ? QENamelistSchema.VERSIONS.get(QENamelistSchema.VERSIONS.size() - 1) : version;
         StringBuilder text = new StringBuilder();
         text.append("Requested version filter: ").append(version.isEmpty()
-                ? "(none - auditing against the uniform 7.2-7.5 window)" : version)
+                ? "(none - the curated snapshot audits the uniform 7.2-7.5 window; "
+                        + "the mined schema audits " + schemaVersion + ", its newest)" : version)
                 .append('\n');
         text.append("Scope: ").append(QEVersionRuleCatalog.WINDOW_NOTE)
                 .append("; docs: ").append(QEKeywordHelp.INPUT_PW_URL).append("\n\n");
@@ -6868,13 +7014,52 @@ public final class ResultAnalysisService {
                 "%nAudited %d keywords: %d OK, %d value-warning, %d REMOVED, "
                         + "%d not-in-curated.%n",
                 total, ok, warnings, removed, notCurated));
-        text.append("\nHonesty boundary: this slice audits only the "
+        // Batch 150: full machine-mined schema audit (the completed #22 work) -
+        // every namelist of the input, typed against QE <schemaVersion>.
+        text.append(String.format(Locale.ROOT,
+                "%n== Mined schema audit (QE %s grammar, window %s) ==%n",
+                schemaVersion, QENamelistSchema.VERSIONS));
+        List<ValidationIssue> schemaIssues =
+                new QESchemaValidator().validate(input, schemaVersion);
+        csv.add("");
+        csv.add("mined-schema-audit,severity,code,message");
+        int schemaErrors = 0;
+        int schemaWarnings = 0;
+        for (ValidationIssue issue : schemaIssues) {
+            if (issue.getSeverity() == ValidationSeverity.ERROR) {
+                schemaErrors += 1;
+            } else {
+                schemaWarnings += 1;
+            }
+            text.append("  ").append(issue.getSeverity())
+                    .append(" [").append(issue.getCode()).append("] ")
+                    .append(issue.getMessage()).append('\n');
+            if (!issue.getDocumentationUrl().isEmpty()) {
+                text.append("      docs: ").append(issue.getDocumentationUrl()).append('\n');
+            }
+            csv.add(String.format(Locale.ROOT, "mined-schema-audit,%s,%s,%s",
+                    issue.getSeverity(), csvCell(issue.getCode()), csvCell(issue.getMessage())));
+        }
+        if (schemaIssues.isEmpty()) {
+            text.append(String.format(Locale.ROOT,
+                    "  No schema findings: every namelist keyword of this input is part of the "
+                            + "QE %s mined grammar, placed in its own namelist, typed like the "
+                            + "Fortran reader expects, and inside every mined value set its "
+                            + "keyword carries.%n", schemaVersion));
+        }
+        text.append(String.format(Locale.ROOT,
+                "%nMined schema audit: %d ERROR (the binary aborts at namelist read or "
+                        + "validation) and %d WARNING (reported-and-never-judged, or silently "
+                        + "remapped - check intent).%n",
+                schemaErrors, schemaWarnings));
+        text.append("\nHonesty boundary: above, the curated slice ("
                 + QEVersionRuleCatalog.listRules().size()
-                + " curated keywords; NOT-IN-CURATED means outside the snapshot, NOT "
-                + "invalid. Machine-generated, per-minor-version full INPUT_PW schemas "
-                + "with type/range checking are the remaining #22 completeness work. "
-                + "REMOVED_KEYWORD rows are the action items - they were valid once and "
-                + "are undocumented across the audited window.\n");
+                + " keywords) stays as the batch-#22 baseline; NOT-IN-CURATED means outside "
+                + "the snapshot, NOT invalid. The mined schema audit is the completed #22 "
+                + "work: machine-mined from QE tags qe-7.2..qe-7.6 (430 pw.x + 81 ph.x + 34 "
+                + "hp.x namelist keywords; cards, runtime-conditional rules, and anything "
+                + "the mined sources omit stay out of scope, said in the generated data "
+                + "header).\n");
         return new AnalysisReport(label, true, text.toString(), csv, null);
     }
 
@@ -9318,7 +9503,7 @@ public final class ResultAnalysisService {
                 "Array '%s': %d task(s), 1-based mapping (task i -> dir %s/task_<i>), "
                         + "SLURM review line %s.%n",
                 plan.getBaseName(), plan.getTaskCount(), plan.getBaseName(),
-                plan.hasSlurmArrayLine() ? "incorporated" : "NOT incorporated");
+                plan.hasSlurmArrayLine() ? "incorporated" : "NOT incorporated"));
         text.append("\nPlan block (also in the draft channel):\n\n").append(block);
         text.append("\nHonesty block: NOTHING is submitted, and no deck is templated "
                 + "from this build. Sweep tokens echo VERBATIM (your '30.00' stays "

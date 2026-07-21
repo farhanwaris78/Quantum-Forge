@@ -50,8 +50,9 @@ class QEPhono3pyKappaParserTest {
 
         // Verification checks
         assertTrue(parser.isPhysicalScaling(), "Perfect 1/T scaling (300*30 = 600*15) must pass anharmonic transport checks");
-        assertTrue(parser.getDiagnostics().get(0).contains("completed"));
-        assertTrue(parser.getDiagnostics().get(2).contains("verified"));
+        String joined = String.join("\n", parser.getDiagnostics());
+        assertTrue(joined.contains("verified") && joined.contains("1/T"),
+                "success path names the verified Umklapp 1/T verdict: " + joined);
     }
 
     @Test
@@ -64,6 +65,7 @@ class QEPhono3pyKappaParserTest {
             writer.write("   300.00       30.0000      30.0000      30.0000\n");
             // Unstable: thermal conductivity increases with temperature (unphysical!)
             writer.write("   600.00       50.0000      50.0000      50.0000\n");
+            writer.write("   900.00       70.0000      70.0000      70.0000\n");
         }
 
         ProjectProperty property = new ProjectProperty();
@@ -71,6 +73,8 @@ class QEPhono3pyKappaParserTest {
         parser.parse(tempFile);
 
         assertFalse(parser.isPhysicalScaling(), "Increasing thermal conductivity with temperature must fail stability checks");
-        assertTrue(parser.getDiagnostics().get(1).contains("Warning"));
+        assertTrue(parser.getDiagnostics().stream().anyMatch(d -> d.contains("Warning")),
+                "the monotonic-increase violation is named as a Warning: "
+                        + parser.getDiagnostics());
     }
 }

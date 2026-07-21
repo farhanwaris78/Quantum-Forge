@@ -79,7 +79,7 @@ public final class WorkflowAudit {
     public static final class Audit {
         private final Path file;
         private final boolean shebang;
-        private final boolean strictMode;      // set -euo pipefail
+        private final boolean setOptions;      // set -euo pipefail
         private final boolean slurmBlock;
         private final String generatorLine;    // "" when absent
         private final String workflowType;     // "" when absent

@@ -1,7 +1,7 @@
-# NanoLabo vs QuantumForge (updated QUANTUMFORGE) — Complete Feature Analysis
+# Premium reference GUI vs QuantumForge — Complete Feature Analysis
 
-## Source: NanoLabo Official Documentation (https://nanolabo-doc.readthedocs.io/en/latest/)
-## NanoLabo Version: 3.1.2 (Sept 2025) — proprietary, based on QUANTUMFORGE
+## Source: the public product documentation of the premium reference GUI (accessed 2025)
+## 
 ## QuantumForge Version: 2.0.0 — our updated QUANTUMFORGE
 
 ---
@@ -10,7 +10,7 @@
 
 ### 1. CALCULATION ENGINES
 
-| Feature | NanoLabo | QuantumForge | Status |
+| Feature | Premium reference GUI | QuantumForge | Status |
 |---------|----------|-------------|--------|
 | Quantum ESPRESSO pw.x | ✅ Up to QE 7.5 | ✅ QE 7.5 configured | ✓ MATCH |
 | Quantum ESPRESSO ph.x | ✅ | ✅ | ✓ MATCH |
@@ -28,7 +28,7 @@
 
 ### 2. CALCULATION TYPES
 
-| Feature | NanoLabo | QuantumForge | Status |
+| Feature | Premium reference GUI | QuantumForge | Status |
 |---------|----------|-------------|--------|
 | SCF calculation | ✅ | ✅ | ✓ MATCH |
 | Structure optimization (relax) | ✅ | ✅ | ✓ MATCH |
@@ -52,7 +52,7 @@
 
 ### 3. MODELING & STRUCTURE BUILDING
 
-| Feature | NanoLabo | QuantumForge | Status |
+| Feature | Premium reference GUI | QuantumForge | Status |
 |---------|----------|-------------|--------|
 | **Supercell** | ✅ | **⚠️ (basic)** | PARTIAL |
 | **Non-diagonal supercell** | **✅** | ❌ | **MISSING** |
@@ -72,7 +72,7 @@
 
 ### 4. ATOMIC STRUCTURE VIEWER
 
-| Feature | NanoLabo | QuantumForge | Status |
+| Feature | Premium reference GUI | QuantumForge | Status |
 |---------|----------|-------------|--------|
 | 3D rotation/zoom/pan | ✅ | ✅ | ✓ MATCH |
 | Viewpoint manipulation | ✅ | ✅ | ✓ MATCH |
@@ -91,7 +91,7 @@
 
 ### 5. INPUT FILE EDITOR
 
-| Feature | NanoLabo | QuantumForge | Status |
+| Feature | Premium reference GUI | QuantumForge | Status |
 |---------|----------|-------------|--------|
 | GUI-based parameter editing | ✅ | ✅ | ✓ MATCH |
 | Default value buttons | ✅ | ❌ | MISSING |
@@ -108,7 +108,7 @@
 
 ### 6. QUANTUM ESPRESSO SPECIFIC SETTINGS
 
-| Feature | NanoLabo | QuantumForge | Status |
+| Feature | Premium reference GUI | QuantumForge | Status |
 |---------|----------|-------------|--------|
 | Pseudopotential settings | ✅ | ✅ | ✓ MATCH |
 | Cutoff energy auto-suggest | ✅ | ✅ | ✓ MATCH |
@@ -128,7 +128,7 @@
 
 ### 7. MATERIALS DATABASE
 
-| Feature | NanoLabo | QuantumForge | Status |
+| Feature | Premium reference GUI | QuantumForge | Status |
 |---------|----------|-------------|--------|
 | Materials Project search | ✅ | ✅ | ✓ MATCH |
 | **PubChem search** | **✅** | **✅ (new)** | ✓ MATCH (just added) |
@@ -140,7 +140,7 @@
 
 ### 8. JOB EXECUTION & SCHEDULING
 
-| Feature | NanoLabo | QuantumForge | Status |
+| Feature | Premium reference GUI | QuantumForge | Status |
 |---------|----------|-------------|--------|
 | Local execution | ✅ | ✅ | ✓ MATCH |
 | SSH remote execution | ✅ | ✅ | ✓ MATCH |
@@ -157,7 +157,7 @@
 
 ### 9. RESULTS VISUALIZATION
 
-| Feature | NanoLabo | QuantumForge | Status |
+| Feature | Premium reference GUI | QuantumForge | Status |
 |---------|----------|-------------|--------|
 | 2D plots (energy, forces) | ✅ | ✅ | ✓ MATCH |
 | Band structure plot | ✅ | ✅ | ✓ MATCH |
@@ -182,7 +182,7 @@
 
 ### 10. THERMO_PW / THERMODYNAMICS
 
-| Feature | NanoLabo | QuantumForge (Plugin) | Status |
+| Feature | Premium reference GUI | QuantumForge (Plugin) | Status |
 |---------|----------|----------------------|--------|
 | **thermo_pw integration** | **✅ (plugin-like)** | **✅ (stub)** | PARTIAL |
 | **Elastic constants** | **✅** | ❌ | **MISSING** |
@@ -193,7 +193,7 @@
 
 ### 11. AI / NEURAL NETWORK FEATURES
 
-| Feature | NanoLabo | QuantumForge | Status |
+| Feature | Premium reference GUI | QuantumForge | Status |
 |---------|----------|-------------|--------|
 | **ChatGPT Chatbot** | **✅** | ❌ | **MISSING** |
 | **Autopilot (AI model building)** | **✅ (v3.0)** | ❌ | **MISSING** |
@@ -210,7 +210,7 @@
 
 ### 12. INFRASTRUCTURE & PLATFORM
 
-| Feature | NanoLabo | QuantumForge | Status |
+| Feature | Premium reference GUI | QuantumForge | Status |
 |---------|----------|-------------|--------|
 | Java Runtime | **Liberica JRE 17** | **Java 8+** | OUTDATED |
 | **Java 17+ support** | **✅** | ❌ (Java 8 only) | **MISSING** |
@@ -241,7 +241,7 @@
 1. **ESM method** (work function calculation) — QE 7.5 feature
 2. **Export atomic config** (CIF/XYZ/POSCAR export) — essential for interoperability
 3. **Update atomic config after optimization** — critical workflow step
-4. **Band gap auto-detection from DOS/Band** — v3.1 NanoLabo feature
+4. **Band gap auto-detection from DOS/Band** — v3.1 the premium reference GUI feature
 5. **Phonon Dispersion visualization** — interactive phonon band plots
 6. **Phonon modes animation** — animated arrows on atoms
 7. **Geometric information** (bond length/angle/dihedral measurement)
@@ -267,4 +267,4 @@
 
 ---
 
-*Analysis based on NanoLabo v3.1.2 documentation (latest) vs QuantumForge v2.0.0*
+*Analysis based on the premium reference GUI (latest public docs) documentation (latest) vs QuantumForge v2.0.0*

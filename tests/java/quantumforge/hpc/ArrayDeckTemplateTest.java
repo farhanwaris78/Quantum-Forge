@@ -77,8 +77,8 @@ class ArrayDeckTemplateTest {
         String deck = "&SYSTEM\n    ecutwfc = 0.0\n/\n";
         ArrayDeckTemplate.DeckTemplate template = ArrayDeckTemplate.validate(plan, deck)
                 .getValue().orElseThrow();
-        assertTrue(template.renderTaskDeck(10).contains("ecutwfc = 1.0\n"),
-                "the 10th 0.1-step from 0 renders exactly 1.0 (single rounding; "
+        assertTrue(template.renderTaskDeck(10).contains("ecutwfc = 0.9\n"),
+                "the 10th 0.1-step from 0 renders exactly 9*0.1 = 0.9 (single rounding; "
                         + "accumulated addition would print 0.9999999999999999): "
                         + template.renderTaskDeck(10));
     }

@@ -304,6 +304,12 @@ public final class QEBrillouinZoneGeometry {
             }
         }
 
+        // Normalize the vertex ordering BEFORE faces and edges capture indices:
+        // sorting here keeps every downstream index list consistent (sorting
+        // after face construction would silently rebind faces to wrong points).
+        vertices.sort(Comparator.comparingDouble((double[] v) -> v[0])
+                .thenComparingDouble(v -> v[1]).thenComparingDouble(v -> v[2]));
+
         // Faces: planes carrying >= 3 vertices.
         List<List<Integer>> faces = new ArrayList<>();
         List<Integer> facePlaneIndex = new ArrayList<>();
@@ -336,8 +342,6 @@ public final class QEBrillouinZoneGeometry {
                 }
             }
         }
-        vertices.sort(Comparator.comparingDouble((double[] v) -> v[0])
-                .thenComparingDouble(v -> v[1]).thenComparingDouble(v -> v[2]));
         return new Polyhedron(vertices, faces, facePlaneIndex, edgeCount);
     }
 
@@ -366,8 +370,9 @@ public final class QEBrillouinZoneGeometry {
                 centroid[2] += p[2];
             }
             centroid = scale(centroid, 1.0 / indices.size());
+            final double[] faceCentroid = centroid;
 
-            double[] ref = minus(poly.vertices.get(indices.get(0)), centroid);
+            double[] ref = minus(poly.vertices.get(indices.get(0)), faceCentroid);
             double refLen = Math.sqrt(dot(ref, ref));
             if (refLen <= 0.0) {
                 return Double.NaN;
@@ -377,7 +382,7 @@ public final class QEBrillouinZoneGeometry {
 
             List<Integer> cyclic = new ArrayList<>(indices);
             cyclic.sort(Comparator.comparingDouble(vi -> {
-                double[] d = minus(poly.vertices.get(vi), centroid);
+                double[] d = minus(poly.vertices.get(vi), faceCentroid);
                 return Math.atan2(dot(d, wAxis), dot(d, uAxis));
             }));
 

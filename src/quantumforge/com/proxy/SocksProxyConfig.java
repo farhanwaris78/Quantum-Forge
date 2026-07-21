@@ -5,12 +5,12 @@ package quantumforge.com.proxy;
 
 /**
  * SOCKS5 proxy configuration for SSH connections.
- * 
- * NanoLabo v2.9.3+ supports:
+ *
+ * Supports:
  * - SOCKS proxy for SSH connections
- * - PAC file proxy for built-in web browser
+ * - PAC file proxy for the built-in web browser
  * - Proxy certificate verification handling
- * 
+ *
  * This is essential for users behind corporate firewalls.
  */
 public class SocksProxyConfig {

@@ -91,12 +91,19 @@ public final class QESlabPlateauDiagnostic {
         boolean foundLeft = !leftFlatIndices.isEmpty();
         boolean foundRight = !rightFlatIndices.isEmpty();
 
+        // Level = mean over the LONGEST CONTIGUOUS flat run of each half, not over
+        // every sub-tolerance slope: isolated flat-ish points (e.g. the local
+        // minimum of a smooth metal well, whose slope crosses zero) must never
+        // corrupt the vacuum level.
+        List<Integer> leftRun = longestContiguousRun(leftFlatIndices);
+        List<Integer> rightRun = longestContiguousRun(rightFlatIndices);
+
         if (foundLeft) {
             double sum = 0.0;
-            for (int idx : leftFlatIndices) {
+            for (int idx : leftRun) {
                 sum += potential[idx];
             }
-            leftVac = sum / leftFlatIndices.size();
+            leftVac = sum / leftRun.size();
         } else {
             // Fallback: average the first 10%
             double sum = 0.0;
@@ -109,10 +116,10 @@ public final class QESlabPlateauDiagnostic {
 
         if (foundRight) {
             double sum = 0.0;
-            for (int idx : rightFlatIndices) {
+            for (int idx : rightRun) {
                 sum += potential[idx];
             }
-            rightVac = sum / rightFlatIndices.size();
+            rightVac = sum / rightRun.size();
         } else {
             // Fallback: average the last 10%
             double sum = 0.0;
@@ -132,11 +139,32 @@ public final class QESlabPlateauDiagnostic {
         } else {
             // Check if the plateaus are contiguous and long enough (at least 5% of the unit cell width)
             int minContiguousPoints = Math.max(3, N / 20);
-            if (leftFlatIndices.size() < minContiguousPoints || rightFlatIndices.size() < minContiguousPoints) {
+            if (leftRun.size() < minContiguousPoints || rightRun.size() < minContiguousPoints) {
                 result.addWarning("Warning: Vacuum plateaus are extremely narrow. Consider increasing vacuum space along z.");
             }
         }
 
         return result;
+    }
+
+    /** Longest run of consecutively increasing indices (step 1); empty for an empty input. */
+    private static List<Integer> longestContiguousRun(List<Integer> indices) {
+        List<Integer> best = new ArrayList<>();
+        List<Integer> current = new ArrayList<>();
+        for (int idx : indices) {
+            if (current.isEmpty() || idx == current.get(current.size() - 1) + 1) {
+                current.add(idx);
+            } else {
+                if (current.size() > best.size()) {
+                    best = current;
+                }
+                current = new ArrayList<>();
+                current.add(idx);
+            }
+        }
+        if (current.size() > best.size()) {
+            best = current;
+        }
+        return best;
     }
 }

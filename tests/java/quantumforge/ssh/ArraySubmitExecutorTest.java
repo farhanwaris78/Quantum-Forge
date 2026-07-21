@@ -114,8 +114,8 @@ class ArraySubmitExecutorTest {
                 new PbsSchedulerAdapter(), reviewedScript());
         assertFalse(refused.isSuccess());
         assertEquals("SUBMIT_ARRAY_UNSUPPORTED_SHAPE", refused.getCode());
-        assertTrue(refused.getMessage().contains("PBS Professional"), refused.getMessage(),
-                "the adapter's divergence reason rides the refusal");
+        assertTrue(refused.getMessage().contains("PBS Professional"),
+                "the adapter's divergence reason rides the refusal: " + refused.getMessage());
         assertTrue(refused.getMessage().contains("ArrayLoopSubmitExecutor"),
                 "batch 143: the refusal names the now-existing loop executor: "
                         + refused.getMessage());

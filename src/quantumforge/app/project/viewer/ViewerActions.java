@@ -39,7 +39,9 @@ import quantumforge.app.project.viewer.screenshot.QEFXScreenshotDialog;
 import quantumforge.export.AtomicExporter;
 import quantumforge.operation.OperationResult;
 import quantumforge.input.QEInput;
+import quantumforge.input.schema.QENamelistSchema;
 import quantumforge.input.validation.QEInputValidator;
+import quantumforge.input.validation.QESchemaValidator;
 import quantumforge.input.validation.ValidationIssue;
 import quantumforge.project.Project;
 import quantumforge.run.parser.BandGapParser;
@@ -465,7 +467,15 @@ public class ViewerActions extends ProjectActions<Node> {
         }
         this.project.resolveQEInputs();
         QEInput input = this.project.getQEInputCurrent();
-        List<ValidationIssue> issues = new QEInputValidator().validate(input);
+        List<ValidationIssue> issues = new java.util.ArrayList<>(
+                new QEInputValidator().validate(input));
+        // Batch 150: mined-schema audit layered on top of the structural checks,
+        // against the newest mined QE grammar (window 7.2-7.6; a specific minor
+        // version can be audited from the version-check analysis action).
+        String schemaVersion = QENamelistSchema.VERSIONS.get(QENamelistSchema.VERSIONS.size() - 1);
+        List<ValidationIssue> schemaIssues =
+                new QESchemaValidator().validate(input, schemaVersion);
+        issues.addAll(schemaIssues);
         boolean errors = QEInputValidator.hasErrors(issues);
         StringBuilder message = new StringBuilder();
         if (issues.isEmpty()) {
@@ -479,6 +489,11 @@ public class ViewerActions extends ProjectActions<Node> {
                 }
             }
         }
+        message.append("\n--\nStructural checks plus the mined-schema audit (QE ")
+                .append(schemaVersion)
+                .append(" grammar; namelist keywords machine-mined from QE tags qe-7.2 .. ")
+                .append("qe-7.6 - cards and runtime-conditional rules stay out of scope); ")
+                .append("the version-check analysis audits a specific minor version.");
         Alert alert = new Alert(errors ? AlertType.ERROR : AlertType.INFORMATION);
         alert.setTitle("Quantum ESPRESSO input validation");
         alert.setHeaderText(errors ? "Input has blocking preflight errors"

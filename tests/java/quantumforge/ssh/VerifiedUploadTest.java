@@ -92,8 +92,8 @@ class VerifiedUploadTest {
         fake.remoteSha = sha; // the remote checksum now matches the pinned target
         OperationResult<Void> allowed = newTransfer(fake).uploadVerifiedResult(
                 local, "jobs/a3/x.in", sha, true);
-        assertTrue(allowed.isSuccess(), allowed.toString(),
-                "ALLOWED is the explicit analyst choice and does proceed");
+        assertTrue(allowed.isSuccess(),
+                allowed.toString() + " - ALLOWED is the explicit analyst choice and does proceed");
     }
 
     @Test

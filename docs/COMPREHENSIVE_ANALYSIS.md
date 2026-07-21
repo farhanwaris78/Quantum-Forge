@@ -84,23 +84,23 @@ Lattice.java:IBRAV_LIST = {1, 2, 3, 4, 5, -5, 6, 7, 8, 9, -9, 10, 11, 12, -12, 1
 
 ---
 
-## 3. NanoLabo Analysis
+## 3. Analysis of the premium reference GUI
 
 ### 3.1 Source Code Availability
 
-**IMPORTANT: NanoLabo source code is NOT publicly available.** 
+**IMPORTANT: the premium reference GUI's source code is NOT publicly available.** 
 
-Advance/NanoLabo is a **commercial closed-source product** developed by AdvanceSoft Corporation (Japan). It is based on the open-source QUANTUMFORGE but has been significantly enhanced with proprietary features:
+The premium reference GUI is a **commercial closed-source product** developed by AdvanceSoft Corporation (Japan). It is based on the open-source QUANTUMFORGE but has been significantly enhanced with proprietary features:
 
 - Pricing: ~¥1,800,000/year (corporate license)
 - Sold as a compiled binary only (Windows, AlmaLinux, macOS)
 - No public repository exists
 
-### 3.2 NanoLabo Features to Implement (Based on Public Documentation)
+### 3.2 Features of the premium reference GUI to Implement (Based on Public Documentation)
 
-From the NanoLabo product page and manual, here are the key features QUANTUMFORGE lacks:
+From the premium reference GUI's product page and manual, here are the key features QUANTUMFORGE lacks:
 
-| Feature | NanoLabo | Our Implementation Plan |
+| Feature | Premium reference GUI | Our Implementation Plan |
 |---------|----------|----------------------|
 | **LAMMPS integration** | Yes | Added MD module interface |
 | **GNN force fields (M3GNet, CHGNet, OCP)** | Yes | NeuralMD plugin architecture |
@@ -184,7 +184,7 @@ QuantumForge/ (formerly QUANTUMFORGE)
 #### Change 6: SSH Job Scheduler Support (Scalability)
 - **File**: `src/quantumforge/ssh/SSHJob.java`
 - **Changes**: Added PBS/Torque, SLURM, and PJM job scheduler support
-- **Impact**: Enables HPC cluster integration at scale, matching NanoLabo capabilities
+- **Impact**: Enables HPC cluster integration at scale, matching the premium reference GUI capabilities
 
 #### Change 7: Symmetry/Spacegroup Module (spglib integration)
 - Added symmetry package structure for future spglib integration
@@ -202,7 +202,7 @@ QuantumForge/ (formerly QUANTUMFORGE)
 
 #### Change 9: Enhanced Builder Module
 - Added builder package for molecule, surface, polymer, solvent modeling
-- **Impact**: Matches NanoLabo's modeling capabilities
+- **Impact**: Matches the premium reference GUI's modeling capabilities
 
 #### Change 10: Enhanced Materials API
 - Added PubChem API support alongside existing Materials Project
@@ -242,7 +242,7 @@ After structural optimization (`vc-relax`), the lattice vectors would change sli
 | GPU offload improvements | Updated binary configuration |
 | New smearing options | Updated smearing dropdown |
 
-### 5.3 NanoLabo-Style Features Added
+### 5.3 Reference-GUI-Style Features Added
 
 #### a) Surface/Interface Builder Enhancement
 The original QUANTUMFORGE had a basic slab modeler. We've enhanced it with:
@@ -284,7 +284,7 @@ The original QUANTUMFORGE had a basic slab modeler. We've enhanced it with:
 **Rationale**:
 - **Quantum** — Core technology (Quantum ESPRESSO, quantum mechanical calculations)
 - **Forge** — Suggests creation, building materials, craftsmanship
-- Easy to remember, distinctive from "QUANTUMFORGE" and "NanoLabo"
+- Easy to remember, distinctive from "QUANTUMFORGE" and "the premium reference GUI"
 - Domain potential: quantumforge.dev / quantumforge.science
 
 ### Alternative Names:
@@ -362,11 +362,11 @@ The comprehensive analysis of QUANTUMFORGE v1.3 revealed several critical issues
 1. **Critical Bug**: The spacegroup/ibrav detection bug has been fixed with better threshold handling and complete ibrav coverage
 2. **Modernization**: Full QE 7.5 compatibility with all new features
 3. **Ecosystem Expansion**: Integration paths for thermo_pw 2.1.1, phonopy, BoltzTraP2
-4. **NanoLabo Parity**: All documented NanoLabo features have matching implementations
+4. **Premium reference GUI parity**: All documented the premium reference GUI features have matching implementations
 5. **Scalability**: HPC job scheduler support (PBS/SLURM/PJM) for production use
 6. **Plugin Architecture**: Extensible design for future additions
 
-**Note on NanoLabo Source Code**: As discovered through extensive research, NanoLabo is a proprietary commercial product by AdvanceSoft Corporation. Its source code is not publicly available. All features have been re-implemented based on public documentation and the original open-source QUANTUMFORGE codebase.
+**Note on the premium reference GUI Source Code**: As discovered through extensive research, the premium reference GUI is a proprietary commercial product by AdvanceSoft Corporation. Its source code is not publicly available. All features have been re-implemented based on public documentation and the original open-source QUANTUMFORGE codebase.
 
 ---
 

@@ -181,8 +181,8 @@ public final class SymmetricEigen3 {
                     if (Math.abs(a[p][q]) <= tolerance) {
                         continue;
                     }
-                    double rotationAngle = rotate(a, p, q);
-                    accumulate(v, p, q, rotationAngle);
+                    double[] rotation = rotate(a, p, q);
+                    accumulate(v, p, q, rotation);
                 }
             }
         }
