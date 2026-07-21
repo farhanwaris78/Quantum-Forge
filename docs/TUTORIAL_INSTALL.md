@@ -66,6 +66,7 @@ quantumforge --help
 5. **Research data is separate** — projects and settings live in `~/.quantumforge` (Windows: `%USERPROFILE%\.quantumforge`) and are **not** deleted by a normal uninstall.
 6. **Purge is explicit** — `quantumforge --uninstall --purge` asks for confirmation even in otherwise non-interactive modes.
 7. **No fake remote success** — SSH/HPC submission is currently unavailable/fail-closed.
+8. **Activation is verified, not assumed** — the installer checks that the `current` pointer and the `quantumforge` command link actually switched before reporting success; an update downloads over HTTPS only (loopback mirrors excepted, see §9.2).
 
 ### What checksums do *not* replace
 
@@ -437,6 +438,39 @@ packaging/arch/build-package.sh
 CI and release workflow **templates** live under `packaging/github-workflows/`.
 Copy them into `.github/workflows/` on a machine/token with GitHub `workflows`
 permission before publishing production releases.
+
+### 9.1 Prove the packaging end to end (no display required)
+
+Every claim this tutorial makes about the portable installer is executed by:
+
+```bash
+packaging/tests/smoke-portable.sh
+# recommended: point at a JDK 17+ so the REAL launcher class runs too
+QF_SMOKE_JDK=/path/to/jdk/bin packaging/tests/smoke-portable.sh
+# full fidelity: real JavaFX module jars instead of empty placeholders
+QF_SMOKE_JAVAFX_DIR=/path/to/javafx-jars QF_SMOKE_JDK=/path/to/jdk/bin \
+  packaging/tests/smoke-portable.sh
+```
+
+The script fabricates a portable bundle in a throw-away directory, then runs the
+**shipped** `install.sh`, `update.sh`, `uninstall.sh` and `bin/quantumforge`
+against it inside a sandbox HOME: argument composition and X11-forwarding
+software-rendering guard of the launcher, real-JVM `--version/--help/--doctor/
+--capabilities` runs, bare-word `quantumforge` invocation through PATH,
+install/reinstall/uninstall/purge safety, a loopback release-mirror update with
+checksum-tampering and archive-traversal refusals, and the checksum verifier.
+Nothing outside its temporary directory is touched; see
+`packaging/tests/README.md` for exactly what is and is not exercised.
+
+### 9.2 Update mirrors (testing and intranet mirrors)
+
+Production updates are **HTTPS-only** against the GitHub releases API. Two
+environment overrides exist for release testing and site mirrors:
+
+| Variable | Effect |
+|---|---|
+| `QUANTUMFORGE_UPDATE_REPOSITORY` | `owner/name` (default `farhanwaris78/Quantum-Forge`) |
+| `QUANTUMFORGE_UPDATE_API_BASE` | GitHub-compatible API base. `https://` hosts only; plain HTTP is accepted **only** on loopback (`127.0.0.1`, `localhost`, `[::1]`) so the smoke test and local mirrors can run — anything else is refused before any network I/O. |
 
 ---
 

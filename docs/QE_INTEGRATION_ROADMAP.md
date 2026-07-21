@@ -137,6 +137,10 @@ R3 (batch 154), R4 (batch 157), R5 + R6 slice 2 (batch 158), R6 slice 1
 slice landed with executed tests under the tracked headless harness (latest
 full run: 161 classes / 620 tests / 0 failures) before the roadmaps were
 updated, per project rules. The R7 frontend follow-up (version-windowed deck-builder dialog, 24 programs)
-landed in batch 160 (latest full run: 162 classes / 629 tests / 0 failures);
-remaining work now lives outside this QE table entirely (the standing
-non-grammar items: packaging, tensor-surface data layer, transport chart slices).
+landed in batch 160 (latest full run: 162 classes / 629 tests / 0 failures).
+The three non-grammar standing items named here have since all closed:
+the tensor-surface data layer + viewer panel (batch 161), the BoltzTraP2
+transport chart slices (batch 162), and the packaging / `quantumforge`
+command / installers refresh - now execution-proven end to end by
+packaging/tests/smoke-portable.sh (batch 163, 72/72 PASS in full mode;
+latest full harness run remains 165 classes / 648 tests / 0 failures).

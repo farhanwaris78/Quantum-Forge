@@ -931,6 +931,46 @@ def main() -> int:
             or not (ROOT / "tests/java/quantumforge/com/math/ChartGeometryTest.java").is_file():
         error("batch-162 slicer/geometry tests missing")
 
+    # Batch 163 (packaging execution proof): the shipped install/update/uninstall
+    # scripts and the launcher obtained an executed end-to-end smoke test; three
+    # real defects found by it are pinned so they can never regress silently.
+    smokeSh = ROOT / "packaging/tests/smoke-portable.sh"
+    if not smokeSh.is_file():
+        error("batch-163 packaging smoke test missing")
+    else:
+        smokeText = smokeSh.read_text(encoding="utf-8")
+        for needle in ("QF_SMOKE_JDK", "QF_SMOKE_JAVAFX_DIR", "QF_GUI_PLACEHOLDER_ARGS",
+                       "prism.order=sw", "QUANTUMFORGE_UPDATE_API_BASE", "SMOKE RESULT",
+                       "SHA-256 verification FAILED", "Unsafe path in release archive"):
+            if needle not in smokeText:
+                error(f"packaging smoke test lost a pinned behaviour: {needle} (batch 163)")
+    smokeReadme = ROOT / "packaging/tests/README.md"
+    if not smokeReadme.is_file() or "Honesty boundaries" not in smokeReadme.read_text(encoding="utf-8"):
+        error("batch-163 packaging smoke README with honesty boundaries missing")
+    launcherText = (ROOT / "packaging/unix/quantumforge").read_text(encoding="utf-8")
+    if "LAUNCHER_SOURCE" not in launcherText or "readlink" not in launcherText:
+        error("launcher lost the command-symlink resolution (batch 163: APP_HOME misderived through ~/.local/bin)")
+    if "package manager" not in launcherText or "management/" not in launcherText:
+        error("launcher lost the native-layout --update/--uninstall guidance (batch 163)")
+    installText = (ROOT / "packaging/unix/install.sh").read_text(encoding="utf-8")
+    if "mv -fT" not in installText or "symlink to a DIRECTORY" not in installText:
+        error("install.sh lost the mv -T activation fix (batch 163: updates installed but never activated)")
+    if "Activation failed: current pointer did not switch" not in installText:
+        error("install.sh lost the fail-closed activation self-check (batch 163)")
+    if 'Exec="$BIN_DIR/quantumforge"' not in installText:
+        error("install.sh lost the quoted desktop Exec path (batch 163)")
+    updateText = (ROOT / "packaging/unix/update.sh").read_text(encoding="utf-8")
+    if "QUANTUMFORGE_UPDATE_API_BASE" not in updateText or "CURL_PROTOCOLS" not in updateText:
+        error("update.sh lost the HTTPS-only mirror override plumbing (batch 163)")
+    if "Install first" not in updateText or "does not look like an installer-managed" not in updateText:
+        error("update.sh lost the downloaded-copy / foreign-tree refusals (batch 163)")
+    for scriptName in ("packaging/unix/update.sh", "packaging/unix/uninstall.sh"):
+        if "read -r answer || answer=''" not in (ROOT / scriptName).read_text(encoding="utf-8"):
+            error(f"{scriptName} lost the EOF-safe confirmation read (batch 163)")
+    tutorialText = (ROOT / "docs/TUTORIAL_INSTALL.md").read_text(encoding="utf-8")
+    if "smoke-portable.sh" not in tutorialText or "QUANTUMFORGE_UPDATE_API_BASE" not in tutorialText:
+        error("TUTORIAL_INSTALL lost the packaging smoke / mirror override documentation (batch 163)")
+
     cap = (SRC / "quantumforge/capability/CapabilityRegistry.java").read_text(encoding="utf-8")
     if "Strict known_hosts" not in cap:
         error("CapabilityRegistry SSH status not updated")
