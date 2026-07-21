@@ -108,7 +108,9 @@ import quantumforge.input.card.QEKPoints;
 import quantumforge.input.namelist.QENamelist;
 import quantumforge.input.namelist.QEValue;
 import quantumforge.input.schema.QENamelistSchema;
+import quantumforge.input.schema.QEThermoPwSchema;
 import quantumforge.input.validation.QESchemaValidator;
+import quantumforge.input.validation.QEThermoPwDeckAudit;
 import quantumforge.input.validation.ValidationIssue;
 import quantumforge.input.validation.ValidationSeverity;
 import quantumforge.operation.OperationResult;
@@ -209,6 +211,7 @@ public final class ResultAnalysisService {
         NMR_SHIELDING("NMR (GIPAW) shielding tensors"),
         PWCOND_TRANSMISSION("PWcond transmission"),
         WANNIER90_SPREAD("Wannier90 spread convergence"),
+        THERMO_PW_DECK_AUDIT("thermo_pw thermo_control grammar audit (mined)"),
         THERMOPW_EOS("thermo_pw equation of state"),
         PHONO3PY_KAPPA("phono3py lattice thermal conductivity"),
         BOLTZTRAP2_TRANSPORT("BoltzTraP2 transport tables (.trace/.condtens)"),
@@ -1387,6 +1390,8 @@ public final class ResultAnalysisService {
             return name.contains("pwcond") || name.contains("trans") || name.contains("conductance");
         case WANNIER90_SPREAD:
             return name.endsWith(".wout");
+        case THERMO_PW_DECK_AUDIT:
+            return name.equals("thermo_control");
         case THERMOPW_EOS:
             return name.contains("eos") || name.contains("thermo");
         case PHONO3PY_KAPPA:
@@ -1589,6 +1594,8 @@ public final class ResultAnalysisService {
                 return analyzePwcond(property, source);
             case WANNIER90_SPREAD:
                 return analyzeWannier90(property, source);
+            case THERMO_PW_DECK_AUDIT:
+                return analyzeThermoPwDeckAudit(property, source);
             case THERMOPW_EOS:
                 return analyzeEos(property, source);
             case PHONO3PY_KAPPA:
@@ -2882,6 +2889,68 @@ public final class ResultAnalysisService {
      * screening state. Units surface VERBATIM from the file's own header tokens;
      * nothing is executed and no scattering model is re-derived.
      */
+    /**
+     * Batch 156 (QE-integration roadmap R6): thermo_control grammar audit
+     * against the mined thermo_pw &INPUT_THERMO grammar (keywords + the
+     * hard what set + verbatim consistency facts; commit provenance in
+     * QEThermoPwSchemaData). Severities mirror the binary: an unknown namelist
+     * keyword, a missing/out-of-set what, and a violated mined consistency
+     * rule ABORT (ERROR); the flext silent remap and inferred-from-default
+     * type shapes are warnings only.
+     */
+    private static AnalysisReport analyzeThermoPwDeckAudit(ProjectProperty property,
+            File source) throws IOException {
+        String label = AnalysisKind.THERMO_PW_DECK_AUDIT.getLabel();
+        String content = Files.readString(source.toPath(), StandardCharsets.UTF_8);
+        List<ValidationIssue> issues = new QEThermoPwDeckAudit().auditDeckText(content);
+        StringBuilder text = new StringBuilder();
+        List<String> csv = new ArrayList<>();
+        text.append(String.format(Locale.ROOT,
+                "== thermo_pw thermo_control grammar audit (mined &INPUT_THERMO: %d keywords,"
+                        + " %d accepted what values) ==%n",
+                QEThermoPwSchema.entryCount(), QEThermoPwSchema.whatAcceptedValues().size()));
+        text.append("Source: ").append(source.getName()).append('\n');
+        csv.add("thermo-deck-audit,severity,code,message");
+        int errors = 0;
+        int warnings = 0;
+        for (ValidationIssue issue : issues) {
+            if (issue.getSeverity() == ValidationSeverity.ERROR) {
+                errors += 1;
+            } else {
+                warnings += 1;
+            }
+            text.append("  ").append(issue.getSeverity())
+                    .append(" [").append(issue.getCode()).append("] ")
+                    .append(issue.getMessage()).append('\n');
+            if (!issue.getDocumentationUrl().isEmpty()) {
+                text.append("      docs: ").append(issue.getDocumentationUrl()).append('\n');
+            }
+            csv.add(String.format(Locale.ROOT, "thermo-deck-audit,%s,%s,%s",
+                    issue.getSeverity(), csvCell(issue.getCode()), csvCell(issue.getMessage())));
+        }
+        if (issues.isEmpty()) {
+            text.append(String.format(Locale.ROOT,
+                    "  No grammar findings: every keyword of this thermo_control is inside the%n"
+                            + "  mined grammar, 'what' initializes to one of the %d dispatch%n"
+                            + "  values, and no mined consistency rule trips.%n",
+                    QEThermoPwSchema.whatAcceptedValues().size()));
+        }
+        text.append(String.format(Locale.ROOT,
+                "%nVerdict: %d ERROR (thermo_pw aborts at namelist read or a consistency"
+                        + " check) and %d WARNING (silently remapped or advisory type-shape -"
+                        + " check intent).%n",
+                errors, warnings));
+        text.append("\nHonesty boundary: this is a GRAMMAR audit, never a physics or"
+                + " convergence review. Group labels are the thermo_pw code's own bookkeeping"
+                + " comments (a navigation aid, not a law); unlike the QE 7.2-7.6 pw/ph/hp"
+                + " schema there is NO per-version window here - the grammar carries commit"
+                + " provenance (see the QEThermoPwSchemaData header) and any version layer"
+                + " will announce itself when mined. Defaults shown are the procedural"
+                + " assignments (last-assignment-wins); the audit is the grammar, not a"
+                + " thermodynamics result.\n");
+        return new AnalysisReport(label, errors == 0, text.toString(), csv, null);
+    }
+
     private static AnalysisReport analyzeBoltzTrap2Transport(ProjectProperty property,
             File source) throws IOException {
         String label = AnalysisKind.BOLTZTRAP2_TRANSPORT.getLabel();
@@ -7056,8 +7125,8 @@ public final class ResultAnalysisService {
                 + QEVersionRuleCatalog.listRules().size()
                 + " keywords) stays as the batch-#22 baseline; NOT-IN-CURATED means outside "
                 + "the snapshot, NOT invalid. The mined schema audit is the completed #22 "
-                + "work: machine-mined from QE tags qe-7.2..qe-7.6 (430 pw.x + 81 ph.x + 34 "
-                + "hp.x namelist keywords; cards, runtime-conditional rules, and anything "
+                + "work: machine-mined from QE tags qe-7.2..qe-7.6 (459 pw.x + 80 ph.x + 33 "
+                + "hp.x namelist keywords, 572 total; cards, runtime-conditional rules, and anything "
                 + "the mined sources omit stay out of scope, said in the generated data "
                 + "header).\n");
         return new AnalysisReport(label, true, text.toString(), csv, null);
