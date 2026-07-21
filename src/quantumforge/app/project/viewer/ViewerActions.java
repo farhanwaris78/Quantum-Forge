@@ -38,6 +38,7 @@ import quantumforge.app.project.viewer.recovery.RecoveryAction;
 import quantumforge.app.project.viewer.save.SaveAction;
 import quantumforge.app.project.viewer.screenshot.QEFXScreenshotDialog;
 import quantumforge.app.project.viewer.tensor.QEFXTensorSurfaceDialog;
+import quantumforge.app.project.viewer.transport.QEFXTransportChartDialog;
 import quantumforge.export.AtomicExporter;
 import quantumforge.operation.OperationResult;
 import quantumforge.input.QEInput;
@@ -201,6 +202,9 @@ public class ViewerActions extends ProjectActions<Node> {
 
             } else if (item == this.itemSet.getTensorSurfaceItem()) {
                 this.actions.put(item, controller2 -> this.actionTensorSurfaceViewer(controller2));
+
+            } else if (item == this.itemSet.getTransportChartItem()) {
+                this.actions.put(item, controller2 -> this.actionTransportChartViewer(controller2));
 
             } else if (item == this.itemSet.getDiagnoseLogItem()) {
                 this.actions.put(item, controller2 -> this.actionDiagnoseLog(controller2));
@@ -622,6 +626,26 @@ public class ViewerActions extends ProjectActions<Node> {
             return;
         }
         QEFXTensorSurfaceDialog dialog = new QEFXTensorSurfaceDialog();
+        if (controller.getStage() != null) {
+            dialog.initOwner(controller.getStage());
+        }
+        dialog.showAndWait();
+    }
+
+    /**
+     * Roadmap #109 chart slice: opens the BoltzTraP2 transport CHART panel
+     * (S(T), sigma/tau(T), kappa/tau(T), S^2.sigma and .condtens Seebeck
+     * diagonals at a pinned chemical potential). The panel reads only
+     * through its explicit Load action (kind-gated like the analysis kind:
+     * Hall-tensor files refuse with the family note), draws only parsed
+     * numbers through the tested slicer + chart geometry, writes nothing,
+     * starts nothing, changes no project state.
+     */
+    private void actionTransportChartViewer(QEFXProjectController controller) {
+        if (controller == null) {
+            return;
+        }
+        QEFXTransportChartDialog dialog = new QEFXTransportChartDialog();
         if (controller.getStage() != null) {
             dialog.initOwner(controller.getStage());
         }

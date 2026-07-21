@@ -895,6 +895,42 @@ def main() -> int:
     if not (ROOT / "tests/java/quantumforge/com/math/TensorSurfaceSamplerTest.java").is_file():
         error("batch-161 sampler test missing")
 
+    # Batch 162 (Roadmap #109 chart slice): BoltzTraP2 transport chart panel
+    # - headless series slicer + chart geometry + viewer dialog + menu wiring.
+    slicer = SRC / "quantumforge/run/parser/BoltzTrap2SeriesSlicer.java"
+    if not slicer.is_file():
+        error("batch-162 BoltzTrap2SeriesSlicer missing (#109 chart data layer)")
+    else:
+        slicerText = slicer.read_text(encoding="utf-8")
+        if "distinctMuRy" not in slicerText or "TemperatureSeries" not in slicerText \
+                or "SEEBECK_ZZ" not in slicerText or "isotropic-average approximation" not in slicerText:
+            error("BoltzTrap2SeriesSlicer lost the mu-slice / series kinds / PF honesty (batch 162)")
+    chartGeom = SRC / "quantumforge/com/math/ChartGeometry.java"
+    if not chartGeom.is_file():
+        error("batch-162 ChartGeometry missing")
+    else:
+        chartGeomText = chartGeom.read_text(encoding="utf-8")
+        if "mapLinear" not in chartGeomText or "niceTicks" not in chartGeomText \
+                or "padded" not in chartGeomText:
+            error("ChartGeometry lost the mapping / ticks / padding helpers (batch 162)")
+    transportDialog = SRC / "quantumforge/app/project/viewer/transport/QEFXTransportChartDialog.java"
+    if not transportDialog.is_file():
+        error("batch-162 QEFXTransportChartDialog missing")
+    else:
+        transportDialogText = transportDialog.read_text(encoding="utf-8")
+        if "BoltzTrap2SeriesSlicer" not in transportDialogText \
+                or "BoltzTrap2TraceParser" not in transportDialogText \
+                or "ChartGeometry" not in transportDialogText \
+                or "normalized" not in transportDialogText:
+            error("QEFXTransportChartDialog lost the slicer/parser/geometry binding (batch 162)")
+    if "getTransportChartItem" not in itemSetText or "Transport chart viewer ..." not in itemSetText:
+        error("ViewerItemSet lost the batch-162 transport chart viewer menu item")
+    if "actionTransportChartViewer" not in vactText2 or "QEFXTransportChartDialog" not in vactText2:
+        error("ViewerActions lost the batch-162 transport chart viewer action wiring")
+    if not (ROOT / "tests/java/quantumforge/run/parser/BoltzTrap2SeriesSlicerTest.java").is_file() \
+            or not (ROOT / "tests/java/quantumforge/com/math/ChartGeometryTest.java").is_file():
+        error("batch-162 slicer/geometry tests missing")
+
     cap = (SRC / "quantumforge/capability/CapabilityRegistry.java").read_text(encoding="utf-8")
     if "Strict known_hosts" not in cap:
         error("CapabilityRegistry SSH status not updated")
