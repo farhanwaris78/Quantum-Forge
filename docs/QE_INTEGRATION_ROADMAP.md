@@ -124,11 +124,15 @@ all five tags (scalar → array), `PPCG`/`ParO` exist at 7.5 **and** 7.6,
 | Slice | Content | Depends on |
 |---|---|---|
 | R1 | `QEInput` keySet accessor so the adapter reaches &FCP/&RISM/&WANNIER decks (today: eight EE surfaces) | QEInput API change |
-| R2 | GUI version *picker* on the pw input editor: choosing "target QE 7.x" feeds `QESchemaValidator.validate(input, version)` instead of the newest-only default shown by "Validate QE input" | R1 |
-| R3 | ph.x/hp.x deck planners typed against `Kind.PH`/`Kind.HP`: the edit dialogs prompt only keywords present in the tagged window (mask-filtered lists are already a one-liner: `QENamelistSchema.entries(Kind.PH, "7.4")`), with per-version accepted-value previews inline | schema API (done) |
+| R2 | GUI version *picker* on the pw input editor: choosing "target QE 7.x" feeds `QESchemaValidator.validate(input, version)` instead of the newest-only default shown by "Validate QE input" (the picker + catalog machinery now exist: `QEDeckKeywordCatalog` + the batch-154 phonon dialog pattern are the template for this) | R1 |
+| ~~R3~~ **DONE (batch 154)** | ph.x/hp.x deck planners typed against `Kind.PH`/`Kind.HP` landed: `PhInputPlanner` (new), `QEHubbardPlanner` version-typed overload, the shared `QEDeckKeywordCatalog` prompt surface (fail-closed `QES_VERSION`, per-version HARD accepted values verbatim), `PH_/HP_KEYWORD_WINDOW` refusals at the mined boundaries, typed `auditStaticEmissions()` self-audits, and the GUI slice: the phonon edit dialog (`QEFXPhonon`) gained the version picker + typed keyword-window browser — it now prompts only keywords present in the tagged window | schema API (done) |
 | R4 | CARD grammar layer (ATOMIC_POSITIONS/K_POINTS/CELL_PARAMETERS content rules) — declared out of scope of the keyword grammar; structural checks stay with `QEInputValidator` until a card miner exists | new miner slice |
 | R5 | qexsd/XML-input variants (XML decks accept a slightly different surface; classic grammar laws hold for `*.in` decks only — state that boundary in any XML feature) | QE XML schema study |
 | R6 | thermo_pw `&INPUT_THERMO` mining with the same pipeline once its `.def`/source grammar is staged (user's thermo_pw expertise requirement) | staging thermo_pw tags |
 
-R1–R3 are the next implementation batches in this arc; each lands with
-executed tests before `docs/FUTURE_ROADMAP.md` is updated, per project rules.
+R1–R3 were the first implementation batches in this arc; **R3 is complete
+(batch 154)** with executed tests (154 classes / 556 tests / 0 failures under
+the tracked headless harness, including the resurrected `CpInputPlannerTest`
+and `QEHubbardPlannerTest` planner suites running against the harness-only
+structural `QEInput` stubs). R1–R2 remain; each lands with executed tests
+before `docs/FUTURE_ROADMAP.md` is updated, per project rules.

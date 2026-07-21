@@ -681,6 +681,34 @@ def main() -> int:
     if "private final boolean setOptions;" not in wa:
         error("WorkflowAudit lost the batch-153 setOptions field declaration")
 
+    # Batch 154 (QE-roadmap R3): version-windowed keyword catalog + typed
+    # ph.x/hp.x deck planners + phonon-dialog GUI window list.
+    catalog = SRC / "quantumforge/input/QEDeckKeywordCatalog.java"
+    if not catalog.is_file():
+        error("QEDeckKeywordCatalog (batch 154, R3) missing")
+    else:
+        catalogText = catalog.read_text(encoding="utf-8")
+        if "resolveVersion" not in catalogText or "QES_VERSION" not in catalogText \
+                or "promptLabel" not in catalogText:
+            error("QEDeckKeywordCatalog lost the fail-closed version resolution / prompt rows (batch 154)")
+    ph = SRC / "quantumforge/input/PhInputPlanner.java"
+    if not ph.is_file():
+        error("PhInputPlanner (batch 154, R3) missing")
+    else:
+        phText = ph.read_text(encoding="utf-8")
+        if "PH_KEYWORD_WINDOW" not in phText or "PH_VERSION" not in phText \
+                or "auditStaticEmissions" not in phText:
+            error("PhInputPlanner lost the version-window refusals or the typed self-audit (batch 154)")
+    hp = (SRC / "quantumforge/input/QEHubbardPlanner.java").read_text(encoding="utf-8")
+    if "HP_KEYWORD_WINDOW" not in hp or "no_metq0" not in hp or "auditStaticEmissions" not in hp:
+        error("QEHubbardPlanner lost the batch-154 version-typed overload / no_metq0 gating")
+    phononFx = (SRC / "quantumforge/app/project/editor/input/phonon/QEFXPhononController.java").read_text(encoding="utf-8")
+    if "QEDeckKeywordCatalog" not in phononFx or "refreshKeywordWindow" not in phononFx:
+        error("QEFXPhononController lost the batch-154 typed grammar window (GUI slice of R3)")
+    phononFxml = (SRC / "quantumforge/app/project/editor/input/phonon/QEFXPhonon.fxml").read_text(encoding="utf-8")
+    if "qeVersionCombo" not in phononFxml or "keywordWindowList" not in phononFxml:
+        error("QEFXPhonon.fxml lost the batch-154 version picker / keyword window list")
+
     cap = (SRC / "quantumforge/capability/CapabilityRegistry.java").read_text(encoding="utf-8")
     if "Strict known_hosts" not in cap:
         error("CapabilityRegistry SSH status not updated")

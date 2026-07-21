@@ -7,6 +7,7 @@ import java.util.Locale;
 
 import quantumforge.input.namelist.QENamelist;
 import quantumforge.input.namelist.QEValue;
+import quantumforge.input.schema.QENamelistSchema;
 import quantumforge.operation.OperationResult;
 
 /**
@@ -118,11 +119,55 @@ public final class QEHubbardPlanner {
     /**
      * Drafts the &INPUTHP namelist for a q mesh; every q within
      * [{@value #MIN_Q}, {@value #MAX_Q}]. Codes: HP_QGRID.
+     *
+     * <p>Version-agnostic legacy entry: identical output to the pre-batch-154
+     * planner (no version grammar is named, no version-gated keyword is
+     * offered). New callers should use
+     * {@link #draft(HubbardContext, int, int, int, String, boolean)} so the
+     * deck is typed against the mined grammar window of the QE they run.</p>
      */
     public static OperationResult<String> draft(HubbardContext context, int nq1,
             int nq2, int nq3) {
+        return draftCore(context, nq1, nq2, nq3, null, false, false);
+    }
+
+    /**
+     * Version-typed draft (QE-integration roadmap R3): the deck is probed
+     * against the mined QE 7.2-7.6 hp.x grammar of the REQUESTED version
+     * (blank resolves to the newest mined window and says so in the deck).
+     * Codes: HP_INPUT (no context), HP_VERSION (unsupported label), HP_QGRID
+     * (outside bounds), HP_KEYWORD_WINDOW ({@code no_metq0} requested on a
+     * version whose grammar has no such keyword - it exists only 7.5-7.6, and
+     * hp.x aborts on unknown &INPUTHP keywords, so a refusal is the honest
+     * answer).
+     */
+    public static OperationResult<String> draft(HubbardContext context, int nq1,
+            int nq2, int nq3, String version, boolean noMetQ0) {
+        return draftCore(context, nq1, nq2, nq3, version, noMetQ0, true);
+    }
+
+    private static OperationResult<String> draftCore(HubbardContext context, int nq1,
+            int nq2, int nq3, String version, boolean noMetQ0, boolean versionTyped) {
         if (context == null) {
             return OperationResult.failed("HP_INPUT", "No Hubbard context supplied.", null);
+        }
+        String pinnedVersion = null;
+        QEDeckKeywordCatalog catalog = null;
+        if (versionTyped) {
+            OperationResult<String> resolved = QEDeckKeywordCatalog.resolveVersion(version);
+            if (!resolved.isSuccess()) {
+                return OperationResult.failed("HP_VERSION", resolved.getMessage(), null);
+            }
+            pinnedVersion = resolved.getValue().orElseThrow();
+            catalog = QEDeckKeywordCatalog.forVersion(QENamelistSchema.Kind.HP, pinnedVersion)
+                    .getValue().orElseThrow();
+            if (noMetQ0 && !catalog.prompts("no_metq0")) {
+                return OperationResult.failed("HP_KEYWORD_WINDOW",
+                        "'no_metq0' exists only in QE " + catalog.windowText("no_metq0")
+                                + " (mined grammar); the pinned target " + pinnedVersion
+                                + " has no such keyword, and hp.x aborts on an unknown "
+                                + "&INPUTHP keyword - refusal is the honest answer.", null);
+            }
         }
         if (nq1 < MIN_Q || nq1 > MAX_Q || nq2 < MIN_Q || nq2 > MAX_Q
                 || nq3 < MIN_Q || nq3 > MAX_Q) {
@@ -144,6 +189,11 @@ public final class QEHubbardPlanner {
         }
         draft.append(String.format(Locale.ROOT,
                 "   nq1 = %d,%n   nq2 = %d,%n   nq3 = %d,%n", nq1, nq2, nq3));
+        if (noMetQ0 && catalog != null) {
+            draft.append(String.format(Locale.ROOT, "   no_metq0 = .true.,%n"));
+            draft.append("   ! requested; mined window " + catalog.windowText("no_metq0")
+                    + '\n');
+        }
         draft.append("/\n");
         draft.append("! REVIEW before running hp.x:\n");
         draft.append("! 1. This draft assumes a COMPLETED scf run at the same prefix/outdir"
@@ -154,8 +204,57 @@ public final class QEHubbardPlanner {
         draft.append("! 3. U from hp.x is a linear-response property of THIS structure/"
                 + "pseudopotential;\n!    for HUBBARD card projector syntax see the "
                 + "version-matched INPUT_HP docs\n!    (https://www.quantum-espresso.org/Doc/INPUT_HP.html).\n");
+        if (versionTyped) {
+            draft.append("! 4. Target QE grammar: ").append(pinnedVersion);
+            if (version == null || version.trim().isEmpty()) {
+                draft.append(" (newest mined window; the caller did not pin a version)");
+            } else {
+                draft.append(" (caller-pinned; mined window)");
+            }
+            draft.append('\n');
+            if ("7.6".equals(pinnedVersion)) {
+                draft.append("! 5. QE 7.6 drift, mined: 'last_q' is internal-only (default\n");
+                draft.append("!    -1000 instead of 'number of q points') - restart chunks\n");
+                draft.append("!    planned from 7.2-7.5 semantics must be re-read first.\n");
+            }
+        }
         return OperationResult.success("HP_DRAFT",
-                "Drafted &INPUTHP for q grid " + nq1 + " " + nq2 + " " + nq3 + ".",
+                "Drafted &INPUTHP for q grid " + nq1 + " " + nq2 + " " + nq3
+                        + (versionTyped ? " against the QE " + pinnedVersion + " grammar."
+                                : "."),
                 draft.toString());
+    }
+
+    /**
+     * Typed self-audit against the mined grammar (batch-154 guarantee): every
+     * keyword this planner emits unconditionally (prefix/outdir/nq1/nq2/nq3)
+     * must be promptable in ALL mined versions, and the one version-gated
+     * keyword it offers (no_metq0) must be absent from at least one version -
+     * otherwise its refusal path would be dead code. Empty = planner and
+     * grammar agree.
+     */
+    public static java.util.List<String> auditStaticEmissions() {
+        java.util.List<String> violations = new java.util.ArrayList<>();
+        for (String keyword : java.util.List.of("prefix", "outdir", "nq1", "nq2", "nq3")) {
+            for (String version : QENamelistSchema.VERSIONS) {
+                if (!QEDeckKeywordCatalog.forVersion(QENamelistSchema.Kind.HP, version)
+                        .getValue().orElseThrow().prompts(keyword)) {
+                    violations.add("hp.x keyword " + keyword
+                            + " is emitted unconditionally but absent from QE " + version);
+                }
+            }
+        }
+        int carries = 0;
+        for (String version : QENamelistSchema.VERSIONS) {
+            if (QEDeckKeywordCatalog.forVersion(QENamelistSchema.Kind.HP, version)
+                    .getValue().orElseThrow().prompts("no_metq0")) {
+                carries++;
+            }
+        }
+        if (carries == QENamelistSchema.VERSIONS.size()) {
+            violations.add("no_metq0 is treated as version-gated but exists in every mined "
+                    + "version - the HP_KEYWORD_WINDOW refusal path is dead code");
+        }
+        return java.util.List.copyOf(violations);
     }
 }

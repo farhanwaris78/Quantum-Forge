@@ -72,6 +72,24 @@
                   <Label text="4. Check if the cell has symmetry breaking." wrapText="true" />
                </children>
             </VBox>
+            <Separator />
+            <VBox spacing="5.0" style="-fx-background-color: #f8f4ff; -fx-padding: 10;">
+               <children>
+                  <Label text="ph.x keyword grammar window (typed against mined QE 7.2-7.6):" wrapText="true">
+                     <font>
+                        <Font name="System Bold" size="12.0" />
+                     </font>
+                  </Label>
+                  <HBox spacing="5.0" alignment="CENTER_LEFT">
+                     <children>
+                        <Label text="Target QE version:" />
+                        <ComboBox fx:id="qeVersionCombo" prefWidth="110.0" />
+                     </children>
+                  </HBox>
+                  <Label text="Only keywords present in the selected version are listed. Version-gated entries (e.g. lmultipole 7.5+, skip_upperfan up to 7.4) never leak across windows." wrapText="true" />
+                  <ListView fx:id="keywordWindowList" prefHeight="220.0" />
+               </children>
+            </VBox>
          </children>
       </VBox>
    </content>
