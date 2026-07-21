@@ -319,7 +319,8 @@ public final class QECardSchema {
 
     private static int parseMask(String hex) {
         try {
-            return Integer.parseInt(hex, 16);
+            return Integer.decode(hex != null && hex.startsWith("0x")
+                    ? hex : "0x" + hex);
         } catch (NumberFormatException bad) {
             return QENamelistSchema.ALL_VERSIONS_MASK;
         }

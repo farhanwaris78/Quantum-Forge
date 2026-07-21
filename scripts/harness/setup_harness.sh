@@ -105,7 +105,8 @@ javac -nowarn -encoding UTF-8 -cp "$TMPROOT/newcls:$TMPROOT/schemacls:$TMPROOT/q
     "$ROOT/tests/java/quantumforge/input/QEHubbardPlannerTest.java" \
     "$ROOT/tests/java/quantumforge/input/CpInputPlannerTest.java" \
     "$ROOT/tests/java/quantumforge/input/validation/QECardAuditTest.java" \
-    "$ROOT/tests/java/quantumforge/input/schema/QECardSchemaTest.java" || exit 1
+    "$ROOT/tests/java/quantumforge/input/schema/QECardSchemaTest.java" \
+    "$ROOT/tests/java/quantumforge/input/validation/QEDeckDialectTest.java" || exit 1
 
 { find "$TMPROOT/testclasses" -name '*.class' | sed "s|$TMPROOT/testclasses/||; s|\.class$||; s|/|.|g; s|\$.*$||" | sort -u
   echo quantumforge.input.validation.QESchemaValidatorTest
@@ -113,5 +114,6 @@ javac -nowarn -encoding UTF-8 -cp "$TMPROOT/newcls:$TMPROOT/schemacls:$TMPROOT/q
   echo quantumforge.input.QEHubbardPlannerTest
   echo quantumforge.input.CpInputPlannerTest
   echo quantumforge.input.validation.QECardAuditTest
-  echo quantumforge.input.schema.QECardSchemaTest; } | sort -u > "$TMPROOT/run_all.txt"
+  echo quantumforge.input.schema.QECardSchemaTest
+  echo quantumforge.input.validation.QEDeckDialectTest; } | sort -u > "$TMPROOT/run_all.txt"
 echo "setup complete: $(find $TMPROOT/qfclasses -name '*.class' | wc -l) main classes, $(wc -l < $TMPROOT/run_all.txt) runnable test classes"

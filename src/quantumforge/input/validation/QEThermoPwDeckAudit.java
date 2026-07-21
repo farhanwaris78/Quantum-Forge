@@ -60,6 +60,16 @@ public final class QEThermoPwDeckAudit {
     public static final String CODE_FLEXT_REMAPPED = "THERMO_VALUE_REMAPPED";
     /** WARNING: value shape mismatches the inferred-from-default type. */
     public static final String CODE_TYPE_MISMATCH = "THERMO_TYPE_MISMATCH";
+    /** ERROR: keyword valid in the grammar but absent at the pinned release. */
+    public static final String CODE_ABSENT_AT_VERSION = "THERMO_ABSENT_AT_VERSION";
+    /** ERROR: what valid in the union but not dispatchable at the release. */
+    public static final String CODE_WHAT_ABSENT_AT_VERSION = "THERMO_WHAT_ABSENT_AT_VERSION";
+    /** ERROR: lgruneisen_gen requires lmurn=.FALSE. (verbatim, since 2.1.0). */
+    public static final String CODE_GRUNEISEN_LMURN = "THERMO_GRUNEISEN_LMURN";
+    /** ERROR: lgruneisen_gen requires what='mur_lc_t' (verbatim, since 2.1.0). */
+    public static final String CODE_GRUNEISEN_WHAT = "THERMO_GRUNEISEN_WHAT";
+    /** WARNING: lgruneisen_gen silently overwrites poly_degree_ph/thermo. */
+    public static final String CODE_GRUNEISEN_SILENT = "THERMO_GRUNEISEN_SILENT";
 
     private static final Pattern INTEGER_LITERAL = Pattern.compile("[+-]?\\d+");
     private static final Pattern REAL_LITERAL = Pattern.compile(
@@ -78,7 +88,19 @@ public final class QEThermoPwDeckAudit {
      * the bound refuse with one CODE_TEXT_LIMIT-style warning — never a
      * silent truncation.
      */
+    /** Newest-window audit (the fingerprinted master column), stated by callers. */
     public List<ValidationIssue> auditDeckText(String deckText) {
+        return auditDeckText(deckText, null);
+    }
+
+    /**
+     * Version-pinned audit: keyword/what/type adjudication follows the mined
+     * presence window (a keyword absent at the pinned release aborts there
+     * exactly like an unknown one - the same fatal READ path). An unknown or
+     * null version label falls back to the newest window end ("master").
+     */
+    public List<ValidationIssue> auditDeckText(String deckText, String version) {
+        String pinned = effectiveVersion(version);
         if (deckText == null || deckText.isBlank()) {
             return List.of();
         }
@@ -90,6 +112,10 @@ public final class QEThermoPwDeckAudit {
                             + "; it was NOT audited - split or trim instead of trusting"
                             + " a silent truncation.",
                     QEThermoPwSchema.DOCS_URL));
+        }
+        if (QEDeckDialect.looksLikeXmlDeck(deckText)) {
+            return List.of(QEDeckDialect.boundaryIssue(
+                    "thermo_pw thermo_control grammar audit", QEThermoPwSchema.DOCS_URL));
         }
         QEInputReader reader = new QEInputReader();
         reader.appendInputData(deckText);
@@ -127,18 +153,28 @@ public final class QEThermoPwDeckAudit {
                             + " covers the mined grammar of a thermo_control file.",
                     QEThermoPwSchema.DOCS_URL));
         }
-        return auditPairs(pairs);
+        return auditPairs(pairs, pinned);
+    }
+
+    /** Newest-window pairs audit (legacy entry point of batch 156). */
+    public List<ValidationIssue> auditPairs(Map<String, String> pairs) {
+        return auditPairs(pairs, effectiveVersion(null));
     }
 
     /**
-     * Core audit on (keyword -> verbatim value) pairs; null pairs NPE toward
-     * an explicit empty deck rather than a fabricated verdict.
+     * Core audit on (keyword -> verbatim value) pairs at a pinned window
+     * label; null pairs NPE toward an explicit empty deck rather than a
+     * fabricated verdict.
      */
-    public List<ValidationIssue> auditPairs(Map<String, String> pairs) {
+    public List<ValidationIssue> auditPairs(Map<String, String> pairs, String version) {
         Objects.requireNonNull(pairs, "pairs");
+        String pinned = effectiveVersion(version);
         java.util.List<ValidationIssue> issues = new java.util.ArrayList<>();
         String what = null;
         boolean aggregateTogether = false;
+        boolean gruneisen = false;
+        boolean lmurnTrue = false;
+        String ggrunRecipe = null;
         for (Map.Entry<String, String> kv : pairs.entrySet()) {
             String keyword = kv.getKey();
             String rawValue = kv.getValue() == null ? "" : kv.getValue().trim();
@@ -160,6 +196,23 @@ public final class QEThermoPwDeckAudit {
             // Trim like the binary's TRIM(): what=' ' is the uninitialized
             // default and hits 'what must be initialized', not the reject set.
             String value = stripQuotes(rawValue).trim();
+            if (!entry.presentIn(pinned)) {
+                // Same fatal READ path as an unknown keyword, at THIS release.
+                int pinnedBit = 1 << QEThermoPwSchema.indexOfVersion(pinned);
+                String when = entry.getVersionMask() < pinnedBit
+                        ? "removed from the NAMELIST after "
+                        + QEThermoPwSchema.lastPresentLabel(entry.getVersionMask())
+                        : "first declared in "
+                        + QEThermoPwSchema.firstPresentLabel(entry.getVersionMask());
+                issues.add(new ValidationIssue(ValidationSeverity.ERROR,
+                        CODE_ABSENT_AT_VERSION,
+                        "&INPUT_THERMO." + keyword + " is not declared in thermo_pw "
+                                + pinned + " (" + when + " in the mined window): at "
+                                + pinned + " the namelist READ aborts exactly like an"
+                                + " unknown keyword - remove it for that release.",
+                        QEThermoPwSchema.DOCS_URL));
+                continue;
+            }
             if ("what".equalsIgnoreCase(entry.getName())) {
                 what = value;
                 if (value.isEmpty()) {
@@ -177,11 +230,30 @@ public final class QEThermoPwDeckAudit {
                                     + " recognized'), and the comparison is case-significant"
                                     + " Fortran string equality.",
                             QEThermoPwSchema.DOCS_URL));
+                } else if (!QEThermoPwSchema.whatPresentIn(value, pinned)) {
+                    issues.add(new ValidationIssue(ValidationSeverity.ERROR,
+                            CODE_WHAT_ABSENT_AT_VERSION,
+                            "what = '" + value + "' exists in the mined union but is NOT"
+                                    + " dispatchable in thermo_pw " + pinned
+                                    + " (it first appears in "
+                                    + QEThermoPwSchema.firstPresentLabel(
+                                            QEThermoPwSchema.whatMask(value))
+                                    + "): at " + pinned + " the part-1 SELECT CASE ends in"
+                                    + " errore('what not recognized').",
+                            QEThermoPwSchema.DOCS_URL));
                 }
             } else if ("all_geometries_together".equalsIgnoreCase(entry.getName())) {
                 String normalized = value.toLowerCase(Locale.ROOT);
                 // Fortran truth forms only: ".false." contains a "t" too.
                 aggregateTogether = ".true.".equals(normalized) || ".t.".equals(normalized);
+            } else if ("lgruneisen_gen".equalsIgnoreCase(entry.getName())) {
+                String normalized = value.toLowerCase(Locale.ROOT);
+                gruneisen = ".true.".equals(normalized) || ".t.".equals(normalized);
+            } else if ("lmurn".equalsIgnoreCase(entry.getName())) {
+                String normalized = value.toLowerCase(Locale.ROOT);
+                lmurnTrue = ".true.".equals(normalized) || ".t.".equals(normalized);
+            } else if ("ggrun_recipe".equalsIgnoreCase(entry.getName())) {
+                ggrunRecipe = value;
             } else if ("flext".equalsIgnoreCase(entry.getName())
                     && !"'.pdf'".equalsIgnoreCase(rawValue) && !".pdf".equalsIgnoreCase(value)) {
                 issues.add(new ValidationIssue(ValidationSeverity.WARNING, CODE_FLEXT_REMAPPED,
@@ -190,7 +262,34 @@ public final class QEThermoPwDeckAudit {
                                 + " pdf figures, '.ps' if you want postscript.",
                         QEThermoPwSchema.DOCS_URL));
             }
-            auditTypeShape(entry, value, issues);
+            auditTypeShape(entry, value, pinned, issues);
+        }
+        if (gruneisen && gruneisenRuleExists(pinned)) {
+            // Verbatim consistency rules mined at 2.1.0+ (mask-guarded).
+            if (lmurnTrue) {
+                issues.add(new ValidationIssue(ValidationSeverity.ERROR,
+                        CODE_GRUNEISEN_LMURN,
+                        "lgruneisen_gen=.true. with lmurn=.true.: thermo_readin at "
+                                + pinned + " aborts with"
+                                + " 'lgruneisen_gen requires lmurn=.FALSE.'.",
+                        QEThermoPwSchema.DOCS_URL));
+            }
+            if (what != null && !"mur_lc_t".equals(what)) {
+                issues.add(new ValidationIssue(ValidationSeverity.ERROR,
+                        CODE_GRUNEISEN_WHAT,
+                        "lgruneisen_gen=.true. with what='" + what + "': thermo_readin at "
+                                + pinned + " aborts with 'lgruneisen_gen requires what='"
+                                + "'mur_lc_t'''.",
+                        QEThermoPwSchema.DOCS_URL));
+            }
+            issues.add(new ValidationIssue(ValidationSeverity.WARNING,
+                    CODE_GRUNEISEN_SILENT,
+                    "lgruneisen_gen=.true. SILENTLY overwrites poly_degree_ph and"
+                            + " poly_degree_thermo at " + pinned
+                            + " (to 2, or to 1 when ggrun_recipe==1; current ggrun_recipe="
+                            + (ggrunRecipe == null ? "(unset -> mined default 2)" : ggrunRecipe)
+                            + ") - explicitly set values are ignored by the code.",
+                    QEThermoPwSchema.DOCS_URL));
         }
         if (aggregateTogether && what != null
                 && !"mur_lc_t".equals(what) && !"elastic_constants_geo".equals(what)) {
@@ -210,8 +309,10 @@ public final class QEThermoPwDeckAudit {
     }
 
     private void auditTypeShape(QEThermoPwSchema.Entry entry, String value,
-            List<ValidationIssue> issues) {
-        boolean ok = switch (entry.getType()) {
+            String pinned, List<ValidationIssue> issues) {
+        QEThermoPwSchema.Type type = entry.typeAt(pinned);
+        String defaultText = entry.defaultAt(pinned);
+        boolean ok = switch (type) {
             case LOGICAL -> LOGICAL_LITERAL.matcher(value).matches();
             case INTEGER -> INTEGER_LITERAL.matcher(value).matches();
             case REAL -> REAL_LITERAL.matcher(value).matches();
@@ -220,12 +321,26 @@ public final class QEThermoPwDeckAudit {
         if (!ok) {
             issues.add(new ValidationIssue(ValidationSeverity.WARNING, CODE_TYPE_MISMATCH,
                     "&INPUT_THERMO." + entry.getName() + " = '" + value + "' does not look "
-                            + "like a " + entry.getType() + " literal; the type is INFERRED"
-                            + " from the mined default " + entry.getDefaultText()
+                            + "like a " + type + " literal at thermo_pw " + pinned
+                            + "; the type is INFERRED from the mined default " + defaultText
                             + " (advisory, not a Fortran declaration) - the real read failure"
                             + " would surface as a fatal namelist read error.",
                     QEThermoPwSchema.DOCS_URL));
         }
+    }
+
+    private static String effectiveVersion(String version) {
+        if (version != null && QEThermoPwSchema.indexOfVersion(version) >= 0) {
+            return version.trim();
+        }
+        return QEThermoPwSchema.VERSIONS.get(QEThermoPwSchema.VERSIONS.size() - 1);
+    }
+
+    /** True when the pinned release carries the mined gruneisen rules (2.1.0+). */
+    private static boolean gruneisenRuleExists(String pinned) {
+        java.util.Optional<QEThermoPwSchema.Entry> keyword =
+                QEThermoPwSchema.lookup("lgruneisen_gen");
+        return keyword.isPresent() && keyword.get().presentIn(pinned);
     }
 
     private static String stripQuotes(String rawValue) {

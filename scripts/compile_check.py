@@ -775,6 +775,44 @@ def main() -> int:
     if not (ROOT / "scripts/qe_card_schema_miner.py").is_file():
         error("card schema miner script missing (batch 157 provenance)")
 
+    # Batch 158 (QE-roadmap R6 slice 2): thermo_pw 7-column tag window.
+    tpwSchemaText2 = tpwSchema.read_text(encoding="utf-8")
+    if '"2.0.0", "2.0.1", "2.0.2", "2.0.3", "2.1.0", "2.1.1", "master"' not in tpwSchemaText2 \
+            or "presentIn" not in tpwSchemaText2 or "factsForVersion" not in tpwSchemaText2 \
+            or "Integer.decode(" not in tpwSchemaText2:
+        error("QEThermoPwSchema lost the batch-158 tag window / drift view / decode fix")
+    tpwDataText2 = tpwData.read_text(encoding="utf-8")
+    if "~0x40" not in tpwDataText2 or "2.0.0:LOGICAL:.TRUE." not in tpwDataText2 \
+            or "0x70" not in tpwDataText2:
+        error("QEThermoPwSchemaData lost the batch-158 masks / old_ec drift / gruneisen window")
+    tpwAuditText2 = tpwAudit.read_text(encoding="utf-8")
+    if "THERMO_ABSENT_AT_VERSION" not in tpwAuditText2 \
+            or "THERMO_GRUNEISEN_WHAT" not in tpwAuditText2 \
+            or "auditDeckText(String deckText, String version)" not in tpwAuditText2:
+        error("QEThermoPwDeckAudit lost the batch-158 version-pinned adjudication")
+    cardSchemaT2 = cardSchema.read_text(encoding="utf-8")
+    if "Integer.decode(" not in cardSchemaT2:
+        error("QECardSchema lost the 0x-prefixed mask decode batch-158 honesty repair")
+
+    # Batch 158 (QE-roadmap R5): qexsd/XML dialect boundary for grammar audits.
+    dialect = SRC / "quantumforge/input/validation/QEDeckDialect.java"
+    if not dialect.is_file():
+        error("batch-158 QEDeckDialect sniffer missing (R5 boundary)")
+    else:
+        dialectText = dialect.read_text(encoding="utf-8")
+        if "looksLikeXmlDeck" not in dialectText or "DECK_XML_DIALECT" not in dialectText \
+                or "*.in" not in dialectText:
+            error("QEDeckDialect lost its conservative XML boundary contract (batch 158)")
+    cardAuditText = cardAudit.read_text(encoding="utf-8")
+    if "looksLikeXmlDeck" not in cardAuditText:
+        error("QECardAudit lost the batch-158 XML boundary wiring")
+    tpwAuditText3 = tpwAudit.read_text(encoding="utf-8")
+    if "looksLikeXmlDeck" not in tpwAuditText3:
+        error("QEThermoPwDeckAudit lost the batch-158 XML boundary wiring")
+    schemaVal = SRC / "quantumforge/input/validation/QESchemaValidator.java"
+    if "looksLikeXmlDeck" not in schemaVal.read_text(encoding="utf-8"):
+        error("QESchemaValidator.validateDeckText lost the batch-158 XML boundary wiring")
+
     cap = (SRC / "quantumforge/capability/CapabilityRegistry.java").read_text(encoding="utf-8")
     if "Strict known_hosts" not in cap:
         error("CapabilityRegistry SSH status not updated")

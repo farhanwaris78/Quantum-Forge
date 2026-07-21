@@ -27,6 +27,90 @@ class QEThermoPwDeckAuditTest {
                 + "/\n";
         List<ValidationIssue> issues = new QEThermoPwDeckAudit().auditDeckText(deck);
         assertTrue(issues.isEmpty(), () -> "unexpected findings: " + issues);
+        // the same deck pins cleanly at every window label it uses:
+        assertTrue(new QEThermoPwDeckAudit().auditDeckText(deck, "2.0.0").isEmpty());
+        assertTrue(new QEThermoPwDeckAudit().auditDeckText(deck, "2.1.1").isEmpty());
+        assertTrue(new QEThermoPwDeckAudit().auditDeckText(deck, "master").isEmpty());
+    }
+
+    @Test
+    void masterOnlyKeywordsAreFatalAtOlderPinnedReleases() {
+        String deck = "&INPUT_THERMO\n   what = 'mur_lc_t'\n   ltau_from_file = .true.\n/\n";
+        assertTrue(new QEThermoPwDeckAudit().auditDeckText(deck, "master").isEmpty());
+        List<ValidationIssue> issues = new QEThermoPwDeckAudit().auditDeckText(deck, "2.1.1");
+        assertTrue(hasCode(issues, QEThermoPwDeckAudit.CODE_ABSENT_AT_VERSION),
+                issues.toString());
+        ValidationIssue issue = issues.stream()
+                .filter(i -> i.getCode().equals(QEThermoPwDeckAudit.CODE_ABSENT_AT_VERSION))
+                .findFirst().orElseThrow();
+        assertTrue(issue.getMessage().contains("first declared in master"),
+                issue.getMessage());
+        assertEquals(ValidationSeverity.ERROR, issue.getSeverity(),
+                "at 2.1.1 the namelist READ aborts exactly like an unknown keyword");
+
+        // tag-only keywords get the removed-after reading at master:
+        String eps = "&INPUT_THERMO\n   what = 'scf_elastic_constants'\n   epsilon_0 = 0.0\n/\n";
+        List<ValidationIssue> masterIssues =
+                new QEThermoPwDeckAudit().auditDeckText(eps, "master");
+        assertTrue(hasCode(masterIssues, QEThermoPwDeckAudit.CODE_ABSENT_AT_VERSION),
+                masterIssues.toString());
+        assertTrue(masterIssues.stream()
+                .filter(i -> i.getCode().equals(QEThermoPwDeckAudit.CODE_ABSENT_AT_VERSION))
+                .findFirst().orElseThrow().getMessage().contains("removed"),
+                "epsilon_0 was removed from the NAMELIST before master");
+        assertTrue(new QEThermoPwDeckAudit().auditDeckText(eps, "2.1.1").isEmpty());
+    }
+
+    @Test
+    void magneticWhatValuesDispatchOnlyAtMaster() {
+        String deck = "&INPUT_THERMO\n   what = 'scf_magnetic_susceptibility'\n/\n";
+        assertTrue(new QEThermoPwDeckAudit().auditDeckText(deck, "master").isEmpty());
+        List<ValidationIssue> issues = new QEThermoPwDeckAudit().auditDeckText(deck, "2.1.1");
+        assertTrue(hasCode(issues, QEThermoPwDeckAudit.CODE_WHAT_ABSENT_AT_VERSION),
+                issues.toString());
+        assertTrue(issues.stream()
+                .filter(i -> i.getCode().equals(QEThermoPwDeckAudit.CODE_WHAT_ABSENT_AT_VERSION))
+                .findFirst().orElseThrow().getMessage().contains("first appears in master"));
+    }
+
+    @Test
+    void gruneisenRulesBindFrom21xAndAreMaskGuarded() {
+        String bad = "&INPUT_THERMO\n   what = 'mur_lc'\n"
+                + "   lgruneisen_gen = .true.\n   lmurn = .true.\n/\n";
+        List<ValidationIssue> issues = new QEThermoPwDeckAudit().auditDeckText(bad, "2.1.1");
+        assertTrue(hasCode(issues, QEThermoPwDeckAudit.CODE_GRUNEISEN_LMURN), issues.toString());
+        assertTrue(hasCode(issues, QEThermoPwDeckAudit.CODE_GRUNEISEN_WHAT), issues.toString());
+        assertTrue(hasCode(issues, QEThermoPwDeckAudit.CODE_GRUNEISEN_SILENT),
+                "the silent poly_degree overwrite is always reported when active");
+
+        // at 2.0.3 the keyword itself is absent -> a DIFFERENT fatal code, and
+        // the gruneisen cross-rules stay silent (they don't exist there).
+        List<ValidationIssue> old = new QEThermoPwDeckAudit().auditDeckText(bad, "2.0.3");
+        assertTrue(hasCode(old, QEThermoPwDeckAudit.CODE_ABSENT_AT_VERSION), old.toString());
+        assertFalse(hasCode(old, QEThermoPwDeckAudit.CODE_GRUNEISEN_LMURN));
+        assertFalse(hasCode(old, QEThermoPwDeckAudit.CODE_GRUNEISEN_WHAT));
+
+        // the sanctioned combination stays clean on the cross-rules:
+        String good = "&INPUT_THERMO\n   what = 'mur_lc_t'\n"
+                + "   lgruneisen_gen = .true.\n/\n";
+        List<ValidationIssue> goodIssues =
+                new QEThermoPwDeckAudit().auditDeckText(good, "2.1.0");
+        assertFalse(hasCode(goodIssues, QEThermoPwDeckAudit.CODE_GRUNEISEN_LMURN));
+        assertFalse(hasCode(goodIssues, QEThermoPwDeckAudit.CODE_GRUNEISEN_WHAT));
+        assertTrue(hasCode(goodIssues, QEThermoPwDeckAudit.CODE_GRUNEISEN_SILENT),
+                "the silent overwrite remains WARNED even in the valid combination");
+    }
+
+    @Test
+    void typeAdjudicationUsesThePinnedRelease() {
+        // old_ec is LOGICAL('.TRUE.') at 2.0.0 and INTEGER(0) since 2.0.1:
+        String deck = "&INPUT_THERMO\n   what = 'scf_elastic_constants'\n   old_ec = .true.\n/\n";
+        List<ValidationIssue> at200 = new QEThermoPwDeckAudit().auditDeckText(deck, "2.0.0");
+        assertFalse(hasCode(at200, QEThermoPwDeckAudit.CODE_TYPE_MISMATCH),
+                ".true. IS the mined 2.0.0 shape: " + at200);
+        List<ValidationIssue> atMaster = new QEThermoPwDeckAudit().auditDeckText(deck, "master");
+        assertTrue(hasCode(atMaster, QEThermoPwDeckAudit.CODE_TYPE_MISMATCH),
+                ".true. is not an integer literal at master: " + atMaster);
     }
 
     @Test

@@ -2913,8 +2913,9 @@ public final class ResultAnalysisService {
         StringBuilder text = new StringBuilder();
         List<String> csv = new ArrayList<>();
         text.append(String.format(Locale.ROOT,
-                "== thermo_pw thermo_control grammar audit (mined &INPUT_THERMO: %d keywords,"
-                        + " %d accepted what values) ==%n",
+                "== thermo_pw thermo_control grammar audit (mined &INPUT_THERMO: %d keywords"
+                        + " in the window union, %d accepted what values; window tags 2.0.0..2.1.1"
+                        + " + fingerprinted master, pinned here at master) ==%n",
                 QEThermoPwSchema.entryCount(), QEThermoPwSchema.whatAcceptedValues().size()));
         text.append("Source: ").append(source.getName()).append('\n');
         csv.add("thermo-deck-audit,severity,code,message");
@@ -2949,12 +2950,13 @@ public final class ResultAnalysisService {
                 errors, warnings));
         text.append("\nHonesty boundary: this is a GRAMMAR audit, never a physics or"
                 + " convergence review. Group labels are the thermo_pw code's own bookkeeping"
-                + " comments (a navigation aid, not a law); unlike the QE 7.2-7.6 pw/ph/hp"
-                + " schema there is NO per-version window here - the grammar carries commit"
-                + " provenance (see the QEThermoPwSchemaData header) and any version layer"
-                + " will announce itself when mined. Defaults shown are the procedural"
-                + " assignments (last-assignment-wins); the audit is the grammar, not a"
-                + " thermodynamics result.\n");
+                + " comments (a navigation aid, not a law). The grammar window is"
+                + " thermo_pw-tag-indexed (2.0.0 .. 2.1.1 + the fingerprinted development"
+                + " master; batch-158 masks per keyword/what/fact, drift verbatim) and"
+                + " this report pins the master column - a release-specific adjudication"
+                + " belongs to the version-pinned audit API, not this auto-route. Defaults"
+                + " shown are the procedural assignments (last-assignment-wins); the audit"
+                + " is the grammar, not a thermodynamics result.\n");
         return new AnalysisReport(label, errors == 0, text.toString(), csv, null);
     }
 

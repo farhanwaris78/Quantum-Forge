@@ -113,6 +113,10 @@ public final class QESchemaValidator {
                             + "trusting a silent truncation.",
                     null));
         }
+        if (QEDeckDialect.looksLikeXmlDeck(deckText)) {
+            return List.of(QEDeckDialect.boundaryIssue(
+                    "QE extension-deck grammar audit", null));
+        }
         QEInputReader reader = new QEInputReader();
         reader.appendInputData(deckText);
         Map<String, Map<String, String>> pairs = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);

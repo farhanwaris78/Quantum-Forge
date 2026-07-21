@@ -100,6 +100,10 @@ public final class QECardAudit {
                     QECardSchema.INPUT_CARD_URL));
         }
         String effectiveVersion = effectiveVersion(version);
+        if (QEDeckDialect.looksLikeXmlDeck(deckText)) {
+            return List.of(QEDeckDialect.boundaryIssue(
+                    "pw.x card grammar audit", QECardSchema.INPUT_CARD_URL));
+        }
         List<ValidationIssue> issues = new ArrayList<>();
         List<String> lines = deckText.lines().toList();
         boolean inNamelist = false;
