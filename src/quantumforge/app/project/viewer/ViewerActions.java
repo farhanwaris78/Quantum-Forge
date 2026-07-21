@@ -27,6 +27,7 @@ import quantumforge.app.project.QEFXProjectController;
 import quantumforge.app.project.viewer.atoms.AtomsAction;
 import quantumforge.app.project.viewer.auxdeck.QEFXAuxDeckDialog;
 import quantumforge.app.project.viewer.rocrate.QEFXRoCratePackDialog;
+import quantumforge.app.project.viewer.thermopw.QEFXThermoPwLiveDialog;
 import quantumforge.app.project.viewer.designer.DesignerAction;
 import quantumforge.app.project.viewer.inputfile.QEFXInputFile;
 import quantumforge.app.project.viewer.modeler.ModelerAction;
@@ -212,6 +213,9 @@ public class ViewerActions extends ProjectActions<Node> {
 
             } else if (item == this.itemSet.getRoCratePackItem()) {
                 this.actions.put(item, controller2 -> this.actionRoCratePack(controller2));
+
+            } else if (item == this.itemSet.getThermoPwLiveItem()) {
+                this.actions.put(item, controller2 -> this.actionThermoPwLive(controller2));
 
             } else if (item == this.itemSet.getDiagnoseLogItem()) {
                 this.actions.put(item, controller2 -> this.actionDiagnoseLog(controller2));
@@ -721,6 +725,27 @@ public class ViewerActions extends ProjectActions<Node> {
         alert.setHeaderText(header);
         alert.setContentText(message);
         alert.showAndWait();
+    }
+
+    /**
+     * thermo_pw doc integration, live-graphical slice: opens the thermo_pw
+     * LIVE monitor. The panel watches one explicitly chosen run directory and
+     * redraws the run's own plot-data files as they grow (mur_lc E(V), the
+     * per-geometry harmonic E/F/S/Cv(T) tables, and the mur_lc_t sidecars
+     * beta/B_T/gamma/heat when they appear), with the restart-token task
+     * counter. It reads only through the tested scanner/parser, keeps partial
+     * write rows back until complete, keeps all units verbatim, polls every
+     * 2 s on a stoppable timer, writes nothing, starts nothing.
+     */
+    private void actionThermoPwLive(QEFXProjectController controller) {
+        if (controller == null) {
+            return;
+        }
+        QEFXThermoPwLiveDialog dialog = new QEFXThermoPwLiveDialog();
+        if (controller.getStage() != null) {
+            dialog.initOwner(controller.getStage());
+        }
+        dialog.showAndWait();
     }
 
     /** Parses an explicit QE gap summary; it never infers directness from a total DOS. */

@@ -33,6 +33,7 @@ public class ViewerItemSet {
     private ViewerItem tensorSurfaceItem;
     private ViewerItem transportChartItem;
     private ViewerItem roCratePackItem;
+    private ViewerItem thermoPwLiveItem;
     private ViewerItem diagnoseLogItem;
     private ViewerItem bandGapItem;
     private ViewerItem finalGeometryItem;
@@ -61,6 +62,7 @@ public class ViewerItemSet {
         this.tensorSurfaceItem = new ViewerItem(SVGData.RESULT, "Tensor surface viewer ...");
         this.transportChartItem = new ViewerItem(SVGData.RESULT, "Transport chart viewer ...");
         this.roCratePackItem = new ViewerItem(SVGData.RESULT, "Pack RO-Crate folder ...");
+        this.thermoPwLiveItem = new ViewerItem(SVGData.TOOL, "thermo_pw live monitor ...");
         this.diagnoseLogItem = new ViewerItem(SVGData.RESULT, "Diagnose QE log");
         this.bandGapItem = new ViewerItem(SVGData.RESULT, "Analyze band gap from QE log");
         this.finalGeometryItem = new ViewerItem(SVGData.ATOMS, "Preview final geometry");
@@ -91,6 +93,7 @@ public class ViewerItemSet {
                 this.tensorSurfaceItem,
                 this.transportChartItem,
                 this.roCratePackItem,
+                this.thermoPwLiveItem,
                 this.diagnoseLogItem,
                 this.bandGapItem,
                 this.finalGeometryItem,
@@ -174,6 +177,10 @@ public ViewerItem getSaveAsFileItem() {
 
     public ViewerItem getRoCratePackItem() {
         return this.roCratePackItem;
+    }
+
+    public ViewerItem getThermoPwLiveItem() {
+        return this.thermoPwLiveItem;
     }
 
     public ViewerItem getDiagnoseLogItem() {

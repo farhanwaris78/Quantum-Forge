@@ -1008,6 +1008,45 @@ def main() -> int:
     if not (ROOT / "tests/java/quantumforge/export/RoCratePackerTest.java").is_file():
         error("batch-164 packer test missing")
 
+    # Batch 165 (thermo_pw doc triple + live graphics): thermo_pw doc-grounded
+    # series parser + run scanner + live monitor dialog. Rows/units pinned to
+    # the upstream example04/05/09 references at commit b73edd6.
+    tpwParser = SRC / "quantumforge/run/parser/QEThermoPwSeriesParser.java"
+    if not tpwParser.is_file():
+        error("batch-165 QEThermoPwSeriesParser missing (thermo_pw series grammar)")
+    else:
+        tpwParserText = tpwParser.read_text(encoding="utf-8")
+        for needle in ("EV_CURVE", "MUR_FIT", "THERMO_HARMONIC", "ANHARM_THERM",
+                       "ANHARM_MAIN", "ANHARM_BULK", "ANHARM_HEAT", "ANHARM_GAMMA",
+                       "THERMOPW_HEADER", "THERMOPW_CORRUPT", "getPartialTailRows",
+                       "cross-pinned"):
+            if needle not in tpwParserText:
+                error(f"QEThermoPwSeriesParser lost a pinned grammar element: {needle} (batch 165)")
+    tpwScanner = SRC / "quantumforge/run/parser/QEThermoPwRunScanner.java"
+    if not tpwScanner.is_file():
+        error("batch-165 QEThermoPwRunScanner missing (run-directory census)")
+    else:
+        tpwScannerText = tpwScanner.read_text(encoding="utf-8")
+        if "no task total is fabricated" not in tpwScannerText \
+                or "getExplicitNgeoProduct" not in tpwScannerText \
+                or "signature" not in tpwScannerText or "uninterpreted" not in tpwScannerText:
+            error("QEThermoPwRunScanner lost the honest census (batch 165)")
+    tpwDialog = SRC / "quantumforge/app/project/viewer/thermopw/QEFXThermoPwLiveDialog.java"
+    if not tpwDialog.is_file():
+        error("batch-165 QEFXThermoPwLiveDialog missing (live monitor)")
+    else:
+        tpwDialogText = tpwDialog.read_text(encoding="utf-8")
+        if "Timeline" not in tpwDialogText or "pollLive" not in tpwDialogText \
+                or "partial write row" not in tpwDialogText or "signature" not in tpwDialogText:
+            error("QEFXThermoPwLiveDialog lost the live-polling contract (batch 165)")
+    if "getThermoPwLiveItem" not in itemSetText or "thermo_pw live monitor ..." not in itemSetText:
+        error("ViewerItemSet lost the batch-165 thermo_pw live menu item")
+    if "actionThermoPwLive" not in vactText2 or "QEFXThermoPwLiveDialog" not in vactText2:
+        error("ViewerActions lost the batch-165 thermo_pw live action wiring")
+    if not (ROOT / "tests/java/quantumforge/run/parser/QEThermoPwSeriesParserTest.java").is_file() \
+            or not (ROOT / "tests/java/quantumforge/run/parser/QEThermoPwRunScannerTest.java").is_file():
+        error("batch-165 parser/scanner tests missing")
+
     cap = (SRC / "quantumforge/capability/CapabilityRegistry.java").read_text(encoding="utf-8")
     if "Strict known_hosts" not in cap:
         error("CapabilityRegistry SSH status not updated")
