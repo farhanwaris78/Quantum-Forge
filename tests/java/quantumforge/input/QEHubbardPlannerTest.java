@@ -82,4 +82,63 @@ class QEHubbardPlannerTest {
                 QEHubbardPlanner.draft(context, 2, 2, QEHubbardPlanner.MAX_Q + 1).getCode());
         assertTrue(QEHubbardPlanner.draft(context, 1, 1, 1).isSuccess());
     }
+
+    @Test
+    void legacyDraftStaysByteIdenticalToThePreBatch154Shape() {
+        // The version-typed overload must not leak into the legacy path:
+        // no grammar-version line, no no_metq0, same first line as before.
+        QEHubbardPlanner.HubbardContext context =
+                QEHubbardPlanner.extractContext(inputWithHubbard()).getValue().orElseThrow();
+        String legacy = QEHubbardPlanner.draft(context, 2, 2, 2).getValue().orElseThrow();
+        assertTrue(legacy.startsWith("&INPUTHP"), legacy);
+        assertFalse(legacy.contains("Target QE grammar"), legacy);
+        assertFalse(legacy.contains("no_metq0"), legacy);
+    }
+
+    @Test
+    void versionTypedDraftNamesTheGrammarAndFailsClosedOnUnknownVersion() {
+        QEHubbardPlanner.HubbardContext context =
+                QEHubbardPlanner.extractContext(inputWithHubbard()).getValue().orElseThrow();
+        OperationResult<String> typed = QEHubbardPlanner.draft(context, 2, 2, 2, "7.4", false);
+        assertTrue(typed.isSuccess(), typed.getMessage());
+        String text = typed.getValue().orElseThrow();
+        assertTrue(text.startsWith("&INPUTHP"), text);
+        assertTrue(text.contains("nq1 = 2,"), text);
+        assertTrue(text.contains("Target QE grammar: 7.4 (caller-pinned; mined window)"), text);
+        assertFalse(text.contains("'last_q' is internal-only"),
+                "the 7.6 drift note is windowed to 7.6: " + text);
+
+        String newest = QEHubbardPlanner.draft(context, 2, 2, 2, null, false)
+                .getValue().orElseThrow();
+        assertTrue(newest.contains("Target QE grammar: 7.6 (newest mined window"), newest);
+        assertTrue(newest.contains("'last_q' is internal-only"), newest);
+
+        assertEquals("HP_VERSION",
+                QEHubbardPlanner.draft(context, 2, 2, 2, "6.6", false).getCode());
+    }
+
+    @Test
+    void noMetq0IsVersionGatedExactlyAtTheMinedBoundary() {
+        QEHubbardPlanner.HubbardContext context =
+                QEHubbardPlanner.extractContext(inputWithHubbard()).getValue().orElseThrow();
+        OperationResult<String> refused = QEHubbardPlanner.draft(context, 2, 2, 2, "7.4", true);
+        assertFalse(refused.isSuccess());
+        assertEquals("HP_KEYWORD_WINDOW", refused.getCode());
+        assertTrue(refused.getMessage().contains("7.5-7.6"), refused.getMessage());
+        assertTrue(refused.getMessage().contains("aborts on an unknown"),
+                refused.getMessage());
+
+        OperationResult<String> accepted = QEHubbardPlanner.draft(context, 2, 2, 2,
+                "7.5", true);
+        assertTrue(accepted.isSuccess(), accepted.getMessage());
+        String text = accepted.getValue().orElseThrow();
+        assertTrue(text.contains("no_metq0 = .true.,"), text);
+        assertTrue(text.contains("mined window 7.5-7.6"), text);
+    }
+
+    @Test
+    void typedSelfAuditAgreesWithTheMinedGrammar() {
+        assertTrue(QEHubbardPlanner.auditStaticEmissions().isEmpty(),
+                String.join("; ", QEHubbardPlanner.auditStaticEmissions()));
+    }
 }

@@ -21,3 +21,4 @@ docs/screenshots/
 /out/
 /target/
 /build/
+__pycache__/

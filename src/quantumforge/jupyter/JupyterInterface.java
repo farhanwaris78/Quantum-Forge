@@ -6,7 +6,7 @@ package quantumforge.jupyter;
 /**
  * Jupyter Interface for QuantumForge.
  * 
- * NanoLabo provides JupyterLab integration that enables:
+ * Provides JupyterLab integration that enables:
  * - Exchange atomic structures with ASE (Atomic Simulation Environment)
  * - Python-based workflow scripting
  * - Matlantis collaboration via PFP API

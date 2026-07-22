@@ -8,8 +8,8 @@ import java.util.List;
 
 /**
  * Collapsible sections and default value buttons for Input Editor.
- * 
- * NanoLabo's input editor provides:
+ *
+ * A production-grade input editor provides:
  * - Collapsible sections (expandable/collapsible panels)
  * - Default value buttons (reset to recommended values)
  * - Visual hierarchy for complex settings

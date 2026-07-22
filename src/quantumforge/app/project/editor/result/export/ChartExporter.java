@@ -5,12 +5,12 @@ package quantumforge.app.project.editor.result.export;
 
 /**
  * Chart export utilities for screenshots and CSV data.
- * 
- * NanoLabo provides:
+ *
+ * Provides:
  * - Screenshot export of plots (PNG)
  * - CSV data export of plotted data
  * - Plot appearance customization
- * 
+ *
  * This enables users to save results for publications.
  */
 public class ChartExporter {

@@ -42,11 +42,11 @@ class NebPathAuditTest {
         NebPathAudit.Audit audit = result.getValue().orElseThrow();
         assertEquals(3, audit.getFrames());
         assertEquals(2, audit.getAtomsPerFrame());
-        // per-atom displacement 0.25 along each axis: max = 0.25 (H/O equal),
-        // RMSD = sqrt(3 * 0.0625) = 0.4330127018922193 (verified in python)
+        // per-atom displacement vector magnitude = sqrt(3 * 0.0625) = 0.4330127018922193 (H/O equal),
+        // RMSD = sqrt(sum(|d_i|^2)/N) = 0.4330127018922193 (verified in python)
         for (NebPathAudit.PairMetrics pair : audit.getPairs()) {
             assertEquals(0.4330127018922193, pair.getRmsd(), 1e-12);
-            assertEquals(0.25, pair.getMaxDisp(), 1e-12);
+            assertEquals(0.4330127018922193, pair.getMaxDisp(), 1e-12);
         }
         assertEquals(1.0, audit.spacingRatio(), 1e-12,
                 "an even ladder has ratio exactly 1 - the 1.5 rule is an owned BOUND");
@@ -68,7 +68,8 @@ class NebPathAuditTest {
                 "the duplicated image pair (1->2) is NAMED by index, never averaged away");
         assertEquals(0.0, audit.getMinRmsd(), 1e-15);
         assertEquals(1.0, audit.getMaxRmsd(), 1e-15);
-        assertEquals(1, audit.getBestPairFrom());
+        // best = smallest-RMSD pair (the duplicate 0->1), worst = largest (1->2)
+        assertEquals(0, audit.getBestPairFrom());
         assertEquals(1, audit.getWorstPairFrom());
         assertTrue(Double.isInfinite(audit.spacingRatio()),
                 "a zero-RMSD pair makes the ratio honestly infinite");

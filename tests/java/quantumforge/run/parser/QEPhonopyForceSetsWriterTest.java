@@ -60,9 +60,9 @@ class QEPhonopyForceSetsWriterTest {
         // Forces on atom 1 under displacement 1
         assertTrue(lines[5].contains("-0.1500000000"));
 
-        // Second displacement block
-        assertEquals("3", lines[10].trim()); // displaced atom index (3)
-        assertTrue(lines[11].contains("0.0100000000")); // displacement vector along y
+        // Second displacement block (blank separator line 8, then atom index at 9)
+        assertEquals("3", lines[9].trim()); // displaced atom index (3)
+        assertTrue(lines[10].contains("0.0100000000")); // displacement vector along y
 
         // Write to file and check existence
         File tempFile = File.createTempFile("FORCE_SETS", "");

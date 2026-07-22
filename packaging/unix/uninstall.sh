@@ -38,7 +38,7 @@ if ((PURGE)); then
     echo "WARNING: --purge permanently deletes $HOME/.quantumforge, including projects and settings."
 fi
 printf 'Uninstall QuantumForge from %s? [y/N] ' "$INSTALL_ROOT"
-if ((YES)) && ((!PURGE)); then echo y; answer=y; else read -r answer; fi
+if ((YES)) && ((!PURGE)); then echo y; answer=y; else read -r answer || answer=''; fi
 [[ "$answer" =~ ^[Yy]$ ]] || { echo "Uninstall cancelled."; exit 0; }
 
 BIN_DIR="$(sed -n 's/^bin_dir=//p' "$APP_HOME/INSTALL_RECEIPT" | head -1)"

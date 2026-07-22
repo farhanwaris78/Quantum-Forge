@@ -86,7 +86,7 @@ class QEUnitsTest {
                 "energy and length never mix silently");
         assertEquals("UNIT_DOMAIN", QEUnits.convert(1.0, "gpa", "ry").getCode());
         assertEquals("UNIT_SYNTAX", QEUnits.convert(Double.NaN, "ev", "ry").getCode());
-        assertEquals("UNIT_SYNTAX", QEUnits.convert(1e309, "ev", "ha").getCode(),
+        assertEquals("UNIT_SYNTAX", QEUnits.convert(Double.POSITIVE_INFINITY, "ev", "ha").getCode(),
                 "non-finite input is refused before arithmetic");
         assertTrue(QEUnits.convert(1e308, "ha", "ev").getCode().equals("UNIT_SYNTAX"),
                 "overflow is refused, not reported as Infinity");

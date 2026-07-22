@@ -7,11 +7,10 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Autopilot AI model building assistant.
- * 
- * NanoLabo v3.0 introduced Autopilot - the world's first
- * material model generation AI, powered by ChatGPT/GPT-4o-mini.
- * 
+ * Autopilot model building assistant.
+ *
+ * Natural-language assisted material model generation.
+ *
  * This feature:
  * - Accepts natural language instructions
  * - Interprets material science concepts

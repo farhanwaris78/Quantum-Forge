@@ -15,15 +15,14 @@ import quantumforge.capability.ScientificFeatureUnavailableException;
 
 /**
  * Isosurface rendering for 3D volumetric data visualization.
- * 
- * NanoLabo provides 3D visualization of:
+ *
+ * Provides 3D visualization of:
  * - Charge density (total, difference)
  * - Electrostatic potential
  * - Spin polarization
  * - Wave functions
- * 
- * This class handles the data structures for isosurface/cloud rendering,
- * matching NanoLabo's 3D display functionality.
+ *
+ * This class handles the data structures for isosurface/cloud rendering.
  */
 public class IsosurfaceData {
 

@@ -12,7 +12,7 @@ import quantumforge.project.Project;
 /**
  * Local Job Manager for persistent job execution.
  * 
- * NanoLabo's Local Job Manager allows jobs to run independently
+ * The Local Job Manager allows jobs to run independently
  * of the GUI (surviving application restarts) using:
  * - Raw: direct execution with custom scripts
  * - PBS: local PBS/Torque execution

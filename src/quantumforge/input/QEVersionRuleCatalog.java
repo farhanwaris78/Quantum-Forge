@@ -27,8 +27,10 @@ import quantumforge.input.namelist.QEValue;
  *       automatic in the 7.x window).</li>
  * </ul>
  *
- * Machine-generated per-minor-version schemas with full keyword/type/range
- * coverage are the remaining #22 completeness work.
+ * The #22 completeness work LANDED in batch 150: the machine-generated,
+ * per-minor-version mined schema (QE 7.2-7.6, {@code quantumforge.input.schema.
+ * QENamelistSchema}). This curated slice stays as the readable baseline; new
+ * audits should consume the mined schema.
  */
 public final class QEVersionRuleCatalog {
 

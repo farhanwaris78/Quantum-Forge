@@ -25,6 +25,11 @@ import quantumforge.app.project.ProjectAction;
 import quantumforge.app.project.ProjectActions;
 import quantumforge.app.project.QEFXProjectController;
 import quantumforge.app.project.viewer.atoms.AtomsAction;
+import quantumforge.app.project.viewer.auxdeck.QEFXAuxDeckDialog;
+import quantumforge.app.project.viewer.rocrate.QEFXRoCratePackDialog;
+import quantumforge.app.project.viewer.thermopw.QEFXThermoPwLiveDialog;
+import quantumforge.app.project.viewer.elate.QEFXElateDialog;
+import quantumforge.app.project.viewer.phonopy.QEFXPhonopyDialog;
 import quantumforge.app.project.viewer.designer.DesignerAction;
 import quantumforge.app.project.viewer.inputfile.QEFXInputFile;
 import quantumforge.app.project.viewer.modeler.ModelerAction;
@@ -36,12 +41,20 @@ import quantumforge.app.project.viewer.run.RunEvent;
 import quantumforge.app.project.viewer.recovery.RecoveryAction;
 import quantumforge.app.project.viewer.save.SaveAction;
 import quantumforge.app.project.viewer.screenshot.QEFXScreenshotDialog;
+import quantumforge.app.project.viewer.tensor.QEFXTensorSurfaceDialog;
+import quantumforge.app.project.viewer.transport.QEFXBoltzTrap2Dialog;
+import quantumforge.app.project.viewer.transport.QEFXTransportChartDialog;
 import quantumforge.export.AtomicExporter;
+import quantumforge.export.RoCrateExporter;
+import quantumforge.export.RoCratePacker;
 import quantumforge.operation.OperationResult;
 import quantumforge.input.QEInput;
+import quantumforge.input.schema.QENamelistSchema;
 import quantumforge.input.validation.QEInputValidator;
+import quantumforge.input.validation.QESchemaValidator;
 import quantumforge.input.validation.ValidationIssue;
 import quantumforge.project.Project;
+import quantumforge.run.ResultAnalysisService;
 import quantumforge.run.parser.BandGapParser;
 import quantumforge.run.parser.FinalGeometryUpdater;
 import quantumforge.run.parser.QEErrorKnowledgeBase;
@@ -64,6 +77,9 @@ import javafx.scene.Node;
 import javafx.scene.control.Alert;
 import javafx.scene.control.Alert.AlertType;
 import javafx.scene.control.ButtonType;
+import javafx.scene.control.ChoiceDialog;
+import javafx.scene.input.Clipboard;
+import javafx.scene.input.ClipboardContent;
 import javafx.stage.FileChooser;
 import javafx.stage.Stage;
 
@@ -188,6 +204,30 @@ public class ViewerActions extends ProjectActions<Node> {
 
             } else if (item == this.itemSet.getValidateInputItem()) {
                 this.actions.put(item, controller2 -> this.actionValidateInput(controller2));
+
+            } else if (item == this.itemSet.getAuxDeckItem()) {
+                this.actions.put(item, controller2 -> this.actionAuxDeckBuilder(controller2));
+
+            } else if (item == this.itemSet.getTensorSurfaceItem()) {
+                this.actions.put(item, controller2 -> this.actionTensorSurfaceViewer(controller2));
+
+            } else if (item == this.itemSet.getTransportChartItem()) {
+                this.actions.put(item, controller2 -> this.actionTransportChartViewer(controller2));
+
+            } else if (item == this.itemSet.getBoltzTrap2StudioItem()) {
+                this.actions.put(item, controller2 -> this.actionBoltzTrap2Studio(controller2));
+
+            } else if (item == this.itemSet.getRoCratePackItem()) {
+                this.actions.put(item, controller2 -> this.actionRoCratePack(controller2));
+
+            } else if (item == this.itemSet.getThermoPwLiveItem()) {
+                this.actions.put(item, controller2 -> this.actionThermoPwLive(controller2));
+
+            } else if (item == this.itemSet.getElateItem()) {
+                this.actions.put(item, controller2 -> this.actionElate(controller2));
+
+            } else if (item == this.itemSet.getPhonopyItem()) {
+                this.actions.put(item, controller2 -> this.actionPhonopy(controller2));
 
             } else if (item == this.itemSet.getDiagnoseLogItem()) {
                 this.actions.put(item, controller2 -> this.actionDiagnoseLog(controller2));
@@ -465,7 +505,38 @@ public class ViewerActions extends ProjectActions<Node> {
         }
         this.project.resolveQEInputs();
         QEInput input = this.project.getQEInputCurrent();
-        List<ValidationIssue> issues = new QEInputValidator().validate(input);
+        List<ValidationIssue> issues = new java.util.ArrayList<>(
+                new QEInputValidator().validate(input));
+        // Batch 155 (QE-integration roadmap R2): the audit version is now a
+        // USER-PINNED choice - the mined grammar window the deck is checked
+        // against is the version the user will actually run, never a silent
+        // newest-only default. Cancelling runs nothing (consent doctrine).
+        String newestSchema = QENamelistSchema.VERSIONS
+                .get(QENamelistSchema.VERSIONS.size() - 1);
+        ChoiceDialog<String> versionDialog = new ChoiceDialog<>(newestSchema,
+                QENamelistSchema.VERSIONS);
+        versionDialog.setTitle("Mined-schema audit version");
+        versionDialog.setHeaderText("Audit the input against which QE grammar window?");
+        versionDialog.setContentText("QE version:");
+        String schemaVersion = versionDialog.showAndWait().orElse(null);
+        if (schemaVersion == null) {
+            return;
+        }
+        QESchemaValidator schemaValidator = new QESchemaValidator();
+        List<ValidationIssue> schemaIssues =
+                schemaValidator.validate(input, schemaVersion);
+        issues.addAll(schemaIssues);
+        // Batch 155 (QE-integration roadmap R1): the five pw.x extension decks
+        // (&FCP/&RISM/&WANNIER/&WANNIER_AC/&PRESS_AI) are audited from the
+        // RENDERED deck text through the same QEInputReader/QENamelist grammar
+        // the model path uses - a deck carrying them is no longer out of reach.
+        int extensionDeckIssues = 0;
+        if (input != null) {
+            List<ValidationIssue> deckIssues =
+                    schemaValidator.validateDeckText(input.toString(), schemaVersion);
+            extensionDeckIssues = deckIssues.size();
+            issues.addAll(deckIssues);
+        }
         boolean errors = QEInputValidator.hasErrors(issues);
         StringBuilder message = new StringBuilder();
         if (issues.isEmpty()) {
@@ -479,6 +550,13 @@ public class ViewerActions extends ProjectActions<Node> {
                 }
             }
         }
+        message.append("\n--\nStructural checks plus the mined-schema audit (QE ")
+                .append(schemaVersion)
+                .append(" grammar, user-pinned; namelist keywords machine-mined from QE ")
+                .append("tags qe-7.2 .. qe-7.6 - cards and runtime-conditional rules stay ")
+                .append("out of scope). Extension decks &FCP/&RISM/&WANNIER/&WANNIER_AC/")
+                .append("&PRESS_AI audited from the rendered deck text: ")
+                .append(extensionDeckIssues).append(" issue(s).");
         Alert alert = new Alert(errors ? AlertType.ERROR : AlertType.INFORMATION);
         alert.setTitle("Quantum ESPRESSO input validation");
         alert.setHeaderText(errors ? "Input has blocking preflight errors"
@@ -487,6 +565,266 @@ public class ViewerActions extends ProjectActions<Node> {
         alert.getDialogPane().setPrefWidth(900.0);
         alert.setResizable(true);
         alert.showAndWait();
+    }
+
+    /**
+     * Batch 160 (QE roadmap R7 frontend slice): opens the auxiliary input
+     * DECK BUILDER dialog for the 24 mined auxiliary QE programs. Every
+     * prompt row, render and live verdict inside the dialog comes from
+     * QEAuxDeckPlanner (the mined grammar) - the dialog returns only the
+     * rendered deck text, and even then this action asks AGAIN how to use it
+     * (clipboard or an explicitly chosen file); cancelling anywhere writes
+     * nothing, starts nothing, and never touches the project input.
+     */
+    private void actionAuxDeckBuilder(QEFXProjectController controller) {
+        if (controller == null) {
+            return;
+        }
+        QEFXAuxDeckDialog dialog = new QEFXAuxDeckDialog();
+        if (controller.getStage() != null) {
+            dialog.initOwner(controller.getStage());
+        }
+        Optional<String> deck = dialog.showAndWait();
+        if (deck.isEmpty() || deck.get().isBlank()) {
+            return; // cancel or an empty draft: nothing happens
+        }
+        ChoiceDialog<String> target = new ChoiceDialog<>("Copy to clipboard",
+                List.of("Copy to clipboard", "Save as file ..."));
+        target.setTitle("Auxiliary input deck");
+        target.setHeaderText("Deck drafted for " + dialog.getSelectedProgram()
+                + " (mined grammar audit verdict shown in the builder). Use the"
+                + " rendered deck text via:");
+        target.setContentText("Target:");
+        Optional<String> choice = target.showAndWait();
+        if (choice.isEmpty()) {
+            return; // explicit cancel: nothing is written anywhere
+        }
+        if (choice.get().startsWith("Save")) {
+            FileChooser chooser = new FileChooser();
+            chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter(
+                    "Quantum ESPRESSO input (*.in)", "*.in"));
+            File file = chooser.showSaveDialog(controller.getStage());
+            if (file == null) {
+                return;
+            }
+            try {
+                Files.writeString(file.toPath(), deck.get(), StandardCharsets.UTF_8);
+            } catch (IOException problem) {
+                Alert alert = new Alert(AlertType.ERROR);
+                alert.setTitle("Auxiliary input deck");
+                alert.setHeaderText("Could not write the deck file");
+                alert.setContentText(problem.toString());
+                alert.showAndWait();
+                return;
+            }
+            Alert alert = new Alert(AlertType.INFORMATION);
+            alert.setTitle("Auxiliary input deck");
+            alert.setHeaderText("Deck written");
+            alert.setContentText("Saved to " + file.getName()
+                    + "\n\nGrammar-audit the final file anytime via Analyze QE results"
+                    + " with the 'auxiliary QE input grammar audit (24 programs)' kind.");
+            alert.showAndWait();
+        } else {
+            ClipboardContent content = new ClipboardContent();
+            content.putString(deck.get());
+            Clipboard.getSystemClipboard().setContent(content);
+            Alert alert = new Alert(AlertType.INFORMATION);
+            alert.setTitle("Auxiliary input deck");
+            alert.setHeaderText("Deck copied to the clipboard");
+            alert.setContentText("Nothing was written to disk; paste it where you need it.");
+            alert.showAndWait();
+        }
+    }
+
+    /**
+     * Roadmap #125 viewer slice: opens the TENSOR directional-surface panel.
+     * The panel renders only (2D polar slices / the sign-colored 3D surface
+     * over the batch-tested SymmetricEigen3 + TensorSurfaceSampler layers);
+     * it reads a tensor file only through the explicit Load action inside
+     * the dialog, renders nothing without a converged symmetric eigenbasis,
+     * writes nothing, starts nothing, and changes no project state.
+     */
+    private void actionTensorSurfaceViewer(QEFXProjectController controller) {
+        if (controller == null) {
+            return;
+        }
+        QEFXTensorSurfaceDialog dialog = new QEFXTensorSurfaceDialog();
+        if (controller.getStage() != null) {
+            dialog.initOwner(controller.getStage());
+        }
+        dialog.showAndWait();
+    }
+
+    /**
+     * Roadmap #109 chart slice: opens the BoltzTraP2 transport CHART panel
+     * (S(T), sigma/tau(T), kappa/tau(T), S^2.sigma and .condtens Seebeck
+     * diagonals at a pinned chemical potential). The panel reads only
+     * through its explicit Load action (kind-gated like the analysis kind:
+     * Hall-tensor files refuse with the family note), draws only parsed
+     * numbers through the tested slicer + chart geometry, writes nothing,
+     * starts nothing, changes no project state.
+     */
+    private void actionTransportChartViewer(QEFXProjectController controller) {
+        if (controller == null) {
+            return;
+        }
+        QEFXTransportChartDialog dialog = new QEFXTransportChartDialog();
+        if (controller.getStage() != null) {
+            dialog.initOwner(controller.getStage());
+        }
+        dialog.showAndWait();
+    }
+
+    /**
+     * Roadmap #109/#152 arc closure (batch 172): launches the BoltzTraP2
+     * studio - WATCH (live 2s signature poll of a btp2 output directory)
+     * / OPEN (explicit .trace/.condtens/.halltens/.dope.* picks rendered
+     * through the tested parsers + slicer + chart geometry) / PLAN (btp2
+     * PREVIEW command lines pinned against the yiwang62/BoltzTraP2 fork
+     * branch 20210126 + the boltztrap2y readthedocs install page; never
+     * executed). The dialog writes nothing, starts nothing, changes no
+     * project state.
+     */
+    private void actionBoltzTrap2Studio(QEFXProjectController controller) {
+        if (controller == null) {
+            return;
+        }
+        QEFXBoltzTrap2Dialog dialog = new QEFXBoltzTrap2Dialog();
+        if (controller.getStage() != null) {
+            dialog.initOwner(controller.getStage());
+        }
+        dialog.showAndWait();
+    }
+
+    /**
+     * Roadmap #135 pack arc: materializes the reviewed RO-Crate metadata draft
+     * into a real crate folder. The draft is rebuilt from the SAME
+     * {@link ResultAnalysisService#collectRoCrateCandidates} artifact set the
+     * analysis report shows, so the checksums a user reviewed are exactly the
+     * ones the packer pins. Consent doctrine: the dialog renders only; the
+     * copy+verify+rename runs strictly after an explicit "Pack crate", and the
+     * packer fail-closes on existing targets, vanished/drifted sources and
+     * empty drafts. Nothing is written from any other path.
+     */
+    private void actionRoCratePack(QEFXProjectController controller) {
+        if (controller == null) {
+            return;
+        }
+        if (this.project == null || this.project.getDirectory() == null) {
+            showRoCratePack("The project has no on-disk directory; save the project before "
+                    + "packing a crate.", AlertType.WARNING, "Nothing to pack");
+            return;
+        }
+        List<Path> candidates = ResultAnalysisService.collectRoCrateCandidates(this.project);
+        if (candidates.isEmpty()) {
+            showRoCratePack("No project artifacts were found to pack (looked for the input "
+                    + "file, the log file, and the run manifest). Run or save something first.",
+                    AlertType.WARNING, "Nothing to pack");
+            return;
+        }
+        RoCrateExporter.CrateDraft draft = RoCrateExporter.build(
+                this.project.getPrefixName(), this.project.getDirectory().toPath(), candidates);
+        String defaultName = (this.project.getPrefixName() == null
+                || this.project.getPrefixName().isBlank() ? "quantumforge"
+                        : this.project.getPrefixName().trim()) + "-ro-crate";
+        QEFXRoCratePackDialog dialog = new QEFXRoCratePackDialog(draft, defaultName);
+        if (controller.getStage() != null) {
+            dialog.initOwner(controller.getStage());
+        }
+        Optional<QEFXRoCratePackDialog.PackRequest> request = dialog.showAndWait();
+        if (request.isEmpty()) {
+            return;
+        }
+        OperationResult<RoCratePacker.PackSummary> result = RoCratePacker.pack(draft,
+                this.project.getDirectory().toPath(), request.get().getTargetDir(),
+                request.get().getLicence(), request.get().getAuthors());
+        if (result.isSuccess() && result.getValue().isPresent()) {
+            RoCratePacker.PackSummary summary = result.getValue().orElseThrow();
+            showRoCratePack(result.getMessage() + "\n\nCrate folder: "
+                    + summary.getTargetDir().toAbsolutePath()
+                    + "\nMetadata: " + RoCratePacker.METADATA_FILE + " ("
+                    + summary.getMetadataBytes() + " bytes)"
+                    + (summary.getSkipped().isEmpty() ? "" : "\nSkipped (from the draft):\n  "
+                            + String.join("\n  ", summary.getSkipped())),
+                    AlertType.INFORMATION, "Crate packed");
+        } else {
+            showRoCratePack(result.getMessage(), AlertType.ERROR, "Pack refused");
+        }
+    }
+
+    private void showRoCratePack(String message, AlertType type, String header) {
+        Alert alert = new Alert(type);
+        alert.setTitle("RO-Crate payload packer (Roadmap #135)");
+        alert.setHeaderText(header);
+        alert.setContentText(message);
+        alert.showAndWait();
+    }
+
+    /**
+     * thermo_pw doc integration, live-graphical slice: opens the thermo_pw
+     * LIVE monitor. The panel watches one explicitly chosen run directory and
+     * redraws the run's own plot-data files as they grow (mur_lc E(V), the
+     * per-geometry harmonic E/F/S/Cv(T) tables, and the mur_lc_t sidecars
+     * beta/B_T/gamma/heat when they appear), with the restart-token task
+     * counter. It reads only through the tested scanner/parser, keeps partial
+     * write rows back until complete, keeps all units verbatim, polls every
+     * 2 s on a stoppable timer, writes nothing, starts nothing.
+     */
+    private void actionThermoPwLive(QEFXProjectController controller) {
+        if (controller == null) {
+            return;
+        }
+        QEFXThermoPwLiveDialog dialog = new QEFXThermoPwLiveDialog();
+        if (controller.getStage() != null) {
+            dialog.initOwner(controller.getStage());
+        }
+        dialog.showAndWait();
+    }
+
+    /**
+     * ELATE integration chunk: opens the ELATE elastic-tensor analysis dialog.
+     * The tensor comes from exactly one explicit route - a pasted 6x6 matrix
+     * with a declared unit, a thermo_pw output_el_cons.dat[.gN] constants
+     * file (the very constants thermo_pw's scf_elastic_constants writes,
+     * handed to the ELATE channel through the pinned 12-line grammar), or
+     * the run stdout's printed C_ij block. Averages/eigenvalues always show;
+     * polar charts (Young, linear compressibility, shear/Poisson bands on
+     * xy/xz/yz) and the direction probe draw only for mechanically stable
+     * tensors, mirroring ELATE's own gate. Reads only: nothing is written,
+     * no job is started.
+     */
+    private void actionElate(QEFXProjectController controller) {
+        if (controller == null) {
+            return;
+        }
+        QEFXElateDialog dialog = new QEFXElateDialog();
+        if (controller.getStage() != null) {
+            dialog.initOwner(controller.getStage());
+        }
+        dialog.showAndWait();
+    }
+
+    /**
+     * Phonopy integration (auxiliary software, full backend + frontend): opens
+     * the Phonopy band/DOS studio. The WATCH card live-monitors a chosen
+     * phonopy run directory (band.yaml / total_dos.dat / partial_dos.dat /
+     * projected_dos.dat / thermal_properties.yaml re-charted as they land,
+     * 2 s poll, partial row hold-back, binary artifacts enumerated); the OPEN
+     * card charts a finished artifact; the BUILD card previews the verbatim
+     * phonopy conf plus the four-step QE -> phonopy flow (doc/qe.md) and the
+     * phonopy-load one-liner of the user's own band command. phonopy stays
+     * external: the dialog NEVER executes it; only the BUILD card can write,
+     * and only the explicitly consented conf file.
+     */
+    private void actionPhonopy(QEFXProjectController controller) {
+        if (controller == null) {
+            return;
+        }
+        QEFXPhonopyDialog dialog = new QEFXPhonopyDialog();
+        if (controller.getStage() != null) {
+            dialog.initOwner(controller.getStage());
+        }
+        dialog.showAndWait();
     }
 
     /** Parses an explicit QE gap summary; it never infers directness from a total DOS. */

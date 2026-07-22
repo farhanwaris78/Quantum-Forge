@@ -72,6 +72,18 @@ public class ProjectProperty {
 
     private ProjectBandFactory bandFactory;
 
+    /**
+     * Explicit BLANK-context property for pure-Parse call sites that read only
+     * user-supplied files and never resolve project-relative paths (parsers and
+     * their tests). Both fields stay the empty string (unset), they are never
+     * defaulted to a fabricated directory or prefix; any factory use on this
+     * instance resolves against the working directory, which is exactly why
+     * this context must stay parse-only.
+     */
+    public ProjectProperty() {
+        this("", "");
+    }
+
     public ProjectProperty(String directoryPath, String prefixName) {
         if (directoryPath == null) {
             throw new IllegalArgumentException("directoryPath is null.");

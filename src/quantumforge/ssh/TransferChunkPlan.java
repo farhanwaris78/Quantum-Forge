@@ -104,12 +104,98 @@ public final class TransferChunkPlan {
     }
 
     /** Chunk count for a size/layout pair (ceiling division, no file I/O). */
-    static long countFor(long totalBytes, long chunkBytes) {
+    public static long countFor(long totalBytes, long chunkBytes) {
         if (chunkBytes < 1) {
             throw new IllegalArgumentException("chunkBytes must be positive (got "
                     + chunkBytes + ")");
         }
         return (totalBytes + chunkBytes - 1L) / chunkBytes;
+    }
+
+    /**
+     * Batch 151 (the DOWNLOAD half of #92's resume protocol): assemble a plan
+     * from pins the REMOTE side reported (whole-file sha256, remote size, and
+     * one sha256 per chunk in tiling order). The tiling arithmetic - offsets,
+     * lengths, {@code part-NNNNN} names, size/count bounds - is the SAME the
+     * upload side proves locally, so a resume unit names identical bytes on
+     * both sides of the wire.
+     *
+     * <p>Codes: TRANSFER_CHUNK_BOUNDS (layout outside the owned bounds, or an
+     * empty source, or a pin list longer than the part cap), TRANSFER_HASH_GRAMMAR
+     * (a pin that is not 64 lowercase-able hex), TRANSFER_CHUNK_PIN_COUNT (the
+     * pin list does not match the tiling count - the two sides would disagree
+     * about what a "part" is).</p>
+     */
+    public static OperationResult<ChunkPlan> fromRemoteTiling(long totalBytes, int chunkBytes,
+            String wholeSha256Hex, List<String> chunkSha256Hex) {
+        if (chunkSha256Hex == null) {
+            throw new NullPointerException("remote chunk pins are required - a chunked "
+                    + "download without pins would be an unreviewable transfer");
+        }
+        if (chunkBytes < MIN_CHUNK_BYTES || chunkBytes > MAX_CHUNK_BYTES) {
+            return OperationResult.failed("TRANSFER_CHUNK_BOUNDS",
+                    "chunk size " + chunkBytes + " is outside [" + MIN_CHUNK_BYTES + ", "
+                            + MAX_CHUNK_BYTES + "] - below " + MIN_CHUNK_BYTES
+                            + " the plain verified download's temp pattern is the honest "
+                            + "path, above " + MAX_CHUNK_BYTES + " a 'chunk' is no "
+                            + "longer a resume unit.",
+                    null);
+        }
+        if (totalBytes <= 0L) {
+            return OperationResult.failed("TRANSFER_CHUNK_EMPTY",
+                    "zero-byte remote source: there are no chunks to resume - the plain "
+                            + "verified download is the honest path for an empty file.",
+                    null);
+        }
+        long count = countFor(totalBytes, chunkBytes);
+        if (count > MAX_CHUNK_COUNT) {
+            return OperationResult.failed("TRANSFER_CHUNK_BOUNDS",
+                    "the remote source needs " + count + " parts at " + chunkBytes
+                            + " bytes/chunk, over the " + MAX_CHUNK_COUNT
+                            + " cap - raise the chunk size; the cap keeps the plan a "
+                            + "review payload, not a dump.",
+                    null);
+        }
+        if (chunkSha256Hex.size() != count) {
+            return OperationResult.failed("TRANSFER_CHUNK_PIN_COUNT",
+                    "the remote reported " + chunkSha256Hex.size() + " chunk pins but a "
+                            + totalBytes + "-byte source at " + chunkBytes + " bytes/chunk "
+                            + "tiling needs " + count
+                            + " - the two sides would disagree about what a 'part' is.",
+                    null);
+        }
+        String whole = wholeSha256Hex == null ? ""
+                : wholeSha256Hex.trim().toLowerCase(Locale.ROOT);
+        if (!whole.matches("[0-9a-f]{64}")) {
+            return OperationResult.failed("TRANSFER_HASH_GRAMMAR",
+                    "the remote whole-file pin must be sha256:<64 lowercase hex> (got '"
+                            + (whole.isEmpty() ? "<empty>" : wholeSha256Hex) + "').",
+                    null);
+        }
+        List<Chunk> chunks = new ArrayList<>();
+        long offset = 0L;
+        for (int i = 0; i < count; i++) {
+            String pin = chunkSha256Hex.get(i) == null ? ""
+                    : chunkSha256Hex.get(i).trim().toLowerCase(Locale.ROOT);
+            if (!pin.matches("[0-9a-f]{64}")) {
+                return OperationResult.failed("TRANSFER_HASH_GRAMMAR",
+                        "remote pin for chunk " + (i + 1) + " is not sha256:<64 lowercase "
+                                + "hex> (got '" + (pin.isEmpty() ? "<empty>"
+                                        : chunkSha256Hex.get(i)) + "') - resume refuses "
+                                + "to pin a part it cannot verify.",
+                        null);
+            }
+            long length = Math.min(chunkBytes, totalBytes - offset);
+            chunks.add(new Chunk(i + 1, offset, length, pin,
+                    String.format(Locale.ROOT, "part-%05d", i + 1)));
+            offset += length;
+        }
+        ChunkPlan plan = new ChunkPlan(totalBytes, chunkBytes, whole, chunks);
+        return OperationResult.success("TRANSFER_CHUNK_PLAN_OK",
+                "Remote-pinned plan: " + chunks.size() + " chunk(s) of up to " + chunkBytes
+                        + " bytes (" + totalBytes + " total) - resume granularity is the"
+                        + " chunk, pins come from the source side of the wire.",
+                plan);
     }
 
     /**

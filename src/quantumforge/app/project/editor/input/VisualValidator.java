@@ -9,8 +9,8 @@ import java.util.function.Predicate;
 
 /**
  * Visual validation for input fields.
- * 
- * NanoLabo provides:
+ *
+ * Production-grade scientific input editors provide:
  * - Yellow input fields: value is not optimal/appropriate
  * - Red input fields: value will cause calculation error
  * - Tooltips showing valid ranges

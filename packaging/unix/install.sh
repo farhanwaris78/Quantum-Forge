@@ -79,9 +79,30 @@ mv -- "$STAGE" "$TARGET"
 rm -rf -- "$BACKUP"
 
 ln -s "versions/$VERSION" "$CURRENT_TMP"
-mv -f -- "$CURRENT_TMP" "$INSTALL_ROOT/current"
+# The destination of this move is a symlink to a DIRECTORY. Plain `mv` follows
+# such symlinks on both GNU and BSD, which parks the new pointer INSIDE the old
+# version while reporting success: an update would install but never activate.
+# GNU mv -fT replaces the symlink itself; macOS/BSD mv lacks -T, so the pointer
+# is unlinked and recreated (per-user install; the brief window is documented).
+if [[ "$(uname -s)" == "Darwin" ]]; then
+    rm -f -- "$INSTALL_ROOT/current"
+    mv -- "$CURRENT_TMP" "$INSTALL_ROOT/current"
+else
+    mv -fT -- "$CURRENT_TMP" "$INSTALL_ROOT/current"
+fi
 ln -s "$INSTALL_ROOT/current/bin/quantumforge" "$LINK_TMP"
 mv -f -- "$LINK_TMP" "$BIN_DIR/quantumforge"
+
+# Fail-closed self-check: never report success for an activation that did not
+# actually happen (see the symlink-to-directory note above).
+if [[ "$(readlink "$INSTALL_ROOT/current")" != "versions/$VERSION" ]]; then
+    echo "Activation failed: current pointer did not switch to $VERSION." >&2
+    exit 5
+fi
+if [[ "$(readlink "$BIN_DIR/quantumforge")" != "$INSTALL_ROOT/current/bin/quantumforge" ]]; then
+    echo "Activation failed: $BIN_DIR/quantumforge does not point at the installation." >&2
+    exit 5
+fi
 
 # Add a per-user desktop entry on Linux. It contains an installation marker so
 # uninstall removes only the file created here.
@@ -94,7 +115,7 @@ if [[ "$(uname -s)" == "Linux" ]]; then
 Type=Application
 Name=QuantumForge
 Comment=Quantum ESPRESSO workflow editor and results viewer
-Exec=$BIN_DIR/quantumforge
+Exec="$BIN_DIR/quantumforge"
 Icon=$INSTALL_ROOT/current/resources/quantumforge.png
 Terminal=false
 Categories=Science;Education;Physics;

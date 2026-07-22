@@ -15,15 +15,13 @@ import quantumforge.atoms.model.exception.ZeroVolumCellException;
 
 /**
  * Polymer model builder for chain and network structures.
- * 
- * NanoLabo Pro provides polymer modeling with:
+ *
+ * Provides polymer modeling with:
  * - Monomer sequence definition
  * - Chain length control
  * - Torsion angle configuration
  * - Cross-linking
  * - Common polymer templates (PE, PP, PET, Nylon, etc.)
- * 
- * This is a Pro-only feature in NanoLabo.
  */
 public class PolymerBuilder {
 

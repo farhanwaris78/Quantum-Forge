@@ -50,7 +50,7 @@ class QEPhononFreqParserTest {
     void acceptsFortranExponentFrequenciesAndClearsStateForMissingFile() throws IOException {
         File tempFile = File.createTempFile("matdyn-freq-d", ".freq");
         try (FileWriter writer = new FileWriter(tempFile)) {
-            writer.write("0.0D+00 1.0D+02 2.0D+02\\n");
+            writer.write("0.0D+00 1.0D+02 2.0D+02\n");
         }
         QEPhononFreqParser parser = new QEPhononFreqParser(new ProjectProperty());
         parser.parse(tempFile);

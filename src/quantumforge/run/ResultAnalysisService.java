@@ -107,6 +107,18 @@ import quantumforge.input.QEVersionRuleCatalog;
 import quantumforge.input.card.QEKPoints;
 import quantumforge.input.namelist.QENamelist;
 import quantumforge.input.namelist.QEValue;
+import quantumforge.input.schema.QEAuxSchema;
+import quantumforge.input.schema.QECardSchema;
+import quantumforge.input.schema.QENamelistSchema;
+import quantumforge.input.schema.QEThermoPwSchema;
+import quantumforge.input.schema.VaspIncarSchema;
+import quantumforge.input.validation.QEAuxDeckAudit;
+import quantumforge.input.validation.QECardAudit;
+import quantumforge.input.validation.QESchemaValidator;
+import quantumforge.input.validation.QEThermoPwDeckAudit;
+import quantumforge.input.validation.VaspIncarDeck;
+import quantumforge.input.validation.VaspIncarDeckAudit;
+import quantumforge.input.validation.VaspKpointsDeck;
 import quantumforge.input.validation.ValidationIssue;
 import quantumforge.input.validation.ValidationSeverity;
 import quantumforge.operation.OperationResult;
@@ -117,6 +129,8 @@ import quantumforge.project.property.ProjectGeometryList;
 import quantumforge.project.property.ProjectProperty;
 import quantumforge.pseudo.PseudoFamilyValidator;
 import quantumforge.run.parser.BandGapParser;
+import quantumforge.run.parser.BoltzTrap2DopeDosParser;
+import quantumforge.run.parser.BoltzTrap2TraceParser;
 import quantumforge.run.parser.CubeGridReader;
 import quantumforge.run.parser.ElasticParser;
 import quantumforge.run.parser.FinalGeometryTransaction;
@@ -162,7 +176,17 @@ import quantumforge.run.parser.ScfIterationRecord;
 import quantumforge.symmetry.MagneticSpaceGroupDetector;
 import quantumforge.symmetry.QEBrillouinZoneGeometry;
 import quantumforge.run.parser.QEPwcondConductanceParser;
+import quantumforge.run.parser.QEElateAnalyzer;
+import quantumforge.run.parser.QEPhonopyBandYaml;
+import quantumforge.run.parser.QEPhonopyBorn;
+import quantumforge.run.parser.QEPhonopyForceConstants;
+import quantumforge.run.parser.QEPhonopyGruneisenYaml;
+import quantumforge.run.parser.QEPhonopyQ2rFc;
+import quantumforge.run.parser.QEPhonopyDos;
+import quantumforge.run.parser.QEPhonopyThermalYaml;
+import quantumforge.run.parser.QEThermoPwElasticParser;
 import quantumforge.run.parser.QEThermoPwEosParser;
+import quantumforge.run.parser.QEThermoPwRunScanner;
 import quantumforge.run.parser.QETurboSpectrumParser;
 import quantumforge.run.parser.QEVasprunXmlParser;
 import quantumforge.run.parser.QEWannier90SpreadParser;
@@ -206,8 +230,16 @@ public final class ResultAnalysisService {
         NMR_SHIELDING("NMR (GIPAW) shielding tensors"),
         PWCOND_TRANSMISSION("PWcond transmission"),
         WANNIER90_SPREAD("Wannier90 spread convergence"),
+        THERMO_PW_DECK_AUDIT("thermo_pw thermo_control grammar audit (mined)"),
+        THERMO_PW_RUN_SUMMARY("thermo_pw run summary (directory census + stdout EOS extracts)"),
+        ELATE_TENSOR_ANALYSIS("ELATE elastic tensor analysis (averages/eigen/extrema)"),
+        PHONOPY_OUTPUT("phonopy band/DOS/thermal output inspection (parser only)"),
+        QE_CARD_AUDIT("pw.x card grammar audit (mined read_cards)"),
+        QE_AUX_DECK_AUDIT("auxiliary QE input grammar audit (24 programs)"),
         THERMOPW_EOS("thermo_pw equation of state"),
         PHONO3PY_KAPPA("phono3py lattice thermal conductivity"),
+        BOLTZTRAP2_TRANSPORT("BoltzTraP2 output tables (.trace/.condtens/.halltens/.dope.*)"),
+        VASP_INPUT_AUDIT("VASP INCAR/KPOINTS grammar audit (wiki-pinned 6.x window)"),
         ELIASHBERG_TC("Allen-Dynes Tc from alpha2F"),
         DRY_RUN_PREFLIGHT("Dry-run preflight check"),
         RESTART_ASSESSMENT("Restart safety assessment"),
@@ -1383,10 +1415,47 @@ public final class ResultAnalysisService {
             return name.contains("pwcond") || name.contains("trans") || name.contains("conductance");
         case WANNIER90_SPREAD:
             return name.endsWith(".wout");
+        case THERMO_PW_DECK_AUDIT:
+            return name.equals("thermo_control");
+        case THERMO_PW_RUN_SUMMARY:
+            return false; // manual select only: ANY *.out would else hijack run routing
+        case ELATE_TENSOR_ANALYSIS:
+            return false; // manual select only: shares the same *.out / .dat* surface
+        case PHONOPY_OUTPUT:
+            return name.equals("band.yaml") || name.equals("total_dos.dat")
+                    || name.equals("partial_dos.dat") || name.equals("projected_dos.dat")
+                    || name.equals("thermal_properties.yaml")
+                    || name.equals("BORN") || name.equals("FORCE_CONSTANTS")
+                    || name.equals("gruneisen.yaml") || name.equals("gruneisen_mesh.yaml")
+                    || name.endsWith(".fc");
+                    // distinctive pinned names + the q2r.x flfrc convention;
+                    // a foreign '.fc' simply fails the pinned grammar loudly
+        case QE_CARD_AUDIT:
+            return false; // manual select only: EVERY pw input is a candidate
+        case QE_AUX_DECK_AUDIT:
+            return false; // manual select only: any .in could be an aux deck
+
         case THERMOPW_EOS:
             return name.contains("eos") || name.contains("thermo");
         case PHONO3PY_KAPPA:
             return name.startsWith("kappa") || name.contains("thermal_conductivity");
+        case BOLTZTRAP2_TRANSPORT:
+            // batch 172: the whole batch-152/172 grammar family routes here -
+            // .trace (+ the fork's 13/23-column variants: .dope.trace matches
+            // endsWith(".trace")), .condtens, .halltens, and the headerless
+            // dope.dos/dope.vvdos tables (+ their _raw remesh renames)
+            return name.endsWith(".trace") || name.contains("condtens")
+                    || name.contains("seebeck") || name.contains("halltens")
+                    || name.endsWith(".dope.dos") || name.endsWith(".dope.vvdos")
+                    || name.endsWith(".dope.dos_raw")
+                    || name.endsWith(".dope.vvdos_raw");
+        case VASP_INPUT_AUDIT:
+            // batch 173: VASP's two free-form input files. INCAR exact or
+            // with a suffix (INCAR.relax, INCAR.2 ...); KPOINTS with the
+            // wiki-documented companions (KPOINTS_OPT) and user renames.
+            // POTCAR is VASP's LICENSED file - never routed, never read.
+            return name.equals("incar") || name.startsWith("incar.")
+                    || name.startsWith("incar_") || name.startsWith("kpoints");
         case ELIASHBERG_TC:
             return name.endsWith(".a2f") || name.contains("alpha2f") || name.contains("a2f");
         case MD_MSD:
@@ -1582,10 +1651,26 @@ public final class ResultAnalysisService {
                 return analyzePwcond(property, source);
             case WANNIER90_SPREAD:
                 return analyzeWannier90(property, source);
+            case THERMO_PW_DECK_AUDIT:
+                return analyzeThermoPwDeckAudit(property, source);
+            case THERMO_PW_RUN_SUMMARY:
+                return analyzeThermoPwRunSummary(property, source);
+            case ELATE_TENSOR_ANALYSIS:
+                return analyzeElateTensor(property, source);
+            case PHONOPY_OUTPUT:
+                return analyzePhonopyOutput(property, source);
+            case QE_CARD_AUDIT:
+                return analyzeQeCardAudit(property, source);
+            case QE_AUX_DECK_AUDIT:
+                return analyzeQeAuxDeckAudit(property, source);
             case THERMOPW_EOS:
                 return analyzeEos(property, source);
             case PHONO3PY_KAPPA:
                 return analyzeKappa(property, source);
+            case BOLTZTRAP2_TRANSPORT:
+                return analyzeBoltzTrap2Transport(property, source);
+            case VASP_INPUT_AUDIT:
+                return analyzeVaspInputAudit(property, source);
             case ELIASHBERG_TC:
                 return analyzeTc(property, source, params);
             case HULL_STABILITY:
@@ -2865,6 +2950,1238 @@ public final class ResultAnalysisService {
                 + "convergence evidence is not inferred from this table.");
         return new AnalysisReport(AnalysisKind.PHONO3PY_KAPPA.getLabel(),
                 parser.isPhysicalScaling(), text.toString(), csv, null);
+    }
+
+    /**
+     * Roadmap #109 (output side): reads a BoltzTraP2 transport table through
+     * {@link BoltzTrap2TraceParser} and reports the isotropic Seebeck/conductivity
+     * screening state. Units surface VERBATIM from the file's own header tokens;
+     * nothing is executed and no scattering model is re-derived.
+     */
+    /**
+     * Batch 156 (QE-integration roadmap R6): thermo_control grammar audit
+     * against the mined thermo_pw &INPUT_THERMO grammar (keywords + the
+     * hard what set + verbatim consistency facts; commit provenance in
+     * QEThermoPwSchemaData). Severities mirror the binary: an unknown namelist
+     * keyword, a missing/out-of-set what, and a violated mined consistency
+     * rule ABORT (ERROR); the flext silent remap and inferred-from-default
+     * type shapes are warnings only.
+     */
+    private static AnalysisReport analyzeThermoPwDeckAudit(ProjectProperty property,
+            File source) throws IOException {
+        String label = AnalysisKind.THERMO_PW_DECK_AUDIT.getLabel();
+        String content = Files.readString(source.toPath(), StandardCharsets.UTF_8);
+        List<ValidationIssue> issues = new QEThermoPwDeckAudit().auditDeckText(content);
+        StringBuilder text = new StringBuilder();
+        List<String> csv = new ArrayList<>();
+        text.append(String.format(Locale.ROOT,
+                "== thermo_pw thermo_control grammar audit (mined &INPUT_THERMO: %d keywords"
+                        + " in the window union, %d accepted what values; window tags 2.0.0..2.1.1"
+                        + " + fingerprinted master, pinned here at master) ==%n",
+                QEThermoPwSchema.entryCount(), QEThermoPwSchema.whatAcceptedValues().size()));
+        text.append("Source: ").append(source.getName()).append('\n');
+        csv.add("thermo-deck-audit,severity,code,message");
+        int errors = 0;
+        int warnings = 0;
+        for (ValidationIssue issue : issues) {
+            if (issue.getSeverity() == ValidationSeverity.ERROR) {
+                errors += 1;
+            } else {
+                warnings += 1;
+            }
+            text.append("  ").append(issue.getSeverity())
+                    .append(" [").append(issue.getCode()).append("] ")
+                    .append(issue.getMessage()).append('\n');
+            if (!issue.getDocumentationUrl().isEmpty()) {
+                text.append("      docs: ").append(issue.getDocumentationUrl()).append('\n');
+            }
+            csv.add(String.format(Locale.ROOT, "thermo-deck-audit,%s,%s,%s",
+                    issue.getSeverity(), csvCell(issue.getCode()), csvCell(issue.getMessage())));
+        }
+        if (issues.isEmpty()) {
+            text.append(String.format(Locale.ROOT,
+                    "  No grammar findings: every keyword of this thermo_control is inside the%n"
+                            + "  mined grammar, 'what' initializes to one of the %d dispatch%n"
+                            + "  values, and no mined consistency rule trips.%n",
+                    QEThermoPwSchema.whatAcceptedValues().size()));
+        }
+        text.append(String.format(Locale.ROOT,
+                "%nVerdict: %d ERROR (thermo_pw aborts at namelist read or a consistency"
+                        + " check) and %d WARNING (silently remapped or advisory type-shape -"
+                        + " check intent).%n",
+                errors, warnings));
+        text.append("\nHonesty boundary: this is a GRAMMAR audit, never a physics or"
+                + " convergence review. Group labels are the thermo_pw code's own bookkeeping"
+                + " comments (a navigation aid, not a law). The grammar window is"
+                + " thermo_pw-tag-indexed (2.0.0 .. 2.1.1 + the fingerprinted development"
+                + " master; batch-158 masks per keyword/what/fact, drift verbatim) and"
+                + " this report pins the master column - a release-specific adjudication"
+                + " belongs to the version-pinned audit API, not this auto-route. Defaults"
+                + " shown are the procedural assignments (last-assignment-wins); the audit"
+                + " is the grammar, not a thermodynamics result.\n");
+        return new AnalysisReport(label, errors == 0, text.toString(), csv, null);
+    }
+
+    /**
+     * VASP INPUT AUDIT (batch 173, roadmap #111): INCAR-family files run
+     * through the batch-173 {@link VaspIncarDeckAudit} (53-tag tier-1 grammar
+     * + tier-2 wiki-index window + 12 mined consistency rules, every quote
+     * verbatim from the vasp.at wiki 6.x window of 2026-07-22); KPOINTS-family
+     * files run through {@link VaspKpointsDeck} (all four documented modes
+     * with their wiki-verbatim notes). The audit NEVER runs VASP, NEVER
+     * touches a POTCAR (VASP's licensed file - referenced only through the
+     * wiki facts the schema pins), and never edits the source: it reads the
+     * text and states findings. A parse-level refusal becomes an honest
+     * failure report, never a crash.
+     */
+    private static AnalysisReport analyzeVaspInputAudit(ProjectProperty property,
+            File source) throws IOException {
+        String label = AnalysisKind.VASP_INPUT_AUDIT.getLabel();
+        String sourceName = source.getName().toLowerCase(Locale.ROOT);
+        long size = source.length();
+        if (sourceName.equals("incar") || sourceName.startsWith("incar.")
+                || sourceName.startsWith("incar_")) {
+            if (size > 1024 * 1024) {
+                return failure(label, source.getName() + " is " + size
+                        + " bytes: the INCAR audit bound is 1 MiB"
+                        + " (bounded-reads doctrine) - refusing instead of"
+                        + " reading on.");
+            }
+            String content = Files.readString(source.toPath(), StandardCharsets.UTF_8);
+            List<ValidationIssue> issues = VaspIncarDeckAudit.auditDeckText(content);
+            StringBuilder text = new StringBuilder();
+            List<String> csv = new ArrayList<>();
+            text.append(String.format(Locale.ROOT,
+                    "== VASP INCAR grammar audit (wiki-pinned 6.x window: %d tier-1 tags with"
+                            + " type/options/verbatim defaults; tier-2 name window = wiki"
+                            + " index page 1 of 4, 200 of 614 tags; window %s) ==%n",
+                    VaspIncarSchema.entryCount(), VaspIncarSchema.WIKI_WINDOW));
+            text.append("Source: ").append(source.getName()).append('\n');
+            OperationResult<VaspIncarDeck> census = VaspIncarDeck.parse(content);
+            if (census.isSuccess() && census.getValue().isPresent()) {
+                VaspIncarDeck deck = census.getValue().get();
+                text.append(String.format(Locale.ROOT,
+                        "Deck census: %d statement(s), %d distinct tag(s), %d ignored"
+                                + " bare-text line(s), %d physical line(s).%n",
+                        deck.getStatements().size(), deck.distinctTags().size(),
+                        deck.getIgnoredLineCount(), deck.getTotalLines()));
+            }
+            csv.add("vasp-incar-audit,severity,code,message");
+            int errors = 0;
+            int warnings = 0;
+            for (ValidationIssue issue : issues) {
+                if (issue.getSeverity() == ValidationSeverity.ERROR) {
+                    errors += 1;
+                } else if (issue.getSeverity() == ValidationSeverity.WARNING) {
+                    warnings += 1;
+                }
+                text.append("  ").append(issue.getSeverity())
+                        .append(" [").append(issue.getCode()).append("] ")
+                        .append(issue.getMessage()).append('\n');
+                if (!issue.getDocumentationUrl().isEmpty()) {
+                    text.append("      docs: ")
+                            .append(issue.getDocumentationUrl()).append('\n');
+                }
+                csv.add(String.format(Locale.ROOT, "vasp-incar-audit,%s,%s,%s",
+                        issue.getSeverity(), csvCell(issue.getCode()),
+                        csvCell(issue.getMessage())));
+            }
+            if (issues.isEmpty()) {
+                text.append("  No grammar findings: every statement parses inside the pinned\n"
+                        + "  window, all tier-1 types/options hold, and no mined consistency\n"
+                        + "  rule trips.\n");
+            }
+            text.append(String.format(Locale.ROOT,
+                    "%nVerdict: %d ERROR (VASP would crash, misparse, or a required companion"
+                            + " tag is absent), %d WARNING (documented trap: VASP silently"
+                            + " ignores unknown tags, prints no warning for ALGO=Fast hybrids,"
+                            + " lets NPAR override NCORE, ...), remainder INFO advisories.%n",
+                    errors, warnings));
+            text.append("\nHonesty boundary: this is a GRAMMAR audit over the pinned wiki"
+                    + " window - never a physics, k-point-convergence or functional review,"
+                    + " and never a POTCAR census (licensed file; the audit references only"
+                    + " the ENMAX/LEXCH facts the wiki states). Severities mirror VASP's own"
+                    + " documented behavior: unknown tags are WARNING because VASP does NOT"
+                    + " abort on them (it silently ignores them, so a typo passes"
+                    + " unnoticed). VASP is never executed.\n");
+            return new AnalysisReport(label, errors == 0, text.toString(), csv, null);
+        }
+        // KPOINTS family (KPOINTS, KPOINTS_OPT, KPOINTS_* user renames)
+        if (size > 512 * 1024) {
+            return failure(label, source.getName() + " is " + size
+                    + " bytes: the KPOINTS audit bound is 512 KiB"
+                    + " (bounded-reads doctrine) - refusing instead of reading on.");
+        }
+        String content = Files.readString(source.toPath(), StandardCharsets.UTF_8);
+        OperationResult<VaspKpointsDeck> parsed = VaspKpointsDeck.parse(content);
+        if (!parsed.isSuccess() || parsed.getValue().isEmpty()) {
+            return failure(label, "KPOINTS grammar refusal " + parsed.getCode()
+                    + ": " + parsed.getMessage());
+        }
+        VaspKpointsDeck deck = parsed.getValue().get();
+        StringBuilder text = new StringBuilder();
+        List<String> csv = new ArrayList<>();
+        text.append("== VASP KPOINTS grammar census (all four documented modes of the"
+                + " kpoints page, wiki window 2026-07-22) ==\n");
+        text.append("Source: ").append(source.getName()).append('\n');
+        csv.add("vasp-kpoints,field,value");
+        csv.add(String.format(Locale.ROOT, "vasp-kpoints,comment,%s",
+                csvCell(deck.getComment())));
+        csv.add(String.format(Locale.ROOT, "vasp-kpoints,mode,%s", deck.getMode()));
+        csv.add(String.format(Locale.ROOT, "vasp-kpoints,cartesian,%s",
+                deck.isCartesian()));
+        text.append(String.format(Locale.ROOT,
+                "Mode census: %s (%s coordinates), comment '%s'.%n",
+                deck.getMode(), deck.isCartesian() ? "Cartesian" : "fractional/reciprocal",
+                deck.getComment()));
+        switch (deck.getMode()) {
+            case AUTO_GAMMA, AUTO_MP -> {
+                int[] sub = deck.getSubdivisions();
+                text.append(String.format(Locale.ROOT,
+                        "  mesh %d x %d x %d%s%n", sub[0], sub[1], sub[2],
+                        deck.getShift().length == 3
+                                ? String.format(Locale.ROOT, " + shift (%s, %s, %s)",
+                                        VaspKpointsDeck.fmt(deck.getShift()[0]),
+                                        VaspKpointsDeck.fmt(deck.getShift()[1]),
+                                        VaspKpointsDeck.fmt(deck.getShift()[2]))
+                                : ""));
+                csv.add(String.format(Locale.ROOT, "vasp-kpoints,subdivisions,%d %d %d",
+                        sub[0], sub[1], sub[2]));
+            }
+            case AUTO_GENERALIZED -> {
+                double[][] generators = deck.getGenerators();
+                for (int g = 0; g < 3; g++) {
+                    csv.add(String.format(Locale.ROOT, "vasp-kpoints,generator%d,%s %s %s",
+                            g + 1, VaspKpointsDeck.fmt(generators[g][0]),
+                            VaspKpointsDeck.fmt(generators[g][1]),
+                            VaspKpointsDeck.fmt(generators[g][2])));
+                }
+                text.append("  3 generating vectors + shift (census in the CSV rows)\n");
+            }
+            case LINE_MODE -> {
+                text.append(String.format(Locale.ROOT,
+                        "  %d points per segment, %d segment(s), %d vertex line(s)%n",
+                        deck.getPointsPerSegment(), deck.getVertices().size() / 2,
+                        deck.getVertices().size()));
+                csv.add(String.format(Locale.ROOT, "vasp-kpoints,points_per_segment,%d",
+                        deck.getPointsPerSegment()));
+                csv.add(String.format(Locale.ROOT, "vasp-kpoints,segments,%d",
+                        deck.getVertices().size() / 2));
+            }
+            case EXPLICIT -> {
+                text.append(String.format(Locale.ROOT,
+                        "  %d explicit k-point(s)%s%n", deck.getPoints().size(),
+                        deck.getTetras().isEmpty() ? ""
+                                : " + " + deck.getTetras().size() + " tetrahedra"));
+                csv.add(String.format(Locale.ROOT, "vasp-kpoints,explicit_points,%d",
+                        deck.getPoints().size()));
+                csv.add(String.format(Locale.ROOT, "vasp-kpoints,tetrahedra,%d",
+                        deck.getTetras().size()));
+            }
+            default -> {
+            }
+        }
+        for (String note : deck.getNotes()) {
+            text.append("  note: ").append(note).append('\n');
+        }
+        text.append("\nHonesty boundary: a KPOINTS census is grammar-level only - the\n"
+                + "actual k vectors derive from the reciprocal lattice of the POSCAR and the\n"
+                + "energies from VASP itself. Nothing is executed and no mesh is generated\n"
+                + "here; k-point SAMPLING adequacy (density vs. the cell) is a physics\n"
+                + "convergence question this report deliberately does not answer. KSPACING\n"
+                + "(INCAR route) and KPOINTS_OPT are the wiki-documented alternatives.\n");
+        return new AnalysisReport(label, true, text.toString(), csv, null);
+    }
+
+    /**
+     * thermo_pw RUN SUMMARY (batch 166): a whole run-directory census through
+     * {@link QEThermoPwRunScanner} (user-guide §2.5 layout) rendered as one
+     * report - verbatim thermo_control extracts, the artifact census with
+     * kinds/geometry/ph/suffix tags, restart-token counts, and the verbatim
+     * stdout EOS extracts with 1-based line numbers. The run directory is
+     * the picked file's parent (an explicit thermo_control, the run's
+     * stdout, or any sibling artifact all resolve to the same census); the
+     * kind is manual-select ONLY because every *.out would else hijack
+     * routing. Verdict: success when the directory yields any positive
+     * census fact (control present, an artifact, a restart token, or a
+     * stdout extract); an empty directory is an honest failure, not an
+     * empty summary.
+     */
+    private static AnalysisReport analyzeThermoPwRunSummary(ProjectProperty property,
+            File source) throws IOException {
+        String label = AnalysisKind.THERMO_PW_RUN_SUMMARY.getLabel();
+        File runDir = source.isDirectory() ? source : source.getParentFile();
+        if (runDir == null || !runDir.isDirectory()) {
+            return failure(label, source.getName() + " has no resolvable thermo_pw run"
+                    + " directory - pick the run's thermo_control, its stdout, or any"
+                    + " file inside the run directory.");
+        }
+        QEThermoPwRunScanner.ThermoScan scan = QEThermoPwRunScanner.scan(runDir.toPath());
+        StringBuilder text = new StringBuilder();
+        List<String> csv = new ArrayList<>();
+        text.append("== thermo_pw run summary (directory census per user-guide §2.5;"
+                + " every value a verbatim extract - nothing re-derived) ==\n");
+        text.append("Picked file: ").append(source.getAbsolutePath()).append('\n');
+        text.append("Run directory: ").append(runDir.getAbsolutePath()).append('\n');
+        text.append(QEThermoPwRunScanner.describe(scan)).append('\n');
+        csv.add("thermo-run-summary,field,value");
+        csv.add(String.format(Locale.ROOT, "thermo-run-summary,what,%s",
+                csvCell(scan.getControl().getWhat())));
+        csv.add(String.format(Locale.ROOT, "thermo-run-summary,restart_tasks,%d",
+                scan.getRestartCount()));
+        csv.add(String.format(Locale.ROOT, "thermo-run-summary,series_artifacts,%d",
+                scan.getArtifacts().size()));
+
+        if (!scan.getArtifacts().isEmpty()) {
+            text.append("\nSeries census (role/file -> kind, tags):\n");
+            for (QEThermoPwRunScanner.Artifact artifact : scan.getArtifacts()) {
+                text.append("  ").append(artifact.getRole()).append('/')
+                        .append(artifact.getPath().getFileName());
+                if (artifact.getKind() == null) {
+                    text.append(" -> [control, enumerated not charted]");
+                } else {
+                    text.append(" -> ").append(artifact.getKind().getLabel());
+                    if (artifact.getGeometryTag() != null) {
+                        text.append(" [geometry ").append(artifact.getGeometryTag())
+                                .append(']');
+                    }
+                    if (artifact.isPhVariant()) {
+                        text.append(" [ph variant]");
+                    }
+                    if (artifact.getSuffixTag() != null) {
+                        text.append(" [verbatim plot-tag ").append(artifact.getSuffixTag())
+                                .append(']');
+                    }
+                }
+                text.append('\n');
+            }
+        }
+
+        if (scan.getStdoutSummaries().isEmpty()) {
+            text.append("\nNo top-level *.out stdout file in the run directory - the EOS"
+                    + " line-block extracts are simply absent, never assumed.\n");
+        } else {
+            text.append("\nStdout extracts (verbatim tokens with 1-based line numbers; the"
+                    + " EOS numbers are the run's own fit claim, NOT re-derived here):\n");
+            for (QEThermoPwRunScanner.StdoutSummary summary : scan.getStdoutSummaries()) {
+                String name = summary.getPath().getFileName().toString();
+                if (summary.isOversized()) {
+                    text.append("  ").append(name).append(": exceeds the ")
+                            .append(QEThermoPwRunScanner.MAX_STDOUT_BYTES)
+                            .append("-byte stdout bound - named, not parsed.\n");
+                    continue;
+                }
+                text.append("  ").append(name).append(": ")
+                        .append(summary.getUnitCellVolumeCount())
+                        .append(" 'unit-cell volume (a.u.)^3' print(s), EOS block ")
+                        .append(summary.getEosLineCount()).append("/4 lines.\n");
+                if (summary.getLatticeConstantToken() != null) {
+                    text.append(String.format(Locale.ROOT,
+                            "    line %d: equilibrium lattice constant %s a.u.%n",
+                            summary.getLatticeConstantLine(), summary.getLatticeConstantToken()));
+                    csv.add(String.format(Locale.ROOT, "thermo-run-summary,eos_lattice_au,%s",
+                            csvCell(summary.getLatticeConstantToken())));
+                }
+                if (summary.getBulkModulusToken() != null) {
+                    text.append(String.format(Locale.ROOT,
+                            "    line %d: bulk modulus %s kbar%n",
+                            summary.getBulkModulusLine(), summary.getBulkModulusToken()));
+                    csv.add(String.format(Locale.ROOT, "thermo-run-summary,eos_bulk_kbar,%s",
+                            csvCell(summary.getBulkModulusToken())));
+                }
+                if (summary.getDerivativeToken() != null) {
+                    text.append(String.format(Locale.ROOT,
+                            "    line %d: pressure derivative of the bulk modulus %s%n",
+                            summary.getDerivativeLine(), summary.getDerivativeToken()));
+                    csv.add(String.format(Locale.ROOT,
+                            "thermo-run-summary,eos_bulk_derivative,%s",
+                            csvCell(summary.getDerivativeToken())));
+                }
+                if (summary.getMinEnergyToken() != null) {
+                    text.append(String.format(Locale.ROOT,
+                            "    line %d: total energy at the minimum %s Ry%n",
+                            summary.getMinEnergyLine(), summary.getMinEnergyToken()));
+                    csv.add(String.format(Locale.ROOT, "thermo-run-summary,eos_min_energy_ry,%s",
+                            csvCell(summary.getMinEnergyToken())));
+                }
+                if (summary.getEosLineCount() < 4) {
+                    text.append("    (partial or absent EOS block - a live run is reported"
+                            + " as-is; nothing is completed by guesswork)\n");
+                }
+            }
+        }
+
+        if (!scan.getUninterpreted().isEmpty()) {
+            text.append("\nUninterpreted sidecars (named, never parsed): ");
+            int shown = 0;
+            for (String name : scan.getUninterpreted()) {
+                if (shown++ >= 12) {
+                    text.append("... (+").append(scan.getUninterpreted().size() - 12)
+                            .append(" more)");
+                    break;
+                }
+                if (shown > 1) {
+                    text.append(", ");
+                }
+                text.append(name);
+            }
+            text.append('\n');
+        }
+        boolean anyFact = scan.getControl().isPresent() || !scan.getArtifacts().isEmpty()
+                || scan.getRestartCount() > 0
+                || scan.getStdoutSummaries().stream().anyMatch(s -> !s.isOversized()
+                        && (s.getEosLineCount() > 0 || s.getUnitCellVolumeCount() > 0));
+        text.append("\nHonesty boundary: a directory census over pinned file NAME grammars"
+                + " plus verbatim control/stdout extracts. The EOS block is the run's own"
+                + " fit summary (ieos selection and fit quality belong to the run, not to"
+                + " this report); the pgrun dotted index tails are preserved verbatim"
+                + " without asserting band-vs-segment semantics; files outside the pinned"
+                + " set are named as uninterpreted; no thermodynamics review is implied.\n");
+        return new AnalysisReport(label, anyFact, text.toString(), csv, null);
+    }
+
+    /**
+     * ELATE TENSOR ANALYSIS (batch 167): one 6x6 stiffness tensor from the
+     * pinned thermo_pw elastic channels (output_el_cons.dat[.gN], or the LAST
+     * 'Elastic constants C_ij (kbar)' block of a run stdout, both declared
+     * kbar) run through {@link QEElateAnalyzer} - the clean-room mirror of
+     * the published ELATE workflow (coudertlab/elate commit 0627e636a). The
+     * report shows stability + eigenvalues + Voigt/Reuss/Hill rows always,
+     * extrema only when ELATE's own positive-definite gate passes; the
+     * thermo_pw-vs-ELATE Hill CONVENTION difference is stated wherever the
+     * stdout's printed Hill row is also quoted. Manual-select ONLY (shares
+     * the *.out / .dat* name surface with many other kinds). Anything that
+     * matches neither pinned grammar is refused with the dialog paste-route
+     * pointer - never auto-guessed.
+     */
+    private static AnalysisReport analyzeElateTensor(ProjectProperty property,
+            File source) throws IOException {
+        String label = AnalysisKind.ELATE_TENSOR_ANALYSIS.getLabel();
+        if (source == null || !source.isFile()) {
+            return failure(label, "Pick a thermo_pw output_el_cons.dat[.gN] constants file"
+                    + " or a run stdout (*.out) holding the C_ij block. To analyse a tensor"
+                    + " from any other source, use the ELATE dialog's paste route (declared"
+                    + " unit) - this report never guesses a grammar.");
+        }
+        String name = source.getName();
+        String matrixText;
+        StringBuilder provenance = new StringBuilder();
+        StringBuilder verbatim = new StringBuilder();
+        if (name.startsWith("output_el_cons.dat")) {
+            OperationResult<QEThermoPwElasticParser.ElasticConstantsFile> parsed =
+                    QEThermoPwElasticParser.parseElasticConstantsFile(source.toPath());
+            if (!parsed.isSuccess() || parsed.getValue().isEmpty()) {
+                return failure(label, "[" + parsed.getCode() + "] " + parsed.getMessage());
+            }
+            QEThermoPwElasticParser.ElasticConstantsFile file = parsed.getValue()
+                    .orElseThrow();
+            matrixText = file.toElateMatrixText();
+            provenance.append("constants file ").append(name)
+                    .append(file.getGeometryTag() != null
+                            ? " (geometry " + file.getGeometryTag() + ")" : "")
+                    .append(" - ").append(file.getUnitProvenance()).append('\n');
+            provenance.append("compliance block: ").append(file.hasCompliance()
+                    ? "present (1/Mbar)" : "not written (yet)").append('\n');
+        } else if (name.endsWith(".out") || name.endsWith(".log")) {
+            OperationResult<QEThermoPwElasticParser.ElasticStdout> parsed =
+                    QEThermoPwElasticParser.parseElasticStdout(source.toPath());
+            if (!parsed.isSuccess() || parsed.getValue().isEmpty()) {
+                return failure(label, "[" + parsed.getCode() + "] " + parsed.getMessage());
+            }
+            QEThermoPwElasticParser.ElasticStdout stdout = parsed.getValue().orElseThrow();
+            matrixText = stdout.toElateMatrixText();
+            provenance.append("run stdout ").append(name)
+                    .append(" - LAST C_ij block at line ")
+                    .append(stdout.getStiffnessFirstLine())
+                    .append(" (stdout digits are the run's ROUNDED prints, used as-is).\n");
+            for (QEThermoPwElasticParser.StdoutScheme scheme : stdout.getSchemes()) {
+                verbatim.append(String.format(Locale.ROOT,
+                        "  line %d  %s:  B=%s kbar  E=%s kbar  G=%s kbar  n=%s%n",
+                        scheme.getFirstLine(), scheme.getScheme(), scheme.getBulkKbar(),
+                        scheme.getYoungKbar(), scheme.getShearKbar(), scheme.getPoisson()));
+            }
+            if (!stdout.getSoundTokens().isEmpty()) {
+                verbatim.append("  sound velocities (m/s tokens): ")
+                        .append(String.join(", ", stdout.getSoundTokens())).append('\n');
+            }
+            if (!stdout.getDebyeTokens().isEmpty()) {
+                verbatim.append("  Debye tokens: ")
+                        .append(String.join(", ", stdout.getDebyeTokens())).append('\n');
+            }
+        } else {
+            return failure(label, name + " matches neither pinned elastic channel"
+                    + " (output_el_cons.dat[.gN] / run stdout). Use the ELATE dialog's"
+                    + " paste route for ad-hoc tensors - nothing is auto-guessed here.");
+        }
+        OperationResult<QEElateAnalyzer.ElateReport> analysed =
+                QEElateAnalyzer.analyze(matrixText, QEElateAnalyzer.ElateUnit.KBAR);
+        if (!analysed.isSuccess() || analysed.getValue().isEmpty()) {
+            return failure(label, "[" + analysed.getCode() + "] " + analysed.getMessage());
+        }
+        QEElateAnalyzer.ElateReport report = analysed.getValue().orElseThrow();
+        StringBuilder text = new StringBuilder();
+        List<String> csv = new ArrayList<>();
+        text.append("== ELATE elastic tensor analysis (Java mirror of the published\n");
+        text.append("   coudertlab/elate workflow, commit 0627e636a7c97e8678f71aea44d0851455650d3a)\n");
+        text.append("   ==\n");
+        text.append(provenance);
+        double[] eigen = report.getEigenvaluesGpa();
+        text.append(String.format(Locale.ROOT,
+                "%nStability: %s (smallest eigenvalue %.6g GPa)%neigenvalues (GPa):",
+                report.isMechanicallyStable() ? "mechanically STABLE"
+                        : "mechanically UNSTABLE - ELATE's gate: no spatial extrema",
+                eigen[0]));
+        for (double value : eigen) {
+            text.append(String.format(Locale.ROOT, "  %.6g", value));
+        }
+        text.append('\n');
+        csv.add("elate,field,value");
+        csv.add(String.format(Locale.ROOT, "elate,stable,%s", report.isMechanicallyStable()));
+        csv.add(String.format(Locale.ROOT, "elate,lambda_min_gpa,%.6g", eigen[0]));
+        text.append("\nVoigt / Reuss / Hill averages (GPa; Poisson dimensionless):\n");
+        text.append(String.format(Locale.ROOT, "  %-16s %12s %12s %12s %10s%n",
+                "scheme", "K (bulk)", "E (Young)", "G (shear)", "nu"));
+        for (QEElateAnalyzer.AverageRow row : report.getAverages()) {
+            text.append(String.format(Locale.ROOT, "  %-16s %12.5f %12.5f %12.5f %10.5f%n",
+                    row.getScheme(), row.getBulkGpa(), row.getYoungGpa(),
+                    row.getShearGpa(), row.getPoisson()));
+            csv.add(String.format(Locale.ROOT, "elate,bulk_gpa_%s,%.6f",
+                    row.getScheme(), row.getBulkGpa()));
+            csv.add(String.format(Locale.ROOT, "elate,young_gpa_%s,%.6f",
+                    row.getScheme(), row.getYoungGpa()));
+        }
+        if (report.getMinYoung() != null) {
+            text.append("\nSpatial extrema (ELATE grid + refine):\n");
+            text.append(String.format(Locale.ROOT,
+                    "  E: min %.6g / max %.6g GPa (anisotropy %s)%n",
+                    report.getMinYoung().getValue(), report.getMaxYoung().getValue(),
+                    report.getYoungAnisotropy()));
+            text.append(String.format(Locale.ROOT,
+                    "  G: min %.6g / max %.6g GPa (anisotropy %s)%n",
+                    report.getMinShear().getValue(), report.getMaxShear().getValue(),
+                    report.getShearAnisotropy()));
+            text.append(String.format(Locale.ROOT,
+                    "  nu: min %.6g / max %.6g (LC: %.6g..%.6g TPa^-1)%n",
+                    report.getMinPoisson().getValue(), report.getMaxPoisson().getValue(),
+                    report.getMinLc().getValue(), report.getMaxLc().getValue()));
+        }
+        if (verbatim.length() > 0) {
+            text.append("\nverbatim thermo_pw stdout prints (the run's own claims):\n")
+                    .append(verbatim);
+        }
+        text.append("\nHill convention note: thermo_pw prints Hill as the MEAN of its two"
+                + " scheme rows; ELATE closes Hill from K_H, G_H - on upstream Si"
+                + " (example13) 159.958 vs 159.977 GPa, ~0.012%, a convention difference"
+                + " shown, not reconciled.\n");
+        text.append("\nHonesty boundary: kbar -> GPa by the declared 0.1 (thermo_pw's own"
+                + " printed aid); the constants file carries no unit text (cross-pinned"
+                + " from the sibling stdout of upstream example13, commit b73edd6d); no"
+                + " stability REVIEW is implied beyond Born positive-definiteness.\n");
+        boolean stable = report.isMechanicallyStable();
+        return new AnalysisReport(label, true, text.toString(), csv, null,
+                stable ? List.of() : List.of("tensor is not positive definite: spatial"
+                        + " extrema withheld by ELATE's own gate"));
+    }
+
+    /**
+     * phonopy OUTPUT inspection (batch 168): one pinned phonopy artifact
+     * (band.yaml / total_dos.dat / partial_dos.dat / projected_dos.dat /
+     * thermal_properties.yaml - the distinctive output names of the upstream
+     * writers, commit 3a3e0f09) run through its pinned reader and rendered as
+     * a self-describing summary: per-segment census + frequency reach for
+     * band.yaml, comments/columns/peak for the DOS tables, verbatim units +
+     * row census + endpoints for thermal_properties.yaml. Units are only ever
+     * STATED (THz = phonopy's default; DOS unit = its frequency unit; thermal
+     * units read from the file's own unit: block); imaginary modes are named;
+     * live partial rows held back are reported. No thermodynamics review is
+     * implied.
+     */
+    private static AnalysisReport analyzePhonopyOutput(ProjectProperty property,
+            File source) throws IOException {
+        String label = AnalysisKind.PHONOPY_OUTPUT.getLabel();
+        if (source == null || !source.isFile()) {
+            return failure(label, "Pick a phonopy artifact: band.yaml, total_dos.dat,"
+                    + " partial_dos.dat, projected_dos.dat, thermal_properties.yaml,"
+                    + " BORN, FORCE_CONSTANTS, gruneisen.yaml, gruneisen_mesh.yaml,"
+                    + " or a q2r.x .fc flfrc file (Experimental route).");
+        }
+        String name = source.getName();
+        StringBuilder text = new StringBuilder();
+        List<String> csv = new ArrayList<>();
+        csv.add("phonopy,field,value");
+        if (name.equals("band.yaml")) {
+            OperationResult<QEPhonopyBandYaml.BandYaml> parsed =
+                    QEPhonopyBandYaml.parse(source.toPath());
+            if (!parsed.isSuccess() || parsed.getValue().isEmpty()) {
+                return failure(label, "[" + parsed.getCode() + "] " + parsed.getMessage());
+            }
+            QEPhonopyBandYaml.BandYaml yaml = parsed.getValue().orElseThrow();
+            text.append("== phonopy band.yaml inspection ==\n");
+            text.append(yaml.getFrequencyUnitNote()).append("\n\n");
+            text.append(QEPhonopyBandYaml.describe(yaml));
+            csv.add(String.format(Locale.ROOT, "phonopy,nqpoint,%d", yaml.getNqpoint()));
+            csv.add(String.format(Locale.ROOT, "phonopy,parsed_rows,%d",
+                    yaml.getParsedRowCount()));
+            csv.add(String.format(Locale.ROOT, "phonopy,bands,%d", yaml.getBandCount()));
+            csv.add(String.format(Locale.ROOT, "phonopy,f_min,%.10g",
+                    yaml.getMinFrequency()));
+            csv.add(String.format(Locale.ROOT, "phonopy,f_max,%.10g",
+                    yaml.getMaxFrequency()));
+            csv.add(String.format(Locale.ROOT, "phonopy,imaginary_values,%d",
+                    yaml.getNegativeFrequencyCount()));
+            for (int i = 0; i < yaml.getSegments().size(); i++) {
+                QEPhonopyBandYaml.Segment segment = yaml.getSegments().get(i);
+                csv.add(String.format(Locale.ROOT, "phonopy,segment_%d_rows,%d",
+                        i + 1, segment.getRows().size()));
+                if (segment.getStartLabel() != null) {
+                    csv.add(String.format(Locale.ROOT, "phonopy,segment_%d_labels,%s->%s",
+                            i + 1, csvCell(segment.getStartLabel()),
+                            csvCell(segment.getEndLabel() == null
+                                    ? "" : segment.getEndLabel())));
+                }
+            }
+        } else if (name.equals("thermal_properties.yaml")) {
+            OperationResult<QEPhonopyThermalYaml.ThermalYaml> parsed =
+                    QEPhonopyThermalYaml.parse(source.toPath());
+            if (!parsed.isSuccess() || parsed.getValue().isEmpty()) {
+                return failure(label, "[" + parsed.getCode() + "] " + parsed.getMessage());
+            }
+            QEPhonopyThermalYaml.ThermalYaml yaml = parsed.getValue().orElseThrow();
+            text.append("== phonopy thermal_properties.yaml inspection ==\n");
+            text.append(yaml.getMolNote()).append("\n\n");
+            text.append("unit block (verbatim from the file):\n");
+            for (String[] unit : yaml.getUnitLabels()) {
+                text.append("  ").append(unit[0]).append(" -> ").append(unit[1])
+                        .append('\n');
+            }
+            text.append(String.format(Locale.ROOT, "%n%d temperature rows", 
+                    yaml.getRows().size()));
+            if (!yaml.getRows().isEmpty()) {
+                QEPhonopyThermalYaml.ThermalRow first = yaml.getRows().get(0);
+                QEPhonopyThermalYaml.ThermalRow last = yaml.getRows()
+                        .get(yaml.getRows().size() - 1);
+                text.append(String.format(Locale.ROOT,
+                        " (T %.4g .. %.4g K-ish per the file's own unit label)%n",
+                        first.getTemperature(), last.getTemperature()));
+                text.append(String.format(Locale.ROOT,
+                        "endpoints: F %.7g -> %.7g, S %.7g -> %.7g, Cv %.7g -> %.7g%n",
+                        first.getFreeEnergy(), last.getFreeEnergy(), first.getEntropy(),
+                        last.getEntropy(), first.getHeatCapacity(),
+                        last.getHeatCapacity()));
+            }
+            if (yaml.getZeroPointEnergy() != null) {
+                text.append(String.format(Locale.ROOT,
+                        "zero_point_energy (verbatim): %.10g%n",
+                        yaml.getZeroPointEnergy()));
+            }
+            csv.add(String.format(Locale.ROOT, "phonopy,t_rows,%d",
+                    yaml.getRows().size()));
+            csv.add(String.format(Locale.ROOT, "phonopy,partial_held,%d",
+                    yaml.getPartialRowsHeld()));
+        } else if (name.equals("gruneisen.yaml") || name.equals("gruneisen_mesh.yaml")) {
+            OperationResult<QEPhonopyGruneisenYaml.GruneisenYaml> parsed =
+                    QEPhonopyGruneisenYaml.parse(source.toPath());
+            if (!parsed.isSuccess() || parsed.getValue().isEmpty()) {
+                return failure(label, "[" + parsed.getCode() + "] " + parsed.getMessage());
+            }
+            QEPhonopyGruneisenYaml.GruneisenYaml gru = parsed.getValue().orElseThrow();
+            text.append("== phonopy-gruneisen mode Grüneisen inspection (")
+                    .append(name).append(") ==\n");
+            text.append(QEPhonopyGruneisenYaml.describe(gru)).append('\n');
+            csv.add(String.format(Locale.ROOT, "phonopy,gruneisen_mode,%s",
+                    gru.getMode()));
+            csv.add(String.format(Locale.ROOT, "phonopy,gruneisen_q_rows,%d",
+                    gru.flatRows().size()));
+            csv.add(String.format(Locale.ROOT, "phonopy,gruneisen_bands,%d",
+                    gru.getBandCount()));
+            double[] extent = gru.gammaExtent();
+            if (extent != null) {
+                csv.add(String.format(Locale.ROOT, "phonopy,gruneisen_gamma_min,%.10g",
+                        extent[0]));
+                csv.add(String.format(Locale.ROOT, "phonopy,gruneisen_gamma_max,%.10g",
+                        extent[1]));
+            }
+            csv.add(String.format(Locale.ROOT, "phonopy,gruneisen_negative_gamma,%d",
+                    gru.getNegativeGammaCount()));
+            csv.add(String.format(Locale.ROOT, "phonopy,gruneisen_gamma_point_rows,%d",
+                    gru.getGammaPointRowCount()));
+        } else if (name.equals("BORN")) {
+            OperationResult<QEPhonopyBorn.BornFile> parsed =
+                    QEPhonopyBorn.parse(source.toPath());
+            if (!parsed.isSuccess() || parsed.getValue().isEmpty()) {
+                return failure(label, "[" + parsed.getCode() + "] " + parsed.getMessage());
+            }
+            QEPhonopyBorn.BornFile born = parsed.getValue().orElseThrow();
+            text.append("== phonopy BORN (NAC) inspection ==\n");
+            text.append("line 1 (verbatim): ").append(born.getFirstLine()).append('\n');
+            text.append("dielectric [row-major]: ");
+            double[] eps = born.getDielectric();
+            for (int r = 0; r < 3; r++) {
+                text.append(String.format(Locale.ROOT, "%n  %13.6f %13.6f %13.6f",
+                        eps[r * 3], eps[r * 3 + 1], eps[r * 3 + 2]));
+            }
+            text.append(String.format(Locale.ROOT, "%n%d Born effective charge"
+                    + " tensor(s) verbatim (one per SYMMETRY-INDEPENDENT atom of the"
+                    + " primitive cell is phonopy's OWN expectation - its Symmetry"
+                    + " counts, we report)%n", born.getChargeCount()));
+            for (int i = 0; i < born.getCharges().size(); i++) {
+                double[] z = born.getCharges().get(i);
+                text.append(String.format(Locale.ROOT,
+                        "  Z* line %d diag: %13.6f %13.6f %13.6f%n",
+                        i + 1, z[0], z[4], z[8]));
+                csv.add(String.format(Locale.ROOT, "phonopy,born_zstar_%d_diag,%.10g",
+                        i + 1, z[0]));
+            }
+            for (String note : born.getNotes()) {
+                text.append("  - ").append(note).append('\n');
+            }
+            csv.add(String.format(Locale.ROOT, "phonopy,born_charge_tensors,%d",
+                    born.getChargeCount()));
+            csv.add(String.format(Locale.ROOT, "phonopy,born_epsilon_xx,%.10g", eps[0]));
+            csv.add(String.format(Locale.ROOT, "phonopy,born_factor_present,%s",
+                    born.getFactor().isPresent() ? "yes" : "no(default)"));
+        } else if (name.equals("FORCE_CONSTANTS")) {
+            OperationResult<QEPhonopyForceConstants.ForceConstants> parsed =
+                    QEPhonopyForceConstants.parse(source.toPath());
+            if (!parsed.isSuccess() || parsed.getValue().isEmpty()) {
+                return failure(label, "[" + parsed.getCode() + "] " + parsed.getMessage());
+            }
+            QEPhonopyForceConstants.ForceConstants fc = parsed.getValue().orElseThrow();
+            text.append("== phonopy FORCE_CONSTANTS inspection ==\n");
+            text.append(QEPhonopyForceConstants.describe(fc)).append('\n');
+            csv.add(String.format(Locale.ROOT, "phonopy,fc_dim_i,%d", fc.getDimI()));
+            csv.add(String.format(Locale.ROOT, "phonopy,fc_dim_j,%d", fc.getDimJ()));
+            csv.add(String.format(Locale.ROOT, "phonopy,fc_blocks_parsed,%d",
+                    fc.getCells().size()));
+            csv.add(String.format(Locale.ROOT, "phonopy,fc_distinct_first_tokens,%d",
+                    fc.getDistinctFirstIndices()));
+            csv.add(String.format(Locale.ROOT, "phonopy,fc_max_abs_element,%.10g",
+                    fc.getMaxAbsElement()));
+        } else if (name.endsWith(".fc")) {
+            OperationResult<QEPhonopyQ2rFc.Q2rFc> parsed =
+                    QEPhonopyQ2rFc.parse(source.toPath());
+            if (!parsed.isSuccess() || parsed.getValue().isEmpty()) {
+                return failure(label, "[" + parsed.getCode() + "] " + parsed.getMessage());
+            }
+            QEPhonopyQ2rFc.Q2rFc q2r = parsed.getValue().orElseThrow();
+            text.append("== q2r.x flfrc inspection (").append(name)
+                    .append("; Experimental PH_Q2R grammar) ==\n");
+            text.append(QEPhonopyQ2rFc.describe(q2r)).append('\n');
+            csv.add(String.format(Locale.ROOT, "phonopy,q2r_atoms,%d", q2r.getNatom()));
+            csv.add(String.format(Locale.ROOT, "phonopy,q2r_species,%d", q2r.getNtype()));
+            csv.add(String.format(Locale.ROOT, "phonopy,q2r_ibrav,%d", q2r.getIbrav()));
+            csv.add(String.format(Locale.ROOT, "phonopy,q2r_grid,%dx%dx%d",
+                    q2r.getDim()[0], q2r.getDim()[1], q2r.getDim()[2]));
+            csv.add(String.format(Locale.ROOT, "phonopy,q2r_blocks_parsed,%d",
+                    q2r.getBlocks().size()));
+            csv.add(String.format(Locale.ROOT, "phonopy,q2r_blocks_expected,%d",
+                    q2r.getExpectedBlockCount()));
+            csv.add(String.format(Locale.ROOT, "phonopy,q2r_max_abs_element,%.10g",
+                    q2r.getMaxAbsElement()));
+            csv.add(String.format(Locale.ROOT, "phonopy,q2r_nac_block,%s",
+                    q2r.hasNac() ? "present" : "absent"));
+            csv.add(String.format(Locale.ROOT, "phonopy,q2r_partial_blocks_held,%d",
+                    q2r.getPartialBlocksHeld()));
+        } else {
+            OperationResult<QEPhonopyDos.DosTable> parsed =
+                    QEPhonopyDos.parse(source.toPath());
+            if (!parsed.isSuccess() || parsed.getValue().isEmpty()) {
+                return failure(label, "[" + parsed.getCode() + "] " + parsed.getMessage());
+            }
+            QEPhonopyDos.DosTable table = parsed.getValue().orElseThrow();
+            text.append("== phonopy DOS table inspection (").append(name)
+                    .append(") ==\n");
+            text.append(table.getUnitNote()).append("\n\n");
+            text.append(parsed.getMessage()).append('\n');
+            for (String comment : table.getComments()) {
+                text.append("comment: ").append(comment).append('\n');
+            }
+            double[] peak = table.peakSummary();
+            text.append(String.format(Locale.ROOT,
+                    "peak DOS %.10g at frequency %.10g (across %d series)%n",
+                    peak[0], peak[1], table.getSeriesCount()));
+            csv.add(String.format(Locale.ROOT, "phonopy,dos_rows,%d",
+                    table.getFrequencies().length));
+            csv.add(String.format(Locale.ROOT, "phonopy,dos_series,%d",
+                    table.getSeriesCount()));
+            csv.add(String.format(Locale.ROOT, "phonopy,dos_peak,%.10g", peak[0]));
+            csv.add(String.format(Locale.ROOT, "phonopy,negative_freq_rows,%d",
+                    table.getNegativeFrequencyRows()));
+        }
+        text.append("\nHonesty boundary: a parser-level inspection of one pinned"
+                + " phonopy artifact (upstream writer grammars, commit 3a3e0f09); live"
+                + " partial rows are held back and reported; units are stated from the"
+                + " file or the doc, never inferred; this is not a phonon-quality"
+                + " review.\n");
+        return new AnalysisReport(label, true, text.toString(), csv, null);
+    }
+
+    /**
+     * pw.x CARD grammar audit (R4): the deck's card-adjacent lines adjudicated
+     * against the mined read_cards.f90 grammar (dispatch chain, option IF-chain
+     * arms with HUBBARD sanity traps, ELSE-arm dispositions, prog gates, and
+     * the K_POINTS automatic-mesh constraints; tag sha256 provenance in
+     * QECardSchemaData). Severities mirror the binary: removed cards, traps,
+     * FATAL dispositions and mesh violations ABORT (ERROR); unknown cards and
+     * tolerated-with-default options are what pw.x itself survives (WARNING).
+     * Version: null falls to the newest mined tag, stated in the header.
+     */
+    private static AnalysisReport analyzeQeCardAudit(ProjectProperty property,
+            File source) throws IOException {
+        String label = AnalysisKind.QE_CARD_AUDIT.getLabel();
+        String content = Files.readString(source.toPath(), StandardCharsets.UTF_8);
+        List<ValidationIssue> issues = new QECardAudit().auditDeckText(content, null);
+        String newest = QENamelistSchema.VERSIONS.get(QENamelistSchema.VERSIONS.size() - 1);
+        StringBuilder text = new StringBuilder();
+        List<String> csv = new ArrayList<>();
+        text.append(String.format(Locale.ROOT,
+                "== pw.x card grammar audit (mined read_cards.f90: %d dispatch cards, %d option"
+                        + " grammars, tags qe-7.2..qe-%s; version not pinned -> newest tag) ==%n",
+                QECardSchema.dispatchChain().size(), QECardSchema.grammars().size(), newest));
+        text.append("Source: ").append(source.getName()).append('\n');
+        csv.add("qe-card-audit,severity,code,message");
+        int errors = 0;
+        int warnings = 0;
+        for (ValidationIssue issue : issues) {
+            if (issue.getSeverity() == ValidationSeverity.ERROR) {
+                errors += 1;
+            } else {
+                warnings += 1;
+            }
+            text.append("  ").append(issue.getSeverity())
+                    .append(" [").append(issue.getCode()).append("] ")
+                    .append(issue.getMessage()).append('\n');
+            if (!issue.getDocumentationUrl().isEmpty()) {
+                text.append("      docs: ").append(issue.getDocumentationUrl()).append('\n');
+            }
+            csv.add(String.format(Locale.ROOT, "qe-card-audit,%s,%s,%s",
+                    issue.getSeverity(), csvCell(issue.getCode()), csvCell(issue.getMessage())));
+        }
+        if (issues.isEmpty()) {
+            text.append("  No card-grammar findings: every card-shaped line is a card pw.x\n"
+                    + "  dispatches on, every option matches the mined IF-chain, and no\n"
+                    + "  mined consistency trap trips.\n");
+        }
+        text.append(String.format(Locale.ROOT,
+                "%nVerdict: %d ERROR (pw.x aborts: removed cards / HUBBARD traps / fatal"
+                        + " options / mesh constraints) and %d WARNING (pw.x tolerates:"
+                        + " unknown cards are IGNORED, tolerated options silently default).%n",
+                errors, warnings));
+        text.append("\nHonesty boundary: this is a GRAMMAR audit of card-shaped lines, never"
+                + " a physics or completeness review. Content rules of known cards stay with"
+                + " QEInputValidator; prog gates are adjudicated for a plain pw.x run"
+                + " (K_POINTS warns only under CP and earns no finding here). Unknown cards are"
+                + " WARNINGS because read_cards only writes 'Warning: card ... ignored' - but a"
+                + " typo there silently drops the intended physics. Audit version window:"
+                + " qe-7.2 .. qe-" + newest + ".\n");
+        return new AnalysisReport(label, errors == 0, text.toString(), csv, null);
+    }
+
+    /**
+     * Auxiliary-program input grammar audit (batch 159): decks of the 24
+     * mandated auxiliary programs adjudicated against the mined grammar
+     * (21 INPUT_*.def machine grammars + the XSpectra-family namelist
+     * declarations mined from compilable source; masks per tag qe-7.2..qe-7.6;
+     * tag sha256 provenance and the spectra_correction option STOP-set fact
+     * in QEAuxSchemaData). Program detection is conservative: an unambiguous
+     * namelist signature picks the program (INPUTCOND -> pwcond); ambiguous
+     * families (INPUT_MANIP -> the two spectra tools, &INPUT collisions) are
+     * audited as the first candidate with every alternative NAMED, never
+     * silently guessed. Severities mirror the binaries: unknown keywords,
+     * wrong-namelist placements, version-absent keywords and the spectra
+     * option STOP-set abort the programs outright (ERROR); REQUIRED keywords
+     * without a default, declared-type shapes and undocumented option
+     * literals are advisory layers (WARNING, doc layer honestly SOFT).
+     * Version: null falls to the newest mined tag, stated in the header.
+     */
+    private static AnalysisReport analyzeQeAuxDeckAudit(ProjectProperty property,
+            File source) throws IOException {
+        String label = AnalysisKind.QE_AUX_DECK_AUDIT.getLabel();
+        String content = Files.readString(source.toPath(), StandardCharsets.UTF_8);
+        QEAuxDeckAudit audit = new QEAuxDeckAudit();
+        String newest = QENamelistSchema.VERSIONS.get(QENamelistSchema.VERSIONS.size() - 1);
+        Optional<String> detected = audit.detectProgram(content);
+        List<String> candidates = detected.isPresent() ? List.of(detected.get())
+                : audit.candidatePrograms(content);
+        if (candidates.isEmpty()) {
+            return failure(label, source.getName() + " names no namelist owned by any of the"
+                    + " 24 mined auxiliary programs, so the audit ran nothing (a refusal, not"
+                    + " a pass). This kind audits decks for: "
+                    + String.join(", ", QEAuxSchema.programs()) + ". If the file really is an"
+                    + " auxiliary deck, its namelist header may be missing or foreign; the"
+                    + " grammar table covers "
+                    + QEAuxSchema.rowCount() + " keyword rows across tags qe-7.2..qe-"
+                    + newest + ".");
+        }
+        String program = candidates.get(0);
+        List<ValidationIssue> issues = audit.auditDeckText(program, content, null);
+        StringBuilder text = new StringBuilder();
+        List<String> csv = new ArrayList<>();
+        text.append(String.format(Locale.ROOT,
+                "== auxiliary QE input grammar audit: %s (mined grammar: %d keyword rows,"
+                        + " %d namelist(s); tags qe-7.2..qe-%s; version not pinned -> newest"
+                        + " tag) ==%n",
+                program, QEAuxSchema.entries(program).size(),
+                QEAuxSchema.namelists(program).size(), newest));
+        text.append("Source: ").append(source.getName()).append('\n');
+        if (detected.isPresent()) {
+            text.append("Program detection: unambiguous namelist signature -> ")
+                    .append(detected.get()).append('\n');
+        } else if (candidates.size() > 1) {
+            text.append("Program detection: ambiguous signature - audited as ")
+                    .append(program).append(" (alternatives: ")
+                    .append(String.join(", ", candidates.subList(1, candidates.size())))
+                    .append("); re-check the others if this deck was meant for them.\n");
+        }
+        text.append("Doc page of record: ").append(QEAuxSchema.docPage(program)).append('\n');
+        csv.add("qe-aux-deck-audit,severity,code,message");
+        int errors = 0;
+        int warnings = 0;
+        for (ValidationIssue issue : issues) {
+            if (issue.getSeverity() == ValidationSeverity.ERROR) {
+                errors += 1;
+            } else {
+                warnings += 1;
+            }
+            text.append("  ").append(issue.getSeverity())
+                    .append(" [").append(issue.getCode()).append("] ")
+                    .append(issue.getMessage()).append('\n');
+            if (!issue.getDocumentationUrl().isEmpty()) {
+                text.append("      docs: ").append(issue.getDocumentationUrl()).append('\n');
+            }
+            csv.add(String.format(Locale.ROOT, "qe-aux-deck-audit,%s,%s,%s",
+                    issue.getSeverity(), csvCell(issue.getCode()), csvCell(issue.getMessage())));
+        }
+        if (issues.isEmpty()) {
+            text.append("  No grammar findings: every keyword belongs to the mined " + program
+                    + " grammar at the audited version, sits under its declared namelist,"
+                    + " and no mined hard rule (REQUIRED assignments, documented-option"
+                    + " layers, verbatim STOP sets) trips.\n");
+        }
+        text.append(String.format(Locale.ROOT,
+                "%nVerdict: %d ERROR (the program aborts: unknown keywords / wrong-namelist"
+                        + " placements / version-absent keywords / verbatim STOP sets) and"
+                        + " %d WARNING (advisory layers: REQUIRED-without-default, declared"
+                        + " type shapes, undocumented option literals).%n",
+                errors, warnings));
+        text.append("\nHonesty boundary: this is a GRAMMAR audit of namelist assignments,"
+                + " never run-readiness, physics, or a completeness review. Decks are read"
+                + " through the production QEInputReader grammar; unknown keywords are ERROR"
+                + " because the Fortran namelist READ aborts on them in every mined program,"
+                + " while documented option literals are a SOFT doc layer that never refuses"
+                + " by itself. Hard sets exist only where mined verbatim (the"
+                + " spectra_correction option guard writes 'Option not recognized' and"
+                + " STOPS). Audit version window: qe-7.2 .. qe-" + newest + ".\n");
+        return new AnalysisReport(label, errors == 0, text.toString(), csv, null);
+    }
+
+    private static AnalysisReport analyzeBoltzTrap2Transport(ProjectProperty property,
+            File source) throws IOException {
+        String label = AnalysisKind.BOLTZTRAP2_TRANSPORT.getLabel();
+        // batch 172: the headerless fork dope tables route by NAME (the name
+        // cross-check inside the parser then refuses a wrong-family file)
+        String sourceName = source.getName().toLowerCase(Locale.ROOT);
+        if (sourceName.endsWith(".dope.dos") || sourceName.endsWith(".dope.vvdos")
+                || sourceName.endsWith(".dope.dos_raw")
+                || sourceName.endsWith(".dope.vvdos_raw")) {
+            return analyzeBoltzTrap2DopeDos(label, source);
+        }
+        BoltzTrap2TraceParser parser = new BoltzTrap2TraceParser(property);
+        parser.parse(source);
+        BoltzTrap2TraceParser.FileKind kind = parser.getFileKind();
+        if (kind == BoltzTrap2TraceParser.FileKind.TENSOR_OTHER) {
+            // batch 172: .halltens now parses as certified Hall data (the
+            // save_halltens writer was pinned verbatim), so TENSOR_OTHER only
+            // remains for genuinely UNKNOWABLE 30-column headers - still a
+            // loud refusal, never a silent re-interpretation
+            return failure(label, source.getName() + " is a 30-column tensor file whose "
+                    + "header certifies neither the .condtens sigma/S/kappa triplet nor "
+                    + "the .halltens RH[m**3/C] token: the table's semantics are unknowable "
+                    + "from the file alone, so no transport or Hall quantity was derived "
+                    + "from it.\nProvenance: " + parser.getFamilyNote());
+        }
+        if (kind == BoltzTrap2TraceParser.FileKind.HALLTENS) {
+            return analyzeBoltzTrap2Hall(label, source, parser);
+        }
+        List<BoltzTrap2TraceParser.TransportRow> rows = parser.getRows();
+        if (rows.size() < 2) {
+            return failure(label, "Fewer than two clean transport rows were parsed from "
+                    + source.getName() + " (clean rows: " + rows.size() + ", skipped rows: "
+                    + parser.getSkippedRowCount() + "). A single point is not a curve, and "
+                    + "ragged rows are never silently healed.\nProvenance: "
+                    + (parser.getFamilyNote().isEmpty() ? "file empty or grammar foreign"
+                            : parser.getFamilyNote()));
+        }
+
+        BoltzTrap2TraceParser.TransportRow best = parser.maxAbsSeebeck();
+        BoltzTrap2TraceParser.TransportRow bestPf = rows.get(0);
+        for (BoltzTrap2TraceParser.TransportRow row : rows) {
+            if (BoltzTrap2TraceParser.powerFactor(row) > BoltzTrap2TraceParser.powerFactor(bestPf)) {
+                bestPf = row;
+            }
+        }
+
+        StringBuilder text = new StringBuilder();
+        text.append("Source: ").append(source.getName()).append('\n');
+        String familyNote = switch (kind) {
+            case CONDTENS -> " (full 3x3 tensors, Fortran-ordered blocks;"
+                    + " isotropic = trace/3)";
+            case TRACE_DOPE_X -> " (fork .trace with the Yi-Wang cv_x/S_x/N_x"
+                    + " columns appended; first column Ef[Ry] as written)";
+            case TRACE_DOPE_EXT -> " (fork .dope.trace save_traceEXT grammar;"
+                    + " first column certified mu-Ef[eV] AS WRITTEN - no Ry"
+                    + " conversion is invented)";
+            default -> " (isotropic columns as written)";
+        };
+        text.append("File family: ").append(kind).append(familyNote).append('\n');
+        // batch 172: surface the certified dope extras + the column-1 semantics
+        if (kind == BoltzTrap2TraceParser.FileKind.TRACE_DOPE_X
+                || kind == BoltzTrap2TraceParser.FileKind.TRACE_DOPE_EXT) {
+            BoltzTrap2TraceParser.TransportRow first = rows.get(0);
+            double[] extras = first.getExtras();
+            text.append(String.format(Locale.ROOT,
+                    "Fork extras census (as written, units per the header tokens):"
+                            + " %d extra columns; first-row cv_x=%.6g, S_x=%.6g,"
+                            + " N_x=%.6g%s%n",
+                    extras.length,
+                    extras.length > 0 ? extras[0] : Double.NaN,
+                    extras.length > 1 ? extras[1] : Double.NaN,
+                    extras.length > 2 ? extras[2] : Double.NaN,
+                    kind == BoltzTrap2TraceParser.FileKind.TRACE_DOPE_EXT
+                            && extras.length > 10
+                            ? String.format(Locale.ROOT,
+                                    ", L_x=%.6g, deltaE=%.6g eV, tau=%.6g s, tau_1=%.6g s",
+                                    extras[3], extras[10], extras[11], extras[12])
+                            : ""));
+        }
+        text.append("First-column semantics (header certificate): ")
+                .append(parser.getColumnOneNote()).append('\n');
+        text.append("Scattering model (header-legible): ").append(parser.getScatteringModel())
+                .append('\n');
+        text.append("sigma units verbatim: ")
+                .append(parser.getSigmaUnits().isEmpty() ? "(no header token)" : parser.getSigmaUnits())
+                .append(" / kappa units verbatim: ")
+                .append(parser.getKappaUnits().isEmpty() ? "(no header token)" : parser.getKappaUnits())
+                .append('\n');
+        text.append("Provenance: ").append(parser.getFamilyNote()).append('\n');
+        text.append("Clean rows: ").append(rows.size())
+                .append(" | skipped ragged/foreign rows: ").append(parser.getSkippedRowCount())
+                .append(" | temperatures: ").append(parser.getTemperatures().size()).append(" K values\n\n");
+
+        if (best.isColumnOneEv()) {
+            text.append(String.format(Locale.ROOT,
+                    "Peak |Seebeck| (isotropic): %.4g V/K at T=%.3g K, mu-Ef=%.6g eV AS WRITTEN"
+                            + " (the fork's .dope.trace first column - no Ry conversion)%n",
+                    best.getSeebeckVK(), best.getTemperatureK(), best.getMuEv()));
+        } else {
+            text.append(String.format(Locale.ROOT,
+                    "Peak |Seebeck| (isotropic): %.4g V/K at T=%.3g K, mu=%.6g Ry (%.6g eV, 1 Ry = 13.605693122994 eV)%n",
+                    best.getSeebeckVK(), best.getTemperatureK(), best.getMuRy(), best.getMuEv()));
+        }
+        text.append(String.format(Locale.ROOT,
+                "Peak power factor S^2.sigma (isotropic-average approximation): %.4g at T=%.3g K, mu=%.6g Ry%n",
+                BoltzTrap2TraceParser.powerFactor(bestPf), bestPf.getTemperatureK(),
+                bestPf.getMuRy()));
+        if (kind == BoltzTrap2TraceParser.FileKind.CONDTENS) {
+            double[] spread = parser.seebeckDiagonalSpread(best);
+            if (spread != null) {
+                text.append(String.format(Locale.ROOT,
+                        "Seebeck diagonal anisotropy at that point: min=%.4g, max=%.4g, spread=%.4g V/K (xx/yy/zz diagonal of the tensor)%n",
+                        spread[0], spread[1], spread[2]));
+            }
+        }
+        text.append("\nHonesty block: units come VERBATIM from the header tokens (the custom_tau "
+                + "writer's 1e-9 factor is already inside the written numbers; nothing is "
+                + "re-scaled here). The power factor above is the isotropic-average "
+                + "approximation S^2.sigma, NOT the tensor-consistent tr(S^2.sigma)/3; "
+                + "convergence in k-mesh, scattering model and chemical-potential grid is the "
+                + "publication burden left to the user - a table alone never proves it.");
+
+        List<String> csv = new ArrayList<>();
+        // batch 172: the 23-column fork grammar writes mu-Ef in eV (certified
+        // by its header), so the mu caption is chosen, never assumed
+        csv.add(kind == BoltzTrap2TraceParser.FileKind.TRACE_DOPE_EXT
+                ? "mu_minus_ef_ev_as_written,temperature_k,carriers_e_per_uc,seebeck_iso_v_k,sigma_iso,kappa_iso,power_factor_iso"
+                : "mu_ry,mu_ev,temperature_k,carriers_e_per_uc,seebeck_iso_v_k,sigma_iso,kappa_iso,power_factor_iso");
+        for (BoltzTrap2TraceParser.TransportRow row : rows) {
+            if (kind == BoltzTrap2TraceParser.FileKind.TRACE_DOPE_EXT) {
+                csv.add(String.format(Locale.ROOT, "%.8g,%.8g,%.8g,%.8g,%.8g,%.8g,%.8g",
+                        row.getMuEv(), row.getTemperatureK(), row.getCarriersPerCell(),
+                        row.getSeebeckVK(), row.getSigmaOverTau(), row.getKappaOverTau(),
+                        BoltzTrap2TraceParser.powerFactor(row)));
+            } else {
+                csv.add(String.format(Locale.ROOT, "%.8g,%.8g,%.8g,%.8g,%.8g,%.8g,%.8g,%.8g",
+                        row.getMuRy(), row.getMuEv(), row.getTemperatureK(),
+                        row.getCarriersPerCell(), row.getSeebeckVK(),
+                        row.getSigmaOverTau(), row.getKappaOverTau(),
+                        BoltzTrap2TraceParser.powerFactor(row)));
+            }
+        }
+        return new AnalysisReport(label, true, text.toString(), csv, null);
+    }
+
+    /**
+     * Batch 172 (.halltens branch): the rank-3 Hall tensor census - rows,
+     * temperatures, mu values, the |even-permutation average| peak per the
+     * fork's save_halltens ohall formula, and the tensor's data extent. No
+     * Hall-angle or multiband modeling is derived (a table alone never
+     * proves it); units come verbatim from the RH[m**3/C] header token.
+     */
+    private static AnalysisReport analyzeBoltzTrap2Hall(String label, File source,
+            BoltzTrap2TraceParser parser) {
+        List<BoltzTrap2TraceParser.HallRow> rows = parser.getHallRows();
+        if (rows.size() < 2) {
+            return failure(label, "Fewer than two clean Hall rows were parsed from "
+                    + source.getName() + " (clean rows: " + rows.size() + ", skipped rows: "
+                    + parser.getSkippedRowCount() + "). Ragged rows are never silently "
+                    + "healed.\nProvenance: " + parser.getFamilyNote());
+        }
+        BoltzTrap2TraceParser.HallRow best = rows.get(0);
+        double[] extent = rows.get(0).getRhTensor();
+        double elementMin = extent[0];
+        double elementMax = extent[0];
+        for (BoltzTrap2TraceParser.HallRow row : rows) {
+            if (Math.abs(row.getRhEvenPermutationAverage())
+                    > Math.abs(best.getRhEvenPermutationAverage())) {
+                best = row;
+            }
+            for (double element : row.getRhTensor()) {
+                elementMin = Math.min(elementMin, element);
+                elementMax = Math.max(elementMax, element);
+            }
+        }
+        LinkedHashSet<Double> mus = new LinkedHashSet<>();
+        for (BoltzTrap2TraceParser.HallRow row : rows) {
+            mus.add(row.getMuRy());
+        }
+        StringBuilder text = new StringBuilder();
+        text.append("Source: ").append(source.getName()).append('\n');
+        text.append("File family: ").append(parser.getFileKind())
+                .append(" (rank-3 Hall tensor, Fortran ravel index i + 3j + 9k per the"
+                        + " fork's save_halltens; the even-permutation average ohall is"
+                        + " (RH012 + RH201 + RH120)/3, the writer's own scalar)\n");
+        text.append("Provenance: ").append(parser.getFamilyNote()).append('\n');
+        text.append("Units verbatim: RH[m**3/C] (header token)\n");
+        text.append("Clean rows: ").append(rows.size())
+                .append(" | skipped ragged/foreign rows: ")
+                .append(parser.getSkippedRowCount())
+                .append(" | temperatures: ").append(parser.getTemperatures().size())
+                .append(" K values | chemical potentials: ").append(mus.size())
+                .append(" Ef[Ry] values\n\n");
+        text.append(String.format(Locale.ROOT,
+                "Peak |ohall| (even-permutation average): %.6g m**3/C at T=%.3g K,"
+                        + " mu=%.6g Ry (%.6g eV)%n",
+                best.getRhEvenPermutationAverage(), best.getTemperatureK(),
+                best.getMuRy(), best.getMuEv()));
+        text.append(String.format(Locale.ROOT,
+                "Tensor data extent across the clean rows: [%.6g, %.6g] m**3/C%n",
+                elementMin, elementMax));
+        text.append(String.format(Locale.ROOT,
+                "Max |ohall| census cross-check: %.6g m**3/C%n",
+                parser.maxAbsHallAverage()));
+        text.append("\nHonesty block: the ohall scalar is the fork writer's own "
+                + "even-permutation average (save_halltens, verbatim formula); the full "
+                + "rank-3 tensor is reported as data extent only - no Hall-factor or "
+                + "single-/multi-band interpretation is inferred. Units come VERBATIM "
+                + "from the header; a table alone never certifies k-mesh / scattering "
+                + "convergence.");
+        List<String> csv = new ArrayList<>();
+        csv.add("mu_ry,mu_ev,temperature_k,carriers_e_per_uc,ohall_m3_c,rh000,rh111,rh222");
+        for (BoltzTrap2TraceParser.HallRow row : rows) {
+            csv.add(String.format(Locale.ROOT, "%.8g,%.8g,%.8g,%.8g,%.8g,%.8g,%.8g,%.8g",
+                    row.getMuRy(), row.getMuEv(), row.getTemperatureK(),
+                    row.getCarriersPerCell(), row.getRhEvenPermutationAverage(),
+                    row.getRhComponent(0, 0, 0), row.getRhComponent(1, 1, 1),
+                    row.getRhComponent(2, 2, 2)));
+        }
+        return new AnalysisReport(label, true, text.toString(), csv, null);
+    }
+
+    /**
+     * Batch 172 (.dope.dos/.dope.vvdos branch): the fork's headerless DOS /
+     * velocity-weighted DOS tables (Yi Wang 09/24/2020). The rows are read
+     * VERBATIM ((E-Ef) in eV, channels *Volt - the fork's own write line is
+     * quoted in the parser notes), the name cross-check refuses a wrong
+     * column grammar loudly, and only a partial LAST line of a live write is
+     * held back (never mid-file lines).
+     */
+    private static AnalysisReport analyzeBoltzTrap2DopeDos(String label, File source) {
+        OperationResult<BoltzTrap2DopeDosParser.DopeDosTable> result =
+                BoltzTrap2DopeDosParser.parse(source.toPath());
+        if (!result.isSuccess()
+                || result.getValue().isEmpty()) {
+            return failure(label, source.getName() + " refused by the dope-DOS table"
+                    + " grammar: " + result.getCode() + ": " + result.getMessage()
+                    + " (the name/column cross-check is fail-closed; nothing was"
+                    + " guessed).");
+        }
+        BoltzTrap2DopeDosParser.DopeDosTable table = result.getValue().get();
+        if (table.getRows() < 2) {
+            return failure(label, "Fewer than two clean rows were parsed from "
+                    + source.getName() + "; a single point is not a spectrum.");
+        }
+        double[] energy = table.getEnergy();
+        List<double[]> channels = table.getChannels();
+        double channelSum = 0.0;
+        double channelMin = channels.get(0)[0];
+        double channelMax = channels.get(0)[0];
+        for (double[] channel : channels) {
+            for (double value : channel) {
+                channelSum += Math.abs(value);
+                channelMin = Math.min(channelMin, value);
+                channelMax = Math.max(channelMax, value);
+            }
+        }
+        StringBuilder text = new StringBuilder();
+        text.append("Source: ").append(source.getName()).append('\n');
+        text.append("File family: ").append(table.getKind())
+                .append(table.getKind() == BoltzTrap2DopeDosParser.DopeDosKind.DOS
+                        ? " (2 columns: (E-Ef)[eV], dos*Volt - the fork's"
+                                + " .dope.dos write line)"
+                        : " (4 columns: (E-Ef)[eV], vvdos_11/22/33*Volt - the"
+                                + " fork's .dope.vvdos write line)")
+                .append('\n');
+        for (String note : table.getNotes()) {
+            text.append("Provenance: ").append(note).append('\n');
+        }
+        text.append(String.format(Locale.ROOT,
+                "Clean rows: %d%s | energy extent: [%.6g, %.6g] eV (E-Ef, column 1"
+                        + " as written)%n",
+                table.getRows(),
+                table.getPartialTailHeld() > 0
+                        ? " | partial tail held back: " + table.getPartialTailHeld()
+                                + " line(s) (only a live-write's LAST line may be"
+                                + " partial - counted, never healed)"
+                        : "",
+                energy[0], energy[energy.length - 1]));
+        text.append(String.format(Locale.ROOT,
+                "Channels: %d | data extent: [%.6g, %.6g] | mean |channel value|:"
+                        + " %.6g (raw-table census, no unit re-scaling)%n",
+                channels.size(), channelMin, channelMax,
+                channels.isEmpty() ? 0.0
+                        : channelSum / (table.getRows() * channels.size())));
+        text.append("Honesty block: the cells are the fork's own writes (the"
+                + " '*Volt' scaling is already inside the written numbers); no"
+                + " carrier-count or conductivity is re-derived from the table,"
+                + " and the '_raw' suffix (when present) only marks the"
+                + " pre-remesh table the fork os.rename()'d aside - both play"
+                + " by the same column grammar.");
+        List<String> csv = new ArrayList<>();
+        StringBuilder csvHeader = new StringBuilder("energy_minus_ef_ev");
+        for (int c = 0; c < channels.size(); c++) {
+            csvHeader.append(table.getKind() == BoltzTrap2DopeDosParser.DopeDosKind.DOS
+                    ? ",dos_times_volt" : ",vvdos_" + (c + 1) + "" + (c + 1) + "_times_volt");
+        }
+        csv.add(csvHeader.toString());
+        for (int r = 0; r < table.getRows(); r++) {
+            StringBuilder line = new StringBuilder(
+                    String.format(Locale.ROOT, "%.8g", energy[r]));
+            for (double[] channel : channels) {
+                line.append(String.format(Locale.ROOT, ",%.8g", channel[r]));
+            }
+            csv.add(line.toString());
+        }
+        return new AnalysisReport(label, true, text.toString(), csv, null);
     }
 
     private static AnalysisReport analyzeTc(ProjectProperty property, File source, AnalysisParameters params)
@@ -4669,8 +5986,52 @@ public final class ResultAnalysisService {
         }
         Optional<QEKeywordHelp.KeywordEntry> found = QEKeywordHelp.lookup(keyword);
         if (found.isEmpty()) {
+            // Batch 150 deepened: outside the curated subset falls back to the
+            // machine-mined schema (QE 7.2-7.6) before failing closed.
+            Optional<QENamelistSchema.Entry> mined =
+                    QENamelistSchema.lookup(QENamelistSchema.Kind.PW, keyword);
+            if (mined.isPresent()) {
+                QENamelistSchema.Entry row = mined.get();
+                StringBuilder text = new StringBuilder();
+                text.append(String.format(Locale.ROOT,
+                        "Keyword: %s   (namelist &%s, pw.x)%n", row.getName(), row.getNamelist()));
+                text.append("Source: machine-mined namelist schema, QE tags qe-7.2 .. qe-7.6 "
+                        + "(scripts/qe_schema_miner.py); NOT the curated comments of the "
+                        + covered.size() + "-keyword offline table.\n\n");
+                text.append("Type: ").append(row.getType())
+                        .append(row.isArray() ? " (indexed array)" : "").append('\n');
+                text.append("Present in QE: ").append(row.versionRange()).append('\n');
+                text.append("Required by the schema: ").append(row.isRequired() ? "yes" : "no")
+                        .append('\n');
+                text.append("Documented default: ")
+                        .append(row.getDefaultText() == null ? "(none recorded)" : row.getDefaultText())
+                        .append('\n');
+                if (!row.getAcceptedValues().isEmpty()) {
+                    text.append("Runtime-accepted values (pw.x aborts otherwise): ")
+                            .append(String.join(", ", row.getAcceptedValues())).append('\n');
+                }
+                if (!row.getDocumentedValues().isEmpty()) {
+                    text.append("Documented values (silently remapped otherwise): ")
+                            .append(String.join(", ", row.getDocumentedValues())).append('\n');
+                }
+                if (row.getDescription() != null) {
+                    text.append("\nSchema doc: ").append(row.getDescription()).append('\n');
+                }
+                text.append("\nUpstream reference (match your QE version): ")
+                        .append(row.getDocsUrl()).append('\n');
+                return new AnalysisReport(label, true, text.toString(), List.of(
+                        "field,value",
+                        "keyword," + csvCell(row.getName()),
+                        "namelist," + csvCell(row.getNamelist()),
+                        "type," + row.getType(),
+                        "versions," + csvCell(row.versionRange()),
+                        "required," + row.isRequired(),
+                        "default," + csvCell(row.getDefaultText() == null
+                                ? "(none recorded)" : row.getDefaultText())), null);
+            }
             return failure(label, "\"" + keyword + "\" is outside the curated offline "
-                    + "table (" + covered.size() + " keywords). Nothing is improvised; "
+                    + "table (" + covered.size() + " keywords) AND outside the machine-mined "
+                    + "QE 7.2-7.6 schema (430 pw.x namelist keywords). Nothing is improvised; "
                     + "consult the version-matched upstream docs: "
                     + QEKeywordHelp.INPUT_PW_URL + ". Covered keywords: " + covered);
         }
@@ -6786,9 +8147,10 @@ public final class ResultAnalysisService {
     }
 
     /**
-     * Roadmap #22: version-aware keyword audit against the curated 7.2-7.5
-     * snapshot. Values stay verbatim; absence from the curated slice is
-     * reported as NOT-IN-CURATED, never judged invalid.
+     * Roadmap #22: version-aware keyword audit. The curated 7.2-7.5 snapshot
+     * stays as the baseline (absence there is NOT-IN-CURATED, never judged
+     * invalid); batch 150 appends the full machine-mined schema audit
+     * (QE 7.2-7.6) that completes the #22 completeness work.
      */
     private static AnalysisReport analyzeQeVersionCheck(Project project,
             AnalysisParameters params) {
@@ -6807,14 +8169,19 @@ public final class ResultAnalysisService {
         }
         String version = params.getSeriesKeyword() == null
                 ? "" : params.getSeriesKeyword().trim();
-        if (!version.isEmpty() && !QEVersionRuleCatalog.isSupportedVersion(version)) {
+        // Batch 150 deepened: the machine-mined schema window is 7.2-7.6; the
+        // curated snapshot audit below stays frozen as the batch-#22 baseline.
+        if (!version.isEmpty() && QENamelistSchema.indexOfVersion(version) < 0) {
             return failure(label, "[VERSION_UNSUPPORTED] \"" + version + "\" is outside "
-                    + "the curated window " + QEVersionRuleCatalog.SUPPORTED_VERSIONS
-                    + "; other minor versions are not judged by this slice.");
+                    + "the mined schema window " + QENamelistSchema.VERSIONS
+                    + "; other minor versions are not judged.");
         }
+        String schemaVersion = version.isEmpty()
+                ? QENamelistSchema.VERSIONS.get(QENamelistSchema.VERSIONS.size() - 1) : version;
         StringBuilder text = new StringBuilder();
         text.append("Requested version filter: ").append(version.isEmpty()
-                ? "(none - auditing against the uniform 7.2-7.5 window)" : version)
+                ? "(none - the curated snapshot audits the uniform 7.2-7.5 window; "
+                        + "the mined schema audits " + schemaVersion + ", its newest)" : version)
                 .append('\n');
         text.append("Scope: ").append(QEVersionRuleCatalog.WINDOW_NOTE)
                 .append("; docs: ").append(QEKeywordHelp.INPUT_PW_URL).append("\n\n");
@@ -6868,13 +8235,52 @@ public final class ResultAnalysisService {
                 "%nAudited %d keywords: %d OK, %d value-warning, %d REMOVED, "
                         + "%d not-in-curated.%n",
                 total, ok, warnings, removed, notCurated));
-        text.append("\nHonesty boundary: this slice audits only the "
+        // Batch 150: full machine-mined schema audit (the completed #22 work) -
+        // every namelist of the input, typed against QE <schemaVersion>.
+        text.append(String.format(Locale.ROOT,
+                "%n== Mined schema audit (QE %s grammar, window %s) ==%n",
+                schemaVersion, QENamelistSchema.VERSIONS));
+        List<ValidationIssue> schemaIssues =
+                new QESchemaValidator().validate(input, schemaVersion);
+        csv.add("");
+        csv.add("mined-schema-audit,severity,code,message");
+        int schemaErrors = 0;
+        int schemaWarnings = 0;
+        for (ValidationIssue issue : schemaIssues) {
+            if (issue.getSeverity() == ValidationSeverity.ERROR) {
+                schemaErrors += 1;
+            } else {
+                schemaWarnings += 1;
+            }
+            text.append("  ").append(issue.getSeverity())
+                    .append(" [").append(issue.getCode()).append("] ")
+                    .append(issue.getMessage()).append('\n');
+            if (!issue.getDocumentationUrl().isEmpty()) {
+                text.append("      docs: ").append(issue.getDocumentationUrl()).append('\n');
+            }
+            csv.add(String.format(Locale.ROOT, "mined-schema-audit,%s,%s,%s",
+                    issue.getSeverity(), csvCell(issue.getCode()), csvCell(issue.getMessage())));
+        }
+        if (schemaIssues.isEmpty()) {
+            text.append(String.format(Locale.ROOT,
+                    "  No schema findings: every namelist keyword of this input is part of the "
+                            + "QE %s mined grammar, placed in its own namelist, typed like the "
+                            + "Fortran reader expects, and inside every mined value set its "
+                            + "keyword carries.%n", schemaVersion));
+        }
+        text.append(String.format(Locale.ROOT,
+                "%nMined schema audit: %d ERROR (the binary aborts at namelist read or "
+                        + "validation) and %d WARNING (reported-and-never-judged, or silently "
+                        + "remapped - check intent).%n",
+                schemaErrors, schemaWarnings));
+        text.append("\nHonesty boundary: above, the curated slice ("
                 + QEVersionRuleCatalog.listRules().size()
-                + " curated keywords; NOT-IN-CURATED means outside the snapshot, NOT "
-                + "invalid. Machine-generated, per-minor-version full INPUT_PW schemas "
-                + "with type/range checking are the remaining #22 completeness work. "
-                + "REMOVED_KEYWORD rows are the action items - they were valid once and "
-                + "are undocumented across the audited window.\n");
+                + " keywords) stays as the batch-#22 baseline; NOT-IN-CURATED means outside "
+                + "the snapshot, NOT invalid. The mined schema audit is the completed #22 "
+                + "work: machine-mined from QE tags qe-7.2..qe-7.6 (459 pw.x + 80 ph.x + 33 "
+                + "hp.x namelist keywords, 572 total; cards, runtime-conditional rules, and anything "
+                + "the mined sources omit stay out of scope, said in the generated data "
+                + "header).\n");
         return new AnalysisReport(label, true, text.toString(), csv, null);
     }
 
@@ -9318,7 +10724,7 @@ public final class ResultAnalysisService {
                 "Array '%s': %d task(s), 1-based mapping (task i -> dir %s/task_<i>), "
                         + "SLURM review line %s.%n",
                 plan.getBaseName(), plan.getTaskCount(), plan.getBaseName(),
-                plan.hasSlurmArrayLine() ? "incorporated" : "NOT incorporated");
+                plan.hasSlurmArrayLine() ? "incorporated" : "NOT incorporated"));
         text.append("\nPlan block (also in the draft channel):\n\n").append(block);
         text.append("\nHonesty block: NOTHING is submitted, and no deck is templated "
                 + "from this build. Sweep tokens echo VERBATIM (your '30.00' stays "
@@ -11453,24 +12859,40 @@ public final class ResultAnalysisService {
      * composes a deterministic JSON-LD skeleton. Payload packaging is explicit
      * future work; saving the draft is an explicit user action.
      */
-    private static AnalysisReport analyzeRoCrate(Project project) {
-        String label = AnalysisKind.RO_CRATE.getLabel();
-        File directory = project.getDirectory();
-        if (directory == null) {
-            return failure(label, "The project has no on-disk directory to describe.");
-        }
+    /**
+     * The single owner of the RO_CRATE artifact set (Roadmap #135): the
+     * project's own input copy, its log, and the run-manifest file, resolved
+     * against the on-disk project directory. The metadata-draft analysis and
+     * the pack-RO-Crate dialog BOTH build their drafts from this list, so the
+     * checksums a user reviews and the bytes the packer pins can never diverge.
+     * Returns an empty list when no artifacts exist (callers fail closed).
+     */
+    public static List<Path> collectRoCrateCandidates(Project project) {
         List<Path> candidates = new ArrayList<>();
+        if (project == null || project.getDirectory() == null) {
+            return candidates;
+        }
         String[] names = {project.getInpFileName(null), project.getLogFileName(null),
                 RunManifest.FILE_NAME};
         for (String name : names) {
             if (name == null || name.isBlank()) {
                 continue;
             }
-            Path candidate = directory.toPath().resolve(name);
+            Path candidate = project.getDirectory().toPath().resolve(name);
             if (Files.isRegularFile(candidate)) {
                 candidates.add(candidate);
             }
         }
+        return candidates;
+    }
+
+    private static AnalysisReport analyzeRoCrate(Project project) {
+        String label = AnalysisKind.RO_CRATE.getLabel();
+        File directory = project.getDirectory();
+        if (directory == null) {
+            return failure(label, "The project has no on-disk directory to describe.");
+        }
+        List<Path> candidates = collectRoCrateCandidates(project);
         if (candidates.isEmpty()) {
             return failure(label, "No project artifacts were found to describe (looked for "
                     + "the input file, the log file, and " + RunManifest.FILE_NAME + ").");
@@ -11490,8 +12912,11 @@ public final class ResultAnalysisService {
         }
         text.append("\nThe JSON-LD draft below (explicitly savable) carries checksums of the "
                 + "artifacts as they exist now; re-running a calculation invalidates them. "
-                + "Payload packaging, licence metadata and author records are not automated "
-                + "here (Roadmap #135 remainder).");
+                + "Payload packaging is now the viewer action \"Pack RO-Crate folder ...\": it "
+                + "materializes exactly these files into a new crate folder, re-hashing every "
+                + "byte AFTER copying against the checksums above (any drift aborts before "
+                + "anything is activated - the draft would be invalid), and licence/author "
+                + "metadata is added only when you type it explicitly; it invents none.");
         return new AnalysisReport(label, !crate.getEntries().isEmpty(), text.toString(),
                 List.of(), crate.getJson());
     }

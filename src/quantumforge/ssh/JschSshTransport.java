@@ -131,7 +131,7 @@ public final class JschSshTransport implements SshTransport {
                     + this.config.getHost() + ":" + this.config.getPort()
                     + " fingerprint=" + fingerprint);
             return OperationResult.success("SSH_CONNECTED", "SSH session established.", null);
-        } catch (IOException | RuntimeException ex) {
+        } catch (IOException | RuntimeException | JSchException ex) {
             return OperationResult.failed("SSH_CONNECT_ERROR",
                     "SSH setup failed: " + ex.getMessage(), ex);
         }

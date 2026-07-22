@@ -75,7 +75,7 @@ Examples of unacceptable current behavior include random work-function maps, a m
 - generic LLM material recommendation/chat;
 - broad “quantum information” claims without a specific supported engine/workflow;
 - claims of arbitrary Majorana/axion/Floquet discovery;
-- marketing comparisons to commercial NanoLabo features as if they were implemented requirements.
+- marketing comparisons to a commercial product feature list as if they were implemented requirements.
 
 These topics can be research projects, but they distract from making QE input, execution, parsing, and reproducibility excellent. Provenance should use signed manifests, hashes, RO-Crate/PROV, not blockchain.
 

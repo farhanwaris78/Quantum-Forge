@@ -3,6 +3,7 @@
  */
 package quantumforge.ssh;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -74,7 +75,7 @@ class ChunkedUploadTest {
                 "sh", "sha256sum", "mv", "sh"), fake.steps,
                 "per part: probe -> upload -> verify; then assemble, whole-verify, "
                         + "rename, cleanup");
-        assertEquals(bytes, fake.remote.get(FINAL),
+        assertArrayEquals(bytes, fake.remote.get(FINAL),
                 "the assembled payload landed byte-identical");
         assertFalse(fake.remote.containsKey(FINAL + ".qftmp"),
                 "no scratch temp remains after the rename");
@@ -108,7 +109,7 @@ class ChunkedUploadTest {
                 "only the absent part and the stale part move bytes: " + fake.uploads);
         assertFalse(fake.uploads.contains(PARTS + "/part-00002"),
                 "a pin-matching part never re-uploads - THAT is the resume");
-        assertEquals(bytes, fake.remote.get(FINAL));
+        assertArrayEquals(bytes, fake.remote.get(FINAL));
     }
 
     @Test
@@ -238,7 +239,7 @@ class ChunkedUploadTest {
                 "the debris is admitted in the message: " + done.getMessage());
         assertTrue(done.getMessage().contains("debris, never hidden state"),
                 done.getMessage());
-        assertEquals(bytes(2_500_000), fake.remote.get(FINAL),
+        assertArrayEquals(bytes(2_500_000), fake.remote.get(FINAL),
                 "the transfer itself stands verified");
         assertTrue(fake.cleanedParts.isEmpty());
     }

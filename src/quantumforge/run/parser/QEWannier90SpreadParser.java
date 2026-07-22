@@ -113,7 +113,7 @@ public final class QEWannier90SpreadParser extends LogParser {
         double secondLastTotal = this.convergenceHistory.get(N - 2).totalSpreadAng2;
         double diff = Math.abs(lastTotal - secondLastTotal);
 
-        // Standard convergence threshold: 1e-6 Angstrom^2
+        // Convergence threshold used by this audit: |delta total spread| <= 1e-5 Angstrom^2
         double threshold = 1.0e-5;
         if (diff <= threshold) {
             this.converged = true;

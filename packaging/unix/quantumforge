@@ -2,17 +2,33 @@
 # QuantumForge portable launcher. This file is also the `quantumforge` command.
 set -euo pipefail
 
-SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+# Resolve the command symlink chain (~/.local/bin/quantumforge -> install tree)
+# to the real launcher file before deriving APP_HOME. Without this every path
+# below silently points at ~/.local instead of the installation.
+LAUNCHER_SOURCE="${BASH_SOURCE[0]}"
+while [[ -L "$LAUNCHER_SOURCE" ]]; do
+    LAUNCHER_DIR="$(CDPATH= cd -- "$(dirname -- "$LAUNCHER_SOURCE")" && pwd -P)"
+    LAUNCHER_SOURCE="$(readlink "$LAUNCHER_SOURCE")"
+    [[ "$LAUNCHER_SOURCE" != /* ]] && LAUNCHER_SOURCE="$LAUNCHER_DIR/$LAUNCHER_SOURCE"
+done
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$LAUNCHER_SOURCE")" && pwd -P)"
 APP_HOME="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd -P)"
 
 case "${1:-}" in
-    --update)
+    --update|--uninstall)
+        OPTION="$1"
         shift
-        exec "$APP_HOME/management/update.sh" "$@"
-        ;;
-    --uninstall)
-        shift
-        exec "$APP_HOME/management/uninstall.sh" "$@"
+        MANAGEMENT="$APP_HOME/management/${OPTION#--}.sh"
+        if [[ ! -x "$MANAGEMENT" ]]; then
+            cat >&2 <<EOF
+This QuantumForge installation is managed by your operating-system package manager.
+Use apt/pacman, Windows Installed apps, or the macOS app/package procedure.
+Portable user installations handle '$OPTION' through management/$(basename "$MANAGEMENT"),
+which is not present here.
+EOF
+            exit 2
+        fi
+        exec "$MANAGEMENT" "$@"
         ;;
 esac
 

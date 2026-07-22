@@ -234,7 +234,16 @@ public final class JobQueueAudit {
                     + "' violates the owned grammar [A-Za-z0-9][A-Za-z0-9._-]{0,127}");
         }
         String scheduler = JobQueueStore.extractString(line, "scheduler");
-        String stateText = JobQueueStore.extractString(line, "state");
+        // The top-level "state" field must be resolved from the region BEFORE the
+        // "history" array: an unconstrained first-match search would silently resolve
+        // a history entry's "state" value and a missing top-level field could never
+        // be detected (the exact silent default this audit exists to surface).
+        int historyPos = line.indexOf("\"history\"");
+        String header = historyPos >= 0 ? line.substring(0, historyPos) : line;
+        // The store format writes history as the trailing field (HISTORY_PATTERN
+        // anchors it at end-of-line), so no legitimate top-level "state" can live
+        // after that marker; anything matched before it is genuinely top-level.
+        String stateText = JobQueueStore.extractString(header, "state");
         if (stateText == null) {
             problems.add("line " + lineNo + ": missing state field - the loader silently "
                     + "defaults such a record to STAGED");

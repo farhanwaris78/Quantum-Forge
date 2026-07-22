@@ -2,6 +2,7 @@ package quantumforge.builder;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
@@ -80,10 +81,11 @@ class QEBatteryVoltageTest {
                 new QEHullThermodynamics.CompetingPhase("AB2", 0.75, -0.5),
                 new QEHullThermodynamics.CompetingPhase("B", 1.0, 0.0)), 1.0).isSuccess(),
                 "A missing host endmember must be rejected");
-        assertFalse(QEBatteryVoltage.build(List.of(
-                new QEHullThermodynamics.CompetingPhase("A", 0.0, 0.0),
-                new QEHullThermodynamics.CompetingPhase("X", 1.5, -1.0),
-                new QEHullThermodynamics.CompetingPhase("B", 1.0, 0.0)), 1.0).isSuccess(),
+        // Fractions outside [0,1] are refused at the model boundary itself: the
+        // CompetingPhase constructor throws rather than silently clamping, so no
+        // out-of-range phase can ever reach build().
+        assertThrows(IllegalArgumentException.class,
+                () -> new QEHullThermodynamics.CompetingPhase("X", 1.5, -1.0),
                 "Fractions outside [0,1] must be rejected");
     }
 }

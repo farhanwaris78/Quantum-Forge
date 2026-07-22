@@ -3383,13 +3383,23 @@ class ResultAnalysisServiceTest {
         assertTrue(report.getCsvLines().stream().anyMatch(line ->
                         line.contains("input_dft") && line.contains("NOT_IN_CURATED")),
                 String.join("\n", report.getCsvLines()));
+        // batch 150: the mined schema audit section rides on the same report
+        assertTrue(report.getText().contains("Mined schema audit (QE 7.4 grammar"),
+                report.getText());
+        assertTrue(report.getText().contains("SCHEMA_VALUE_REJECTED"),
+                "calculation='cp' is a cp.x value, rejected by the pw.x grammar: "
+                        + report.getText());
+        assertTrue(report.getCsvLines().stream().anyMatch(line ->
+                        line.startsWith("mined-schema-audit,ERROR,SCHEMA_VALUE_REJECTED")),
+                String.join("\n", report.getCsvLines()));
 
         AnalysisReport uniform = ResultAnalysisService.analyze(
                 AnalysisKind.QE_VERSION_CHECK, stubProjectWithInput(this.tempDir, input,
                         cell), new AnalysisParameters().withSeriesKeyword(""));
         assertTrue(uniform.isSuccess(), uniform.getText());
         assertTrue(uniform.getText().contains(
-                "(none - auditing against the uniform 7.2-7.5 window)"),
+                "(none - the curated snapshot audits the uniform 7.2-7.5 window; "
+                        + "the mined schema audits 7.6, its newest)"),
                 uniform.getText());
 
         AnalysisReport unsupported = ResultAnalysisService.analyze(
@@ -5005,7 +5015,7 @@ class ResultAnalysisServiceTest {
         assertTrue(block.contains("excluded = *.core\n"), block);
         assertTrue(block.contains("UNKNOWN until first fetch"), block);
         String csv = String.join("\n", report.getCsvLines());
-        assertTrue(csv.contains("required,"pw.out xml/data-file-schema.xml",2")
+        assertTrue(csv.contains("required,\"pw.out xml/data-file-schema.xml\",2")
                 || csv.contains("required,pw.out xml/data-file-schema.xml,2"), csv);
         assertTrue(csv.contains("excluded,*.core,1"), csv);
     }
@@ -6260,7 +6270,7 @@ class ResultAnalysisServiceTest {
         String text = report.getText();
         assertTrue(text.contains("Per-task run intents (the #28 provenance seam):"), text);
         assertTrue(text.contains("[TASK_INTENT_OK] 3 intent(s)"), text);
-        assertTrue(text.contains(""task_index\":1,\"keyword\":\"ecutwfc\","
+        assertTrue(text.contains("\"task_index\":1,\"keyword\":\"ecutwfc\","
                 + "\"value_exact\":\"30.0\",\"directory\":\"si-cut-001\""), text);
         assertTrue(text.contains("\"stage\":\"rendered-deck-only\"}"), text,
                 "the stage pin keeps intents from masquerading as run records");
@@ -6451,5 +6461,57 @@ class ResultAnalysisServiceTest {
         String blankCsv = String.join("\n", blank.getCsvLines());
         assertTrue(blankCsv.contains("launch_bridge,refused,CONTAINER_BRIDGE_MPI_BLANK"),
                 blankCsv);
+    }
+
+    @Test
+    void testThermoPwRunSummaryRendersCensusAndVerbatimEos() throws IOException {
+        // [upstream] thermo_pw example09 thermo_control excerpt + example05
+        // si.mur_lc.out EOS block values (verbatim, commit b73edd6d).
+        Files.createDirectories(this.tempDir.resolve("run/energy_files"));
+        Files.createDirectories(this.tempDir.resolve("run/restart"));
+        write("run/thermo_control", " &INPUT_THERMO\n  what='mur_lc_t',\n"
+                + "  lmurn=.TRUE.\n  deltat=3.\n /\n");
+        write("run/energy_files/output_ev.dat",
+                "         0.250000000000000E+03        -0.158487731110002E+02\n");
+        write("run/restart/e_work_part.1.1", "  -15.848773111000199     \n");
+        File picked = write("run/si.mur_lc.out",
+                "     unit-cell volume          =     250.0000 (a.u.)^3\n"
+                        + "     The equilibrium lattice constant is               10.2087 a.u.\n"
+                        + "     The bulk modulus is                              941.833  kbar\n"
+                        + "     The pressure derivative of the bulk modulus is     4.127\n"
+                        + "     The total energy at the minimum is:                -15.852190733 Ry\n");
+        AnalysisReport report = ResultAnalysisService.analyze(
+                AnalysisKind.THERMO_PW_RUN_SUMMARY, new ProjectProperty(),
+                this.tempDir.toFile(), "si", "si.log", picked, new AnalysisParameters());
+        assertTrue(report.isSuccess(), report.getText());
+        assertTrue(report.getText().contains("what='mur_lc_t'"), report.getText());
+        assertTrue(report.getText().contains("restart tasks completed: 1"), report.getText());
+        assertTrue(report.getText().contains("E(V) points"), report.getText());
+        assertTrue(report.getText().contains("equilibrium lattice constant 10.2087 a.u."),
+                report.getText());
+        assertTrue(report.getText().contains("bulk modulus 941.833 kbar"), report.getText());
+        assertTrue(report.getText().contains("total energy at the minimum -15.852190733 Ry"),
+                "the raw token keeps every digit: " + report.getText());
+        assertTrue(report.getText().contains("the run's own fit claim"), report.getText());
+        assertTrue(report.getText().contains("Honesty boundary"), report.getText());
+        String csv = String.join("\n", report.getCsvLines());
+        assertTrue(csv.contains("thermo-run-summary,what,mur_lc_t"), csv);
+        assertTrue(csv.contains("thermo-run-summary,eos_bulk_kbar,941.833"), csv);
+        assertTrue(csv.contains("thermo-run-summary,eos_min_energy_ry,-15.852190733"), csv);
+    }
+
+    @Test
+    void testThermoPwRunSummaryEmptyDirectoryFailsHonestly() throws IOException {
+        Files.createDirectories(this.tempDir.resolve("lonely"));
+        File lonely = write("lonely/note.out", "not a thermo run at all\n");
+        AnalysisReport report = ResultAnalysisService.analyze(
+                AnalysisKind.THERMO_PW_RUN_SUMMARY, new ProjectProperty(),
+                this.tempDir.toFile(), "si", "si.log", lonely, new AnalysisParameters());
+        assertFalse(report.isSuccess(),
+                "an empty run directory is an honest failure, not an empty summary");
+        assertTrue(report.getText().contains("no *.out stdout file")
+                        || report.getText().contains("top-level"),
+                report.getText());
+        assertTrue(report.getCsvLines().size() > 0);
     }
 }

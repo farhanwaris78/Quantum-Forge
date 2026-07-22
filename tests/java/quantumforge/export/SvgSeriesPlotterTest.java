@@ -45,8 +45,9 @@ class SvgSeriesPlotterTest {
         OperationResult<String> result = SvgSeriesPlotter.plot(
                 List.of("a,b", "0,0", "junk", "1,1", "c,d", "2,0"), "t");
         assertTrue(result.isSuccess(), result.getMessage());
-        assertTrue(result.getValue().orElseThrow().contains("rejected=3"),
-                "The one-cell row and the two non-numeric data rows are counted: "
+        assertTrue(result.getValue().orElseThrow().contains("rejected=2"),
+                "\"a,b\" is the consumed header (it feeds the axis labels); the one-cell "
+                        + "\"junk\" row and the non-numeric \"c,d\" data row are counted: "
                         + result.getValue().orElseThrow().substring(0, 200));
     }
 

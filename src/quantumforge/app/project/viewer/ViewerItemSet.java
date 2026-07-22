@@ -29,6 +29,14 @@ public class ViewerItemSet {
     private ViewerItem xcrysdenItem;
     private ViewerItem exportWorkflowItem;
     private ViewerItem validateInputItem;
+    private ViewerItem auxDeckItem;
+    private ViewerItem tensorSurfaceItem;
+    private ViewerItem transportChartItem;
+    private ViewerItem boltzTrap2StudioItem;
+    private ViewerItem roCratePackItem;
+    private ViewerItem thermoPwLiveItem;
+    private ViewerItem elateItem;
+    private ViewerItem phonopyItem;
     private ViewerItem diagnoseLogItem;
     private ViewerItem bandGapItem;
     private ViewerItem finalGeometryItem;
@@ -53,6 +61,14 @@ public class ViewerItemSet {
         this.exportItem = new ViewerItem(SVGData.EXPORT, "Export structure");
         this.exportWorkflowItem = new ViewerItem(SVGData.FILE, "Export workflow script");
         this.validateInputItem = new ViewerItem(SVGData.TOOL, "Validate QE input");
+        this.auxDeckItem = new ViewerItem(SVGData.TOOL, "Auxiliary deck builder ...");
+        this.tensorSurfaceItem = new ViewerItem(SVGData.RESULT, "Tensor surface viewer ...");
+        this.transportChartItem = new ViewerItem(SVGData.RESULT, "Transport chart viewer ...");
+        this.boltzTrap2StudioItem = new ViewerItem(SVGData.RESULT, "BoltzTraP2 studio (WATCH / OPEN / PLAN) ...");
+        this.roCratePackItem = new ViewerItem(SVGData.RESULT, "Pack RO-Crate folder ...");
+        this.thermoPwLiveItem = new ViewerItem(SVGData.TOOL, "thermo_pw live monitor ...");
+        this.elateItem = new ViewerItem(SVGData.TOOL, "ELATE elastic tensor analysis ...");
+        this.phonopyItem = new ViewerItem(SVGData.TOOL, "Phonopy band/DOS studio ...");
         this.diagnoseLogItem = new ViewerItem(SVGData.RESULT, "Diagnose QE log");
         this.bandGapItem = new ViewerItem(SVGData.RESULT, "Analyze band gap from QE log");
         this.finalGeometryItem = new ViewerItem(SVGData.ATOMS, "Preview final geometry");
@@ -79,6 +95,14 @@ public class ViewerItemSet {
                 this.resultItem,
                 this.exportItem,
                 this.validateInputItem,
+                this.auxDeckItem,
+                this.tensorSurfaceItem,
+                this.transportChartItem,
+                this.boltzTrap2StudioItem,
+                this.roCratePackItem,
+                this.thermoPwLiveItem,
+                this.elateItem,
+                this.phonopyItem,
                 this.diagnoseLogItem,
                 this.bandGapItem,
                 this.finalGeometryItem,
@@ -146,6 +170,38 @@ public ViewerItem getSaveAsFileItem() {
 
     public ViewerItem getValidateInputItem() {
         return this.validateInputItem;
+    }
+
+    public ViewerItem getAuxDeckItem() {
+        return this.auxDeckItem;
+    }
+
+    public ViewerItem getTensorSurfaceItem() {
+        return this.tensorSurfaceItem;
+    }
+
+    public ViewerItem getTransportChartItem() {
+        return this.transportChartItem;
+    }
+
+    public ViewerItem getBoltzTrap2StudioItem() {
+        return this.boltzTrap2StudioItem;
+    }
+
+    public ViewerItem getRoCratePackItem() {
+        return this.roCratePackItem;
+    }
+
+    public ViewerItem getThermoPwLiveItem() {
+        return this.thermoPwLiveItem;
+    }
+
+    public ViewerItem getElateItem() {
+        return this.elateItem;
+    }
+
+    public ViewerItem getPhonopyItem() {
+        return this.phonopyItem;
     }
 
     public ViewerItem getDiagnoseLogItem() {

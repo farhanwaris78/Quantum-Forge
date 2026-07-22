@@ -8,7 +8,7 @@ import quantumforge.input.QEInput;
 /**
  * NMR spectrum calculation input corrector.
  * 
- * NanoLabo provides NMR spectrum calculations using
+ * Provides NMR spectrum calculation support using
  * the GIPAW (Gauge Including Projector Augmented Wave) method
  * implemented in Quantum ESPRESSO.
  */

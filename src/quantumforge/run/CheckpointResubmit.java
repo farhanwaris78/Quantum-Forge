@@ -165,28 +165,36 @@ public final class CheckpointResubmit {
     }
 
     static String detectStopReason(Path projectDirectory, String prefix, List<String> diagnostics) {
-        String[] candidates = {
-                prefix + ".log", prefix + ".log.scf", prefix + ".log.opt",
-                prefix + ".log.md", prefix + ".err", prefix + ".err.scf",
-                "slurm-*.out", ".quantumforge.workflow.sh"
-        };
-        String combined = "";
+        // Log attribution must be scoped: only files belonging to THIS prefix (prefix.log,
+        // prefix.log.*, prefix.err*) plus scheduler outputs (slurm-*.out, the only place a
+        // walltime/preemption signature can live) may testify about this job's stop reason.
+        // Scanning every *.{log,err,out} in the directory would fold a NEIGHBOUR job's
+        // outcome (e.g. another deck's "convergence not achieved") into this job's restart
+        // decision - an unknown stop reason is honest, a misattributed one is not.
+        StringBuilder combined = new StringBuilder();
         try (var stream = Files.list(projectDirectory)) {
             List<Path> files = stream.filter(Files::isRegularFile).toList();
             for (Path file : files) {
                 String name = file.getFileName().toString().toLowerCase(Locale.ROOT);
-                if (!(name.endsWith(".log") || name.endsWith(".err") || name.endsWith(".out"))) {
+                String lowerPrefix = prefix.toLowerCase(Locale.ROOT);
+                boolean prefixOwned = name.startsWith(lowerPrefix + ".log")
+                        || name.startsWith(lowerPrefix + ".err");
+                boolean schedulerOwned = name.startsWith("slurm-") && name.endsWith(".out");
+                if (!(prefixOwned || schedulerOwned)) {
                     continue;
                 }
                 if (Files.size(file) > 2_000_000L) {
+                    diagnostics.add("Skipped oversized log (>2 MB): " + name + " - its stop "
+                            + "signature is unscanned (bounded memory).");
                     continue;
                 }
-                combined += Files.readString(file, StandardCharsets.UTF_8) + "\n";
+                combined.append(Files.readString(file, StandardCharsets.UTF_8)).append('\n');
+                diagnostics.add("Scanned stop-signature source: " + name);
             }
         } catch (IOException ex) {
             diagnostics.add("Could not scan logs: " + ex.getMessage());
         }
-        String lower = combined.toLowerCase(Locale.ROOT);
+        String lower = combined.toString().toLowerCase(Locale.ROOT);
         if (lower.contains("walltime") || lower.contains("time limit")
                 || lower.contains("cancelled due to time")
                 || lower.contains("dne limit")

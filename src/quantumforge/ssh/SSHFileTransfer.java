@@ -5,6 +5,7 @@ package quantumforge.ssh;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 
 import quantumforge.operation.OperationResult;
 
@@ -463,6 +464,311 @@ public class SSHFileTransfer {
         } catch (java.io.IOException ignored) {
             // Scratch temp debris is honest clutter, never masked state.
         }
+    }
+
+    /**
+     * Batch 151 (Roadmap #92 remaining depth: the DOWNLOAD direction of the
+     * batch-146 resume protocol): resumable chunked VERIFIED download - the
+     * mirror of {@link #uploadChunkedVerifiedResult}, with the pins pinned by
+     * the SOURCE side of the wire instead of by review beforehand:
+     * <ol>
+     *   <li>REMOTE PIN PASS before any payload byte moves: {@code sha256sum}
+     *       for the whole-file pin (absent source TRANSFER_SOURCE_MISSING,
+     *       unparseable TRANSFER_SOURCE_UNREADABLE, dead probe
+     *       TRANSFER_PROBE_UNREADABLE), {@code stat -c%s} for the size, then
+     *       per-chunk {@code dd ... | sha256sum} slices into a
+     *       {@link TransferChunkPlan#fromRemoteTiling remote-pinned plan} -
+     *       every bound/grammar refusal of the planning half is named;
+     *   <li>LOCAL RESUME at chunk granularity: parts live at our own scratch
+     *       {@code <localFile>.qftmp.parts/part-NNNNN}; a present part whose
+     *       LOCAL sha256 matches the remote pin is skipped (THE resume),
+     *       wrong-bytes parts are re-downloaded (never trusted, counts
+     *       named), fresh parts download through an exec'd {@code dd} slice
+     *       and are verified against the remote pin (TRANSFER_PART_MISMATCH
+     *       removes ONLY the offending part, chunk index named, nothing was
+     *       assembled); a probe we cannot parse refuses blind
+     *       (TRANSFER_PART_UNREADABLE - nothing removed);</li>
+     *   <li>assembly through LOCAL concat of the verified parts into
+     *       {@code <localFile>.qftmp} with whole-file verify BEFORE rename
+     *       (SFTP_VERIFY_MISMATCH: ONLY the assembled temp removed, parts stay
+     *       for resume), one final source-drift re-probe
+     *       (TRANSFER_SOURCE_DRIFTED: the remote moved under us - the
+     *       assembled temp is removed, success is never fabricated on
+     *       mixed-generation bytes, parts stay), then the batch-136 rename
+     *       posture (ATOMIC_MOVE where offered, SFTP_LOCAL_RENAME preserving
+     *       everything for forensics);</li>
+     *   <li>cleanup of OUR OWN scratch parts ONLY after a successful rename,
+     *       degrading to an admitted debris note - never a hidden verdict.</li>
+     * </ol>
+     * Local posture mirrors batch 136 BEFORE any byte moves: TRANSFER_LOCAL_DIR
+     * (destination directory must exist already) and TRANSFER_LOCAL_EXISTS
+     * (refuse-if-exists by plan). Remote GNU coreutils (sha256sum, dd, stat)
+     * are the stated wire assumptions of the whole transfer family.
+     */
+    public OperationResult<Void> downloadChunkedVerifiedResult(String remoteRelative,
+            Path localFile, int chunkBytes, boolean overwriteAllowed) {
+        if (this.transport == null || !this.transport.isConnected()) {
+            return OperationResult.unsupported("SSH_DOWNLOAD_UNAVAILABLE",
+                    "No secure SFTP transport is connected; no files were downloaded.");
+        }
+        if (localFile == null) {
+            return OperationResult.failed("TRANSFER_LOCAL_DIR",
+                    "a local destination path is required.", null);
+        }
+        Path parent = localFile.getParent();
+        if (parent == null || !Files.isDirectory(parent)) {
+            return OperationResult.failed("TRANSFER_LOCAL_DIR",
+                    "the destination directory must exist already - a verified transfer"
+                            + " creates no directories silently: "
+                            + (parent == null ? "<none>" : parent), null);
+        }
+        if (!overwriteAllowed && Files.exists(localFile)) {
+            return OperationResult.failed("TRANSFER_LOCAL_EXISTS",
+                    "local file already exists and overwrite is REFUSE-IF-EXISTS by plan: "
+                            + localFile + " - refusing BEFORE any byte moves.", null);
+        }
+        String remote;
+        try {
+            remote = RemotePathGuard.resolveUnderRoot(this.stagingRoot, remoteRelative);
+        } catch (RuntimeException ex) {
+            return OperationResult.failed("SSH_PATH_INVALID", ex.getMessage(), ex);
+        }
+        Path temp = localFile.resolveSibling(localFile.getFileName() + ".qftmp");
+        Path partsDir = localFile.resolveSibling(localFile.getFileName() + ".qftmp.parts");
+        Path out = null;
+        Path err = null;
+        try {
+            out = Files.createTempFile("qf-cdnl-", ".out");
+            err = Files.createTempFile("qf-cdnl-", ".err");
+            // (1) remote pin pass - whole hash, size, per-chunk hashes.
+            OperationResult<Integer> probe = this.transport.exec(
+                    new String[] {"sha256sum", remote}, out, err);
+            if (!probe.isSuccess()) {
+                if ("SSH_EXEC_FAILED".equals(probe.getCode())) {
+                    return OperationResult.failed("TRANSFER_SOURCE_MISSING",
+                            "the pinned source is absent or unreadable on the remote ("
+                                    + remote
+                                    + ") - refusing BEFORE downloading anything.", null);
+                }
+                return OperationResult.failed("TRANSFER_PROBE_UNREADABLE",
+                        "the remote hash pre-check itself failed (" + probe.getMessage()
+                                + ") - refusing to proceed blind.", null);
+            }
+            String probeOut = Files.isRegularFile(out) ? Files.readString(out).trim() : "";
+            String wholeSha = probeOut.isBlank() ? ""
+                    : probeOut.split("\\s+")[0].toLowerCase(java.util.Locale.ROOT);
+            if (!wholeSha.matches("[0-9a-f]{64}")) {
+                return OperationResult.failed("TRANSFER_SOURCE_UNREADABLE",
+                        "the remote source produced no parseable sha256 (got '"
+                                + (probeOut.isBlank() ? "<empty>" : probeOut)
+                                + "') - refusing BEFORE downloading anything.", null);
+            }
+            java.util.List<String> chunkPins;
+            final long totalBytes;
+            {
+                OperationResult<Integer> sizeProbe = this.transport.exec(
+                        new String[] {"stat", "-c", "%s", remote}, out, err);
+                if (!sizeProbe.isSuccess()) {
+                    return OperationResult.failed("TRANSFER_PROBE_UNREADABLE",
+                            "the remote size check itself failed ("
+                                    + sizeProbe.getMessage()
+                                    + ") - refusing to proceed blind.", null);
+                }
+                String sizeOut = Files.isRegularFile(out)
+                        ? Files.readString(out).trim() : "";
+                if (!sizeOut.matches("[0-9]+")) {
+                    return OperationResult.failed("TRANSFER_SOURCE_UNREADABLE",
+                            "the remote size check produced no parseable size (got '"
+                                    + (sizeOut.isEmpty() ? "<empty>" : sizeOut)
+                                    + "') - refusing BEFORE downloading anything.", null);
+                }
+                totalBytes = Long.parseLong(sizeOut);
+                long count = TransferChunkPlan.countFor(totalBytes, chunkBytes);
+                if (totalBytes > 0L && count <= TransferChunkPlan.MAX_CHUNK_COUNT) {
+                    chunkPins = new java.util.ArrayList<>((int) count);
+                    for (long i = 0; i < count; i++) {
+                        OperationResult<Integer> pinProbe = this.transport.exec(
+                                new String[] {"sh", "-c",
+                                        "dd if=" + ShellQuotes.single(remote) + " bs="
+                                                + chunkBytes + " skip=" + i
+                                                + " count=1 2>/dev/null | sha256sum"},
+                                out, err);
+                        if (!pinProbe.isSuccess()) {
+                            return chunkFailure("TRANSFER_PART_UNREADABLE",
+                                    "the remote pin probe for chunk " + (i + 1) + " failed ("
+                                            + pinProbe.getMessage()
+                                            + ") - resume refuses to proceed blind.");
+                        }
+                        String pinOut = Files.isRegularFile(out)
+                                ? Files.readString(out).trim() : "";
+                        String pin = pinOut.isBlank() ? ""
+                                : pinOut.split("\\s+")[0].toLowerCase(java.util.Locale.ROOT);
+                        if (!pin.matches("[0-9a-f]{64}")) {
+                            return chunkFailure("TRANSFER_PART_UNREADABLE",
+                                    "the remote pin probe for chunk " + (i + 1)
+                                            + " returned '" + (pinOut.isBlank()
+                                                    ? "<empty>" : pinOut.split("\\s+")[0])
+                                            + "' - not a sha256; resume refuses to proceed"
+                                            + " blind.");
+                        }
+                        chunkPins.add(pin);
+                    }
+                } else {
+                    chunkPins = java.util.List.of();
+                }
+            }
+            OperationResult<TransferChunkPlan.ChunkPlan> planned =
+                    TransferChunkPlan.fromRemoteTiling(totalBytes, chunkBytes, wholeSha,
+                            chunkPins);
+            if (!planned.isSuccess()) {
+                return OperationResult.failed(planned.getCode(),
+                        planned.getMessage() + " (chunked download aborted before any"
+                                + " payload byte moved)", null);
+            }
+            TransferChunkPlan.ChunkPlan plan = planned.getValue().orElseThrow(
+                    () -> new IllegalStateException("a successful plan carries "
+                            + "its payload"));
+            // (2) local resume at chunk granularity.
+            try {
+                Files.createDirectories(partsDir);
+            } catch (java.io.IOException dirFail) {
+                return OperationResult.failed("TRANSFER_LOCAL_DIR",
+                        "could not create our own chunk scratch directory " + partsDir
+                                + ": " + dirFail.getMessage(), dirFail);
+            }
+            int resumed = 0;
+            int restaged = 0;
+            int downloaded = 0;
+            java.util.List<Path> partFiles = new java.util.ArrayList<>();
+            for (TransferChunkPlan.Chunk chunk : plan.getChunks()) {
+                Path partFile = partsDir.resolve(chunk.getPartName());
+                partFiles.add(partFile);
+                boolean skip = false;
+                if (Files.isRegularFile(partFile)) {
+                    String localSha;
+                    try {
+                        localSha = SyncChecksumCache.sha256(partFile);
+                    } catch (java.io.IOException hashFail) {
+                        return chunkFailure("TRANSFER_PART_UNREADABLE",
+                                "could not hash our own staged part " + partFile + " ("
+                                        + hashFail.getMessage()
+                                        + ") - resume refuses to proceed blind; nothing"
+                                        + " was removed.");
+                    }
+                    if (localSha.equals(chunk.getSha256())) {
+                        resumed++;
+                        continue; // verified part already staged - THE resume
+                    }
+                }
+                if (Files.exists(partFile)) {
+                    restaged++; // our own scratch carried different bytes - never trusted
+                } else {
+                    downloaded++;
+                }
+                Files.deleteIfExists(partFile);
+                OperationResult<Integer> slice = this.transport.exec(
+                        new String[] {"sh", "-c",
+                                "dd if=" + ShellQuotes.single(remote) + " bs=" + chunkBytes
+                                        + " skip=" + (chunk.getIndex() - 1L)
+                                        + " count=1 2>/dev/null"},
+                        partFile, err);
+                if (!slice.isSuccess()) {
+                    Files.deleteIfExists(partFile);
+                    return chunkFailure("TRANSFER_PART_DOWNLOAD",
+                            "the remote read-slice for chunk " + chunk.getIndex()
+                                    + " failed (" + slice.getMessage()
+                                    + ") - ONLY the partial part was removed; the other"
+                                    + " staged parts remain for resume.");
+                }
+                String partSha = SyncChecksumCache.sha256(partFile);
+                if (!partSha.equals(chunk.getSha256())) {
+                    Files.deleteIfExists(partFile);
+                    return chunkFailure("TRANSFER_PART_MISMATCH",
+                            "downloaded bytes for chunk " + chunk.getIndex()
+                                    + " do not match the remote chunk pin (pinned "
+                                    + chunk.getSha256() + ", local computed '" + partSha
+                                    + "') - ONLY the offending part was removed and"
+                                    + " nothing was assembled.");
+                }
+            }
+            // (3) local assembly + whole-file verification, then source-drift re-probe.
+            try (java.io.OutputStream assembled = Files.newOutputStream(temp)) {
+                for (Path partFile : partFiles) {
+                    Files.copy(partFile, assembled);
+                }
+            }
+            String assembledSha = SyncChecksumCache.sha256(temp);
+            if (!plan.getWholeSha256().equalsIgnoreCase(assembledSha)) {
+                Files.deleteIfExists(temp);
+                return OperationResult.failed("SFTP_VERIFY_MISMATCH",
+                        "assembled bytes do not match the remote whole-file sha256"
+                                + " (remote pinned " + plan.getWholeSha256()
+                                + ", local computed '" + assembledSha
+                                + "') - ONLY the assembled temp was removed; the"
+                                + " verified parts remain for resume and NOTHING was"
+                                + " renamed into place.", null);
+            }
+            OperationResult<Integer> drift = this.transport.exec(
+                    new String[] {"sha256sum", remote}, out, err);
+            String driftOut = Files.isRegularFile(out) ? Files.readString(out).trim() : "";
+            String driftSha = drift.isSuccess() && !driftOut.isBlank()
+                    ? driftOut.split("\\s+")[0].toLowerCase(java.util.Locale.ROOT) : "";
+            if (!plan.getWholeSha256().equalsIgnoreCase(driftSha)) {
+                Files.deleteIfExists(temp);
+                return OperationResult.failed("TRANSFER_SOURCE_DRIFTED",
+                        "the remote source changed while its chunks moved (pinned "
+                                + plan.getWholeSha256() + ", now '"
+                                + (driftSha.isEmpty() ? "<unreadable>" : driftSha)
+                                + "') - the assembled bytes could mix generations:"
+                                + " ONLY the assembled temp was removed, the verified"
+                                + " parts stay for resume, and success was never"
+                                + " fabricated on mixed bytes.", null);
+            }
+            // (4) rename posture (batch-136 semantics).
+            try {
+                boolean atomic = moveVerifiedTemp(temp, localFile, overwriteAllowed);
+                if (!atomic) {
+                    // stated in the success message below
+                }
+            } catch (java.io.IOException renameFail) {
+                return OperationResult.failed("SFTP_LOCAL_RENAME",
+                        "the verified chunked download could not be renamed into place ("
+                                + renameFail.getMessage()
+                                + ") - the verified temp is preserved at " + temp
+                                + " and the parts at " + partsDir + " for forensics.",
+                        renameFail);
+            }
+            // (5) cleanup of OUR OWN scratch parts - degraded, never a verdict.
+            String cleanupNote = "";
+            try {
+                for (Path partFile : partFiles) {
+                    Files.deleteIfExists(partFile);
+                }
+                Files.deleteIfExists(partsDir);
+            } catch (java.io.IOException cleanupFail) {
+                cleanupNote = " (cleanup of the part scratch failed and was left in place"
+                        + " at " + partsDir + ": " + cleanupFail.getMessage()
+                        + " - debris, never hidden state)";
+            }
+            return OperationResult.success("TRANSFER_CHUNKED_VERIFIED",
+                    "Chunked download staged " + plan.getChunkCount() + " part(s) ("
+                            + resumed + " resumed-skip, " + restaged
+                            + " re-downloaded stale, " + downloaded
+                            + " fresh), assembled and whole-file sha256 verified against"
+                            + " the remote pin (drift re-probe clean), renamed into"
+                            + " place: " + localFile + cleanupNote, null);
+        } catch (Exception ex) {
+            return OperationResult.failed("SFTP_TRANSFER_ERROR",
+                    "chunked verified download failed: " + ex.getMessage(), ex);
+        } finally {
+            deleteTempQuietly(out);
+            deleteTempQuietly(err);
+        }
+    }
+
+    /** A chunk-scoped refusal for the download protocol ('chunk N' named). */
+    private static OperationResult<Void> chunkFailure(String code, String message) {
+        return OperationResult.failed(code, message, (Throwable) null);
     }
 
     /**

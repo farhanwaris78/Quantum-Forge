@@ -25,7 +25,7 @@ import quantumforge.atoms.model.Cell;
  * - Cartoon drawing interface
  * - Solvent filling
  * 
- * Inspired by NanoLabo's molecule builder functionality.
+ * Provides an integrated molecule builder workflow.
  */
 public class MoleculeBuilder {
 

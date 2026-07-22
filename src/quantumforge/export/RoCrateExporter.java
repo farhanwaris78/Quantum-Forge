@@ -56,20 +56,55 @@ public final class RoCrateExporter {
 
     /** The composed draft: JSON text plus bookkeeping of what was included/skipped. */
     public static final class CrateDraft {
+        private final String projectName;
         private final String json;
         private final List<CrateEntry> entries;
         private final List<String> skipped;
 
-        private CrateDraft(String json, List<CrateEntry> entries, List<String> skipped) {
+        private CrateDraft(String projectName, String json, List<CrateEntry> entries,
+                           List<String> skipped) {
+            this.projectName = projectName;
             this.json = json;
             this.entries = List.copyOf(entries);
             this.skipped = List.copyOf(skipped);
         }
 
+        /** The resolved project name embedded in the metadata (never re-derived later). */
+        public String getProjectName() { return this.projectName; }
         public String getJson() { return this.json; }
         public List<CrateEntry> getEntries() { return this.entries; }
         public List<String> getSkipped() { return this.skipped; }
     }
+
+    /**
+     * One explicitly declared crate author/creator (Roadmap #135 pack layer).
+     * Names are typed by the operator (or read from an explicit profile field);
+     * the packer never scrapes environment variables, git config, or system
+     * properties to invent authorship.
+     */
+    public static final class CrateAuthor {
+        private final String name;
+        private final String identifier;
+
+        public CrateAuthor(String name, String identifier) {
+            String trimmed = name == null ? "" : name.trim();
+            if (trimmed.isEmpty()) {
+                throw new IllegalArgumentException("A crate author needs a non-blank name;"
+                        + " omit the author instead of shipping a placeholder.");
+            }
+            this.name = trimmed;
+            this.identifier = identifier == null || identifier.isBlank() ? null : identifier.trim();
+        }
+
+        public String getName() { return this.name; }
+        public String getIdentifier() { return this.identifier; }
+    }
+
+    private static final String DRAFT_DESCRIPTION =
+            "QuantumForge RO-Crate metadata draft (Roadmap item 135). Entries carry "
+                    + "byte sizes and SHA-256 checksums of artifacts that existed at "
+                    + "scan time; payload packaging, licence metadata and author records "
+                    + "are deliberately not automated by this draft.";
 
     /** Default-bound build entry point. */
     public static CrateDraft build(String projectName, Path projectDir, List<Path> files) {
@@ -125,6 +160,23 @@ public final class RoCrateExporter {
                 ? (projectDir == null ? "quantumforge-project"
                         : projectDir.getFileName().toString())
                 : projectName;
+        return new CrateDraft(name, composeJson(name, DRAFT_DESCRIPTION, entries, null, List.of()),
+                entries, skipped);
+    }
+
+    /**
+     * The single owner of the {@code ro-crate-metadata.json} shape (Roadmap #135).
+     * The metadata draft ({@link #build}) and the payload packer both compose
+     * through here so a reviewed draft and a packed crate can never diverge in
+     * structure. Optional {@code licence} / {@code authors} fields are EMITTED
+     * ONLY when explicitly supplied - nothing is ever guessed or defaulted;
+     * when absent the crate simply carries no such claim.
+     *
+     * <p>Output is deterministic: entries arrive pre-sorted by relative path,
+     * authors are emitted in supplied order, and all strings are JSON-escaped.</p>
+     */
+    static String composeJson(String name, String description, List<CrateEntry> entries,
+                              String licence, List<CrateAuthor> authors) {
         StringBuilder json = new StringBuilder();
         json.append("{\n");
         json.append("  \"@context\": \"https://w3id.org/ro/crate/1.1/context\",\n");
@@ -139,12 +191,26 @@ public final class RoCrateExporter {
         json.append("      \"@id\": \"./\",\n");
         json.append("      \"@type\": \"Dataset\",\n");
         json.append("      \"name\": \"").append(escapeJson(name)).append("\",\n");
-        json.append("      \"description\": \"").append(escapeJson(
-                "QuantumForge RO-Crate metadata draft (Roadmap item 135). Entries carry "
-                        + "byte sizes and SHA-256 checksums of artifacts that existed at "
-                        + "scan time; payload packaging, licence metadata and author records "
-                        + "are deliberately not automated by this draft.")).append("\",\n");
-        json.append("      \"hasPart\": [");
+        json.append("      \"description\": \"").append(escapeJson(description)).append("\"");
+        if (licence != null && !licence.isBlank()) {
+            json.append(",\n      \"license\": \"").append(escapeJson(licence.trim())).append("\"");
+        }
+        if (authors != null && !authors.isEmpty()) {
+            json.append(",\n      \"creator\": [");
+            for (int i = 0; i < authors.size(); i++) {
+                CrateAuthor author = authors.get(i);
+                json.append(i == 0 ? "" : ", ");
+                json.append("{\"@type\": \"Person\", \"name\": \"")
+                        .append(escapeJson(author.getName())).append("\"");
+                if (author.getIdentifier() != null) {
+                    json.append(", \"identifier\": \"").append(escapeJson(author.getIdentifier()))
+                            .append("\"");
+                }
+                json.append("}");
+            }
+            json.append("]");
+        }
+        json.append(",\n      \"hasPart\": [");
         for (int i = 0; i < entries.size(); i++) {
             json.append(i == 0 ? "" : ", ");
             json.append("{\"@id\": \"").append(escapeJson(entries.get(i).getRelativePath()))
@@ -166,7 +232,7 @@ public final class RoCrateExporter {
         }
         json.append("  ]\n");
         json.append("}\n");
-        return new CrateDraft(json.toString(), entries, skipped);
+        return json.toString();
     }
 
     private static String sha256Hex(Path file) throws IOException {

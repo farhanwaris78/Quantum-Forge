@@ -9,7 +9,7 @@ import quantumforge.input.card.QEKPoints;
 /**
  * Γ-Trick option for band calculations.
  * 
- * NanoLabo v3.1+ provides a Γ-Trick toggle that shifts the
+ * Provides a Γ-Trick toggle that shifts the
  * k-point grid to include the Gamma point. This is important
  * for:
  * - Insulators and semiconductors

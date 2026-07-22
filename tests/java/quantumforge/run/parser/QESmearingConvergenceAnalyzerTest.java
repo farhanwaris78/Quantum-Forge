@@ -44,7 +44,9 @@ class QESmearingConvergenceAnalyzerTest {
         // Should be marked as safe
         boolean safe10 = analyzer.verifySmearingSafe(10, true);
         assertTrue(safe10);
-        assertTrue(analyzer.getDiagnostics().get(0).contains("optimized"));
+        assertTrue(analyzer.getDiagnostics().stream().anyMatch(d -> d.contains("optimized")),
+                "the safe verdict lands in the cumulative diagnostics: "
+                        + analyzer.getDiagnostics());
     }
 
     @Test

@@ -16,7 +16,7 @@ import quantumforge.input.QEInput;
  * Corrector for ESM (Effective Screening Medium) method.
  * 
  * ESM is used for work function calculations of surfaces and 2D materials.
- * This is a QE 7.5 feature that NanoLabo supports.
+ * This is a Quantum ESPRESSO 7.x capability.
  * 
  * Enables:
  * - Work function calculation

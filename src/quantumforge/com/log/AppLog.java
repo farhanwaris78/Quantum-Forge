@@ -98,8 +98,10 @@ public final class AppLog {
         if (text == null || text.isEmpty()) {
             return text;
         }
-        String redacted = PASSWORD.matcher(text).replaceAll("$1=***");
-        return BEARER.matcher(redacted).replaceAll("Bearer ***");
+        // Order matters: the generic key[=:]value pattern would otherwise consume the
+        // word "Bearer" itself as the secret value and leave the real token unredacted.
+        String redacted = BEARER.matcher(text).replaceAll("Bearer ***");
+        return PASSWORD.matcher(redacted).replaceAll("$1=***");
     }
 
     public static Path currentLogFile() {

@@ -3,10 +3,41 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+if [[ -f "$SCRIPT_DIR/VERSION" ]]; then
+    # Top-level convenience copy inside an unpacked download. There is no
+    # installed layout to update; refuse instead of deriving a bogus root
+    # from the download directory.
+    echo "This update.sh sits inside an unpacked download, not an installation." >&2
+    echo "Install first (./install.sh), then run: quantumforge --update" >&2
+    exit 2
+fi
 APP_HOME="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd -P)"
 INSTALL_ROOT="$(CDPATH= cd -- "$APP_HOME/../.." && pwd -P)"
 REPOSITORY="${QUANTUMFORGE_UPDATE_REPOSITORY:-farhanwaris78/Quantum-Forge}"
-API="https://api.github.com/repos/$REPOSITORY/releases/latest"
+API_BASE="${QUANTUMFORGE_UPDATE_API_BASE:-https://api.github.com}"
+
+# Fail-closed layout proof, mirroring uninstall.sh: update only a real
+# installer-managed tree, never an arbitrary directory this script was copied into.
+[[ -f "$APP_HOME/INSTALL_RECEIPT" && -d "$INSTALL_ROOT/versions" ]] || {
+    echo "This does not look like an installer-managed QuantumForge installation." >&2
+    echo "Nothing was downloaded or changed." >&2
+    exit 3
+}
+
+# Transport policy: HTTPS always. Plain HTTP is accepted only on loopback so a
+# site mirror or the packaging smoke test can run locally; anything else is refused.
+case "$API_BASE" in
+    https://*) CURL_PROTOCOLS="=https" ;;
+    http://127.0.0.1*|http://localhost*|http://\[::1\]*)
+        CURL_PROTOCOLS="http,https"
+        echo "NOTE: plain-HTTP update mirror on loopback ($API_BASE); production updates use HTTPS." >&2
+        ;;
+    *)
+        echo "Refusing QUANTUMFORGE_UPDATE_API_BASE=$API_BASE (only https:// or loopback http allowed)." >&2
+        exit 2
+        ;;
+esac
+API="$API_BASE/repos/$REPOSITORY/releases/latest"
 YES=0
 
 while (($#)); do
@@ -15,6 +46,10 @@ while (($#)); do
         --help|-h)
             echo "Usage: quantumforge --update [--yes]"
             echo "Downloads the latest release, verifies SHA-256, and atomically activates it."
+            echo "Environment overrides:"
+            echo "  QUANTUMFORGE_UPDATE_REPOSITORY  owner/name (default farhanwaris78/Quantum-Forge)"
+            echo "  QUANTUMFORGE_UPDATE_API_BASE    GitHub-compatible API base (https only;"
+            echo "                                  loopback http allowed for local mirrors/tests)"
             exit 0 ;;
         *) echo "Unknown update option: $1" >&2; exit 2 ;;
     esac
@@ -42,7 +77,7 @@ esac
 
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/quantumforge-update.XXXXXX")"
 trap 'rm -rf -- "$TMP"' EXIT HUP INT TERM
-curl --proto '=https' --tlsv1.2 --fail --silent --show-error --location \
+curl --proto "$CURL_PROTOCOLS" --tlsv1.2 --fail --silent --show-error --location \
     --retry 3 --output "$TMP/release.json" "$API"
 
 python3 - "$TMP/release.json" "$PLATFORM" "$MACHINE" "$TMP/release-data" <<'PY'
@@ -82,12 +117,12 @@ if [[ "$CURRENT_VERSION" == "$LATEST_VERSION" ]]; then
 fi
 
 printf 'Update QuantumForge %s -> %s? [y/N] ' "$CURRENT_VERSION" "$LATEST_VERSION"
-if ((YES)); then echo y; answer=y; else read -r answer; fi
+if ((YES)); then echo y; answer=y; else read -r answer || answer=''; fi
 [[ "$answer" =~ ^[Yy]$ ]] || { echo "Update cancelled."; exit 0; }
 
-curl --proto '=https' --tlsv1.2 --fail --silent --show-error --location \
+curl --proto "$CURL_PROTOCOLS" --tlsv1.2 --fail --silent --show-error --location \
     --retry 3 --output "$TMP/$ASSET_NAME" "$ASSET_URL"
-curl --proto '=https' --tlsv1.2 --fail --silent --show-error --location \
+curl --proto "$CURL_PROTOCOLS" --tlsv1.2 --fail --silent --show-error --location \
     --retry 3 --output "$TMP/SHA256SUMS" "$CHECKSUM_URL"
 
 EXPECTED="$(awk -v file="$ASSET_NAME" '$2 == file || $2 == "*" file {print $1}' "$TMP/SHA256SUMS")"

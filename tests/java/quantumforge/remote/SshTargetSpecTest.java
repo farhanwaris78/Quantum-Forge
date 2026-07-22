@@ -26,8 +26,8 @@ class SshTargetSpecTest {
         assertTrue(stanza.contains("    Port 22\n"), stanza);
         assertTrue(stanza.contains("    IdentityFile ~/.ssh/id_ed25519_qe\n"), stanza);
         assertTrue(stanza.contains("    IdentitiesOnly yes\n"), stanza);
-        assertTrue(stanza.contains("    PasswordAuthentication no\n"), stanza,
-                "password auth disabled BY DESIGN - the spec has no password field");
+        assertTrue(stanza.contains("    PasswordAuthentication no\n"),
+                stanza + " -- password auth disabled BY DESIGN - the spec has no password field");
         assertTrue(stanza.contains("    BatchMode yes\n"), stanza);
         assertTrue(stanza.contains("host-key pinning"), stanza);
     }
@@ -121,7 +121,8 @@ class SshTargetSpecTest {
                 "agent/default-key auth is a draft-level legal intent but NOT a"
                         + " compilable one in this build");
         assertEquals("SSH_IDENTITY_MISSING", noKey.getCode());
-        assertTrue(noKey.getMessage().contains("no agent support"), noKey.getMessage());
+        assertTrue(noKey.getMessage().contains("agent/default keys")
+                && noKey.getMessage().contains("does not offer"), noKey.getMessage());
 
         SshTarget keyed = SshTargetSpec.validate(
                 "hpc-cluster", "login.hpc.edu", "farhan", 22, "~/.ssh/id_ed25519")
