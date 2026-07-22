@@ -1199,6 +1199,36 @@ def main() -> int:
             or not (ROOT / "tests/java/quantumforge/run/parser/QEPhonopyForceConstantsTest.java").is_file():
         error("batch-169 BORN/qe-born/FORCE_CONSTANTS tests missing")
 
+    # --- batch 170: phonopy-gruneisen mode-gamma channel (band + mesh yaml + plan) ---
+    gruYamlText = (SRC / "quantumforge/run/parser/QEPhonopyGruneisenYaml.java").read_text(encoding="utf-8")
+    for needle in ("PHONOPY_GRUNEISEN_INPUT", "PHONOPY_GRUNEISEN_HEADER",
+                   "PHONOPY_GRUNEISEN_EMPTY", "PHONOPY_GRUNEISEN_PARTIAL",
+                   "PHONOPY_GRUNEISEN_SHAPE", "PHONOPY_GRUNEISEN_OK",
+                   "Mode.BAND", "Mode.MESH", "multiplicity", "-V/(2*omega^2)",
+                   "readQBlock", "file name plays no part", "Gamma-point", "describe("):
+        if needle not in gruYamlText:
+            error("QEPhonopyGruneisenYaml lost the batch-170 gamma grammar: " + needle)
+    gruPlanText = (SRC / "quantumforge/run/parser/QEPhonopyGruneisenPlan.java").read_text(encoding="utf-8")
+    for needle in ("PHONOPY_GRUNEISEN_PLAN_INPUT", "PHONOPY_GRUNEISEN_PLAN_OK",
+                   "phonopy-gruneisen", "--readfc", "--band=\"auto\"",
+                   "deprecated at v2.44", "siBandPreset", "THREE phonon",
+                   "gruneisen_mesh.yaml"):
+        if needle not in gruPlanText:
+            error("QEPhonopyGruneisenPlan lost the batch-170 3-volume builder: " + needle)
+    phDialogText170 = (SRC / "quantumforge/app/project/viewer/phonopy/QEFXPhonopyDialog.java").read_text(encoding="utf-8")
+    for needle in ("gruneisen_mesh.yaml", "drawGruneisen", "gruButton",
+                   "gamma(q,nu)", "negative-gamma entries"):
+        if needle not in phDialogText170:
+            error("QEFXPhonopyDialog lost the batch-170 live gamma chart: " + needle)
+    if "gruneisen_mesh.yaml" not in rasText \
+            or "QEPhonopyGruneisenYaml.parse" not in rasText \
+            or "phonopy,gruneisen_mode" not in rasText \
+            or "phonopy,gruneisen_gamma_min" not in rasText:
+        error("ResultAnalysisService lost the batch-170 gruneisen routing")
+    if not (ROOT / "tests/java/quantumforge/run/parser/QEPhonopyGruneisenYamlTest.java").is_file() \
+            or not (ROOT / "tests/java/quantumforge/run/parser/QEPhonopyGruneisenPlanTest.java").is_file():
+        error("batch-170 gruneisen tests missing")
+
     cap = (SRC / "quantumforge/capability/CapabilityRegistry.java").read_text(encoding="utf-8")
     if "Strict known_hosts" not in cap:
         error("CapabilityRegistry SSH status not updated")

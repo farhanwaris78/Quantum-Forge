@@ -175,6 +175,7 @@ import quantumforge.run.parser.QEElateAnalyzer;
 import quantumforge.run.parser.QEPhonopyBandYaml;
 import quantumforge.run.parser.QEPhonopyBorn;
 import quantumforge.run.parser.QEPhonopyForceConstants;
+import quantumforge.run.parser.QEPhonopyGruneisenYaml;
 import quantumforge.run.parser.QEPhonopyDos;
 import quantumforge.run.parser.QEPhonopyThermalYaml;
 import quantumforge.run.parser.QEThermoPwElasticParser;
@@ -1417,7 +1418,8 @@ public final class ResultAnalysisService {
             return name.equals("band.yaml") || name.equals("total_dos.dat")
                     || name.equals("partial_dos.dat") || name.equals("projected_dos.dat")
                     || name.equals("thermal_properties.yaml")
-                    || name.equals("BORN") || name.equals("FORCE_CONSTANTS");
+                    || name.equals("BORN") || name.equals("FORCE_CONSTANTS")
+                    || name.equals("gruneisen.yaml") || name.equals("gruneisen_mesh.yaml");
                     // distinctive pinned names
         case QE_CARD_AUDIT:
             return false; // manual select only: EVERY pw input is a candidate
@@ -3304,7 +3306,7 @@ public final class ResultAnalysisService {
         if (source == null || !source.isFile()) {
             return failure(label, "Pick a phonopy artifact: band.yaml, total_dos.dat,"
                     + " partial_dos.dat, projected_dos.dat, thermal_properties.yaml,"
-                    + " BORN, or FORCE_CONSTANTS.");
+                    + " BORN, FORCE_CONSTANTS, gruneisen.yaml, or gruneisen_mesh.yaml.");
         }
         String name = source.getName();
         StringBuilder text = new StringBuilder();
@@ -3379,6 +3381,33 @@ public final class ResultAnalysisService {
                     yaml.getRows().size()));
             csv.add(String.format(Locale.ROOT, "phonopy,partial_held,%d",
                     yaml.getPartialRowsHeld()));
+        } else if (name.equals("gruneisen.yaml") || name.equals("gruneisen_mesh.yaml")) {
+            OperationResult<QEPhonopyGruneisenYaml.GruneisenYaml> parsed =
+                    QEPhonopyGruneisenYaml.parse(source.toPath());
+            if (!parsed.isSuccess() || parsed.getValue().isEmpty()) {
+                return failure(label, "[" + parsed.getCode() + "] " + parsed.getMessage());
+            }
+            QEPhonopyGruneisenYaml.GruneisenYaml gru = parsed.getValue().orElseThrow();
+            text.append("== phonopy-gruneisen mode Grüneisen inspection (")
+                    .append(name).append(") ==\n");
+            text.append(QEPhonopyGruneisenYaml.describe(gru)).append('\n');
+            csv.add(String.format(Locale.ROOT, "phonopy,gruneisen_mode,%s",
+                    gru.getMode()));
+            csv.add(String.format(Locale.ROOT, "phonopy,gruneisen_q_rows,%d",
+                    gru.flatRows().size()));
+            csv.add(String.format(Locale.ROOT, "phonopy,gruneisen_bands,%d",
+                    gru.getBandCount()));
+            double[] extent = gru.gammaExtent();
+            if (extent != null) {
+                csv.add(String.format(Locale.ROOT, "phonopy,gruneisen_gamma_min,%.10g",
+                        extent[0]));
+                csv.add(String.format(Locale.ROOT, "phonopy,gruneisen_gamma_max,%.10g",
+                        extent[1]));
+            }
+            csv.add(String.format(Locale.ROOT, "phonopy,gruneisen_negative_gamma,%d",
+                    gru.getNegativeGammaCount()));
+            csv.add(String.format(Locale.ROOT, "phonopy,gruneisen_gamma_point_rows,%d",
+                    gru.getGammaPointRowCount()));
         } else if (name.equals("BORN")) {
             OperationResult<QEPhonopyBorn.BornFile> parsed =
                     QEPhonopyBorn.parse(source.toPath());

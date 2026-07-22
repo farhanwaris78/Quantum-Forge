@@ -516,7 +516,8 @@ public final class QEPhonopyPlan {
                 plan);
     }
 
-    private static boolean validQToken(String token) {
+    /** q-token grammar shared with QEPhonopyGruneisenPlan (same package). */
+    static boolean validQToken(String token) {
         return INT_TOKEN.matcher(token).matches() || DEC_TOKEN.matcher(token).matches()
                 || FRAC_TOKEN.matcher(token).matches();
     }

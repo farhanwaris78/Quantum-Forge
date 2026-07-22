@@ -44,6 +44,7 @@ import quantumforge.run.parser.QEPhonopyBandYaml;
 import quantumforge.run.parser.QEPhonopyBandYaml.BandYaml;
 import quantumforge.run.parser.QEPhonopyBorn;
 import quantumforge.run.parser.QEPhonopyForceConstants;
+import quantumforge.run.parser.QEPhonopyGruneisenYaml;
 import quantumforge.run.parser.QEPhonopyQeBorn;
 import quantumforge.run.parser.QEPhonopyBandYaml.QRow;
 import quantumforge.run.parser.QEPhonopyBandYaml.Segment;
@@ -69,14 +70,19 @@ import quantumforge.run.parser.QEPhonopyThermalYaml.ThermalYaml;
  * a file that has not landed yet renders an explicit "waiting" state, never
  * a fake flat line. {@code FORCE_CONSTANTS} (tensor census card) and
  * {@code BORN} (NAC card: dielectric + Z* verbatim, batch 169) are parsed
- * the moment they land too; {@code band.hdf5} / {@code mesh.hdf5} /
+ * the moment they land too; {@code gruneisen.yaml} /
+ * {@code gruneisen_mesh.yaml} (batch 170) draw a LIVE gamma chart
+ * (gamma-vs-distance segment lines, or gamma-vs-frequency scatter for the
+ * mesh, the Gamma-divergence caveat named on the caption) as
+ * phonopy-gruneisen writes them; {@code band.hdf5} / {@code mesh.hdf5} /
  * {@code phonopy.yaml} / {@code FORCE_SETS} stay NAMED as present/absent
  * (binary/input artifacts are enumerated, not parsed). The timer always
  * stops when the dialog closes.</p>
  *
  * <p><b>OPEN</b> - chart one finished artifact picked explicitly
  * (band.yaml / any DOS table / thermal_properties.yaml / BORN /
- * FORCE_CONSTANTS), or EXTRACT a BORN file from a {@code ph.x} output of an
+ * FORCE_CONSTANTS / either gruneisen yaml), or EXTRACT a BORN file from a
+ * {@code ph.x} output of an
  * {@code epsil = .true.} run (the raw half of upstream's
  * {@code phonopy-qe-born}, nat from the pw input asserted against the ph.x
  * print; RAW values, NOT symmetrized - stated on the card) with a
@@ -103,7 +109,8 @@ public final class QEFXPhonopyDialog extends Dialog<Void> {
 
     private static final String[] WATCHED = {
             "band.yaml", "total_dos.dat", "partial_dos.dat", "projected_dos.dat",
-            "thermal_properties.yaml", "FORCE_CONSTANTS", "BORN"};
+            "thermal_properties.yaml", "FORCE_CONSTANTS", "BORN",
+            "gruneisen.yaml", "gruneisen_mesh.yaml"};
     private static final String[] ENUMERATED = {
             "band.hdf5", "mesh.hdf5", "qpoints.hdf5", "phonopy.yaml",
             "phonopy_disp.yaml", "FORCE_SETS"};
@@ -337,6 +344,16 @@ public final class QEFXPhonopyDialog extends Dialog<Void> {
                 this.refusalCache.put(name, "[" + result.getCode() + "] "
                         + result.getMessage());
             }
+        } else if ("gruneisen.yaml".equals(name) || "gruneisen_mesh.yaml".equals(name)) {
+            OperationResult<QEPhonopyGruneisenYaml.GruneisenYaml> result =
+                    QEPhonopyGruneisenYaml.parse(file);
+            if (result.isSuccess() && result.getValue().isPresent()) {
+                this.artifactCache.put(name, result.getValue().orElseThrow());
+                this.refusalCache.remove(name);
+            } else {
+                this.refusalCache.put(name, "[" + result.getCode() + "] "
+                        + result.getMessage());
+            }
         } else if ("FORCE_CONSTANTS".equals(name)) {
             OperationResult<QEPhonopyForceConstants.ForceConstants> result =
                     QEPhonopyForceConstants.parse(file);
@@ -406,6 +423,8 @@ public final class QEFXPhonopyDialog extends Dialog<Void> {
         dosButton.setMaxWidth(Double.MAX_VALUE);
         Button tpropButton = new Button("Open thermal_properties.yaml ...");
         tpropButton.setMaxWidth(Double.MAX_VALUE);
+        Button gruButton = new Button("Open gruneisen.yaml / gruneisen_mesh.yaml ...");
+        gruButton.setMaxWidth(Double.MAX_VALUE);
         Button bornButton = new Button("Open BORN (NAC) ...");
         bornButton.setMaxWidth(Double.MAX_VALUE);
         Button fcButton = new Button("Open FORCE_CONSTANTS ...");
@@ -422,6 +441,7 @@ public final class QEFXPhonopyDialog extends Dialog<Void> {
         saveBorn.setMaxWidth(Double.MAX_VALUE);
         this.openLabel.setWrapText(true);
         VBox pane = new VBox(8, bandButton, dosButton, tpropButton,
+                gruButton,
                 new HBox(8, bornButton, fcButton),
                 new HBox(8, new Label("nat:"), natomField, qebornButton),
                 new Label("BORN PREVIEW (raw values, NOT symmetrized - upstream's"
@@ -505,6 +525,23 @@ public final class QEFXPhonopyDialog extends Dialog<Void> {
                 if (result.isSuccess() && result.getValue().isPresent()) {
                     this.currentProduct = result.getValue().orElseThrow();
                     this.currentKind = "FORCE_CONSTANTS";
+                    this.openLabel.setText(picked.getAbsolutePath()
+                            + "\n[" + result.getCode() + "] " + result.getMessage());
+                    redraw();
+                } else {
+                    this.openLabel.setText("[" + result.getCode() + "] "
+                            + result.getMessage());
+                }
+            }
+        });
+        gruButton.setOnAction(e -> {
+            File picked = pickFile("gruneisen.yaml / gruneisen_mesh.yaml");
+            if (picked != null) {
+                OperationResult<QEPhonopyGruneisenYaml.GruneisenYaml> result =
+                        QEPhonopyGruneisenYaml.parse(picked.toPath());
+                if (result.isSuccess() && result.getValue().isPresent()) {
+                    this.currentProduct = result.getValue().orElseThrow();
+                    this.currentKind = picked.getName();
                     this.openLabel.setText(picked.getAbsolutePath()
                             + "\n[" + result.getCode() + "] " + result.getMessage());
                     redraw();
@@ -828,6 +865,8 @@ public final class QEFXPhonopyDialog extends Dialog<Void> {
             drawDos((DosTable) product);
         } else if (product instanceof ThermalYaml) {
             drawThermal((ThermalYaml) product);
+        } else if (product instanceof QEPhonopyGruneisenYaml.GruneisenYaml) {
+            drawGruneisen((QEPhonopyGruneisenYaml.GruneisenYaml) product);
         } else if (product instanceof QEPhonopyBorn.BornFile) {
             drawBorn((QEPhonopyBorn.BornFile) product);
         } else if (product instanceof QEPhonopyForceConstants.ForceConstants) {
@@ -835,6 +874,120 @@ public final class QEFXPhonopyDialog extends Dialog<Void> {
         } else {
             redrawEmpty("no chartable product selected.");
         }
+    }
+
+    /** gamma chart: BAND mode gamma-vs-distance, MESH mode gamma-vs-frequency. */
+    private void drawGruneisen(QEPhonopyGruneisenYaml.GruneisenYaml yaml) {
+        GraphicsContext gc = this.canvas.getGraphicsContext2D();
+        double w = this.canvas.getWidth();
+        double h = this.canvas.getHeight();
+        gc.setFill(Color.WHITE);
+        gc.fillRect(0, 0, w, h);
+        double leftPad = 64;
+        double bottomPad = 56;
+        double topPad = 18;
+        double rightPad = 18;
+        java.util.List<QEPhonopyGruneisenYaml.GammaQ> rows = yaml.flatRows();
+        if (rows.isEmpty()) {
+            redrawEmpty("no complete q rows yet (live write)");
+            return;
+        }
+        boolean bandMode = yaml.getMode() == QEPhonopyGruneisenYaml.Mode.BAND;
+        // x: cumulative distance (band) or frequency (mesh); y: gamma
+        int bands = yaml.getBandCount();
+        double[][] xs = new double[bands][rows.size()];
+        double[][] ys = new double[bands][rows.size()];
+        double xLo = Double.POSITIVE_INFINITY;
+        double xHi = Double.NEGATIVE_INFINITY;
+        double gLo = Double.POSITIVE_INFINITY;
+        double gHi = Double.NEGATIVE_INFINITY;
+        double cumDist = 0.0;
+        Double lastDistance = null;
+        for (int r = 0; r < rows.size(); r++) {
+            QEPhonopyGruneisenYaml.GammaQ row = rows.get(r);
+            double x;
+            if (bandMode) {
+                double d = row.getDistance() == null ? 0.0 : row.getDistance();
+                if (lastDistance != null && d < lastDistance) {
+                    cumDist = lastDistance; // path break: monotonic continuation
+                }
+                x = Math.max(cumDist, d);
+                cumDist = x;
+                lastDistance = d;
+            } else {
+                x = row.getBands().isEmpty() ? 0.0
+                        : row.getBands().get(0).getFrequency();
+            }
+            for (int b = 0; b < bands && b < row.getBands().size(); b++) {
+                double g = row.getBands().get(b).getGruneisen();
+                double xb = bandMode ? x : row.getBands().get(b).getFrequency();
+                xs[b][r] = xb;
+                ys[b][r] = g;
+                xLo = Math.min(xLo, xb);
+                xHi = Math.max(xHi, xb);
+                gLo = Math.min(gLo, g);
+                gHi = Math.max(gHi, g);
+            }
+        }
+        if (!(xHi > xLo)) {
+            xHi = xLo + 1.0;
+        }
+        if (!(gHi > gLo)) {
+            gHi = gLo + 1.0;
+        }
+        double[] padded = ChartGeometry.padded(gLo, gHi);
+        gLo = padded[0];
+        gHi = padded[1];
+        double zeroY = mapY(0.0, gLo, gHi, h, topPad, bottomPad);
+        gc.setStroke(Color.LIGHTGRAY);
+        gc.strokeLine(leftPad, zeroY, w - rightPad, zeroY);
+        gc.setFill(Color.DARKGRAY);
+        gc.fillText("gamma = 0", leftPad + 4, zeroY - 4);
+        Color[] palette = {Color.CRIMSON, Color.ROYALBLUE, Color.SEAGREEN,
+                Color.DARKORANGE, Color.PURPLE, Color.TEAL, Color.BROWN, Color.NAVY};
+        for (int b = 0; b < bands; b++) {
+            gc.setStroke(palette[b % palette.length]);
+            gc.setFill(palette[b % palette.length]);
+            double prevX = -1;
+            double prevY = -1;
+            for (int r = 0; r < rows.size(); r++) {
+                double px = ChartGeometry.mapLinear(xs[b][r], xLo, xHi,
+                        leftPad, w - rightPad);
+                double py = mapY(ys[b][r], gLo, gHi, h, topPad, bottomPad);
+                gc.fillOval(px - 2, py - 2, 4, 4);
+                if (prevX >= 0 && bandMode) {
+                    gc.strokeLine(prevX, prevY, px, py);
+                }
+                prevX = px;
+                prevY = py;
+            }
+        }
+        gc.setFill(Color.DARKSLATEBLUE);
+        gc.fillText("mode Gruneisen parameter gamma(q,nu)"
+                + (bandMode ? " vs path distance" : " vs frequency")
+                + " - finite difference over THREE volumes (doc-verbatim);"
+                + " gamma may diverge at Gamma", leftPad, 14);
+        StringBuilder caption = new StringBuilder(bandMode ? "gamma(q) along the path"
+                : "gamma vs frequency scatter (mesh)");
+        double[] extent = yaml.gammaExtent();
+        if (extent != null) {
+            caption.append(String.format(Locale.ROOT, "  gamma in [%.4f, %.4f]",
+                    extent[0], extent[1]));
+        }
+        if (yaml.getNegativeGammaCount() > 0) {
+            caption.append("  - ").append(yaml.getNegativeGammaCount())
+                    .append(" negative-gamma entries (compressed modes)");
+        }
+        if (yaml.getGammaPointRowCount() > 0) {
+            caption.append("  - ").append(yaml.getGammaPointRowCount())
+                    .append(" exact-Gamma row(s): upstream's own plot skips those"
+                            + " values (doc), this chart shows them plainly");
+        }
+        if (yaml.getPartialRowsHeld() > 0) {
+            caption.append("  - live: ").append(yaml.getPartialRowsHeld())
+                    .append(" partial block held");
+        }
+        this.chartCaption.setText(caption.toString());
     }
 
     private void drawBorn(QEPhonopyBorn.BornFile born) {
