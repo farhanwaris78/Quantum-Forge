@@ -59,8 +59,9 @@ public class QEFXQCViewerController extends QEFXGraphViewerController {
         ProjectDos projectDos = projectProperty.getDos();
         if (projectDos == null) return;
         
-        DosData dosData = projectDos.getDosData();
-        if (dosData == null) return;
+        java.util.List<DosData> datasets = projectDos.listDosData();
+        if (datasets == null || datasets.isEmpty()) return;
+        DosData dosData = datasets.get(0);
 
         double fermi = 0.0;
         if (projectProperty.getFermiEnergies().numEnergies() > 0) {
@@ -76,7 +77,7 @@ public class QEFXQCViewerController extends QEFXGraphViewerController {
 
         for (int i = 0; i < n; i++) {
             double energy = dosData.getEnergy(i); // eV
-            double dos = dosData.getDos(i);       // states/eV/cell
+            double dos = dosData.getDosUp(i) + dosData.getDosDown(i); // states/eV/cell
             
             double voltage = energy - fermi;
             // Cq = e^2 * DOS / Area

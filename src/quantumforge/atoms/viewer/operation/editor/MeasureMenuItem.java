@@ -26,8 +26,8 @@ public class MeasureMenuItem extends EditorMenuItem {
     }
 
     @Override
-    protected void onAction() {
-        AtomsViewer atomsViewer = this.menu.getManager().getAtomsViewer();
+    protected void editAtoms() {
+        AtomsViewer atomsViewer = this.editorMenu.getManager().getAtomsViewer();
         if (atomsViewer == null) {
             return;
         }

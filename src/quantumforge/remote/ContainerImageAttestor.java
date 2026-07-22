@@ -112,7 +112,7 @@ public final class ContainerImageAttestor {
             return OperationResult.failed("CONTAINER_PROBE_PATH",
                     "the image path is blank - attestation against nothing is"
                             + " unreviewable; supply the absolute on-disk path.",
-                    partial("", "", steps));
+                    partial("", "", steps), null);
         }
         String path = absolutePath.trim();
         if (path.length() != absolutePath.length() || !path.startsWith("/")
@@ -122,7 +122,7 @@ public final class ContainerImageAttestor {
                     "the image path must be ABSOLUTE, un-padded and free of"
                             + " '..' - a location this build cannot name exactly is"
                             + " unreviewable: '" + absolutePath + "'.",
-                    partial(path, "", steps));
+                    partial(path, "", steps), null);
         }
         String expected = expectedSha256Hex == null ? ""
                 : expectedSha256Hex.trim().toLowerCase(Locale.ROOT);
@@ -131,14 +131,14 @@ public final class ContainerImageAttestor {
                     "attestation without a pinned file sha256 is measurement"
                             + " without a verdict - supply the hash recorded at"
                             + " download/build time; this build never invents one.",
-                    partial(path, expected, steps));
+                    partial(path, expected, steps), null);
         }
         if (!expected.matches("[0-9a-f]{64}")) {
             return OperationResult.failed("CONTAINER_PROBE_EXPECTATION",
                     "the pinned file hash must be exactly 64 lowercase hex"
                             + " characters (sha256) - got '" + expectedSha256Hex
                             + "'.",
-                    partial(path, expected, steps));
+                    partial(path, expected, steps), null);
         }
         Path out = null;
         Path err = null;
@@ -154,7 +154,7 @@ public final class ContainerImageAttestor {
                             "the existence probe itself failed ("
                                     + probe.getMessage() + ") - refusing to"
                                     + " proceed blind.",
-                            partial(path, expected, steps));
+                            partial(path, expected, steps), null);
                 }
                 // SSH_EXEC_FAILED (exit != 0) is the documented absent shape.
                 return OperationResult.failed("CONTAINER_PROBE_ABSENT",
@@ -162,7 +162,7 @@ public final class ContainerImageAttestor {
                                 + " nothing is installed to make this pass; the"
                                 + " launch side stays blocked until the file"
                                 + " exists AND attests." + LAYER_NOTE,
-                        partial(path, expected, steps));
+                        partial(path, expected, steps), null);
             }
             OperationResult<Integer> hash = transport.exec(
                     new String[] {"sha256sum", path}, out, err);
@@ -172,7 +172,7 @@ public final class ContainerImageAttestor {
                         "the checksum command failed (" + hash.getMessage()
                                 + ") - the bytes cannot be attested and nothing is"
                                 + " guessed.",
-                        partial(path, expected, steps));
+                        partial(path, expected, steps), null);
             }
             String hashOut = Files.isRegularFile(out)
                     ? Files.readString(out, StandardCharsets.UTF_8).trim() : "";
@@ -184,7 +184,7 @@ public final class ContainerImageAttestor {
                                 + (hashOut.isBlank() ? "<empty>" : hashOut)
                                 + "') - an unreadable checksum is refused, never"
                                 + " guessed.",
-                        partial(path, expected, steps));
+                        partial(path, expected, steps), null);
             }
             if (!expected.equals(actual)) {
                 return OperationResult.failed("CONTAINER_ATTEST_MISMATCH",
@@ -193,7 +193,7 @@ public final class ContainerImageAttestor {
                                 + path + ") - NOTHING proceeds by default: the"
                                 + " discrepancy is the analyst's to resolve, then"
                                 + " re-attest." + LAYER_NOTE,
-                        new Attestation(path, expected, actual, false, steps));
+                        new Attestation(path, expected, actual, false, steps), null);
             }
             return OperationResult.success("CONTAINER_ATTEST_OK",
                     "image file bytes attest against the pinned sha256 at "

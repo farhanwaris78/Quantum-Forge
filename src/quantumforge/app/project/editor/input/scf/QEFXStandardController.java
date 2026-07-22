@@ -703,7 +703,8 @@ public class QEFXStandardController extends QEFXInputController {
         if (this.suggestButton == null) return;
         this.suggestButton.setOnAction(event -> {
             quantumforge.neural.AIParameterSuggester.SuggestedParams suggested = 
-                quantumforge.neural.AIParameterSuggester.suggest(this.input.getCellBuilder().buildCell());
+                quantumforge.neural.AIParameterSuggester.suggest(this.input instanceof quantumforge.input.QEGeometryInput
+                        ? ((quantumforge.input.QEGeometryInput) this.input).getCell() : null);
             
             QENamelist nmlSystem = this.input.getNamelist(QEInput.NAMELIST_SYSTEM);
             if (nmlSystem != null) {

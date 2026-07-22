@@ -4,6 +4,8 @@
 
 package quantumforge.app.project.editor.input.phonon;
 
+import java.net.URL;
+import java.util.ResourceBundle;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -38,7 +40,7 @@ public class QEFXPhononController extends QEFXEditorController {
     }
 
     @Override
-    protected void setupFXComponents() {
+    public void initialize(URL location, ResourceBundle resources) {
         if (asrCombo != null) {
             asrCombo.getItems().addAll("no", "simple", "crystal", "one-dim", "poly-eth");
             asrCombo.setValue("crystal");
