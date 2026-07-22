@@ -45,7 +45,7 @@ public final class PseudoFamilyValidator {
 
         for (int i = 0; i < speciesCard.numSpecies(); i++) {
             String label = speciesCard.getLabel(i);
-            String pseudoName = speciesCard.getPseudoPotentialName(i);
+            String pseudoName = speciesCard.getPseudoName(i);
             if (pseudoName == null || pseudoName.trim().isEmpty()) {
                 continue;
             }

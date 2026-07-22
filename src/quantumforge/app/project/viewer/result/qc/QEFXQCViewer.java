@@ -5,13 +5,13 @@
 package quantumforge.app.project.viewer.result.qc;
 
 import quantumforge.app.project.QEFXProjectController;
-import quantumforge.app.project.viewer.result.QEFXResultViewer;
+import quantumforge.app.project.viewer.result.graph.QEFXGraphViewer;
 import quantumforge.project.Project;
 import quantumforge.project.property.ProjectProperty;
 
-public class QEFXQCViewer extends QEFXResultViewer<QEFXQCViewerController> {
+public class QEFXQCViewer extends QEFXGraphViewer<QEFXQCViewerController> {
 
     public QEFXQCViewer(QEFXProjectController projectController, Project project) {
-        super("QEFXGraphViewer.fxml", new QEFXQCViewerController(projectController, project.getProperty()), projectController, project);
+        super(new QEFXQCViewerController(projectController, project.getProperty()), projectController, project);
     }
 }

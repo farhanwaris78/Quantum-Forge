@@ -74,7 +74,7 @@ public class PhonopyExtension implements SoftwareExtension {
         status.setWrapText(true);
         
         Button plotBtn = new Button("Plot Thermal Properties");
-        plotBtn.setMaxWidth(Double.MAX_WIDTH);
+        plotBtn.setMaxWidth(Double.MAX_VALUE);
         plotBtn.setDisable(true);
         
         vbox.getChildren().addAll(rtitle, new Separator(), status, new Separator(), plotBtn);

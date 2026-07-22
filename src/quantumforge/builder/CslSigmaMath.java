@@ -114,11 +114,11 @@ public final class CslSigmaMath {
                             + ", got (" + rawM + ", " + rawN + ").",
                     null);
         }
-        int axisG = gcd(gcd(Math.abs(rawU), Math.abs(rawV)), Math.abs(rawW));
+        int axisG = Math.toIntExact(gcd(gcd(Math.abs(rawU), Math.abs(rawV)), Math.abs(rawW)));
         int u = rawU / axisG;
         int v = rawV / axisG;
         int w = rawW / axisG;
-        int pairG = gcd(rawM, rawN);
+        int pairG = Math.toIntExact(gcd(rawM, rawN));
         int m = rawM / pairG;
         int n = rawN / pairG;
         long nn = (long) u * u + (long) v * v + (long) w * w;

@@ -1,42 +1,38 @@
-/*
- * Copyright (C) 2025 QuantumForge Team
- */
-
 package quantumforge.app.project.viewer.result.qc;
 
+import java.io.IOException;
+
 import quantumforge.app.project.QEFXProjectController;
+import quantumforge.app.project.editor.result.qc.QEFXQCEditor;
+import quantumforge.app.project.editor.result.graph.QEFXGraphEditor;
 import quantumforge.app.project.viewer.result.QEFXResultButton;
 import quantumforge.app.project.viewer.result.QEFXResultButtonWrapper;
-import quantumforge.com.graphic.svg.SVGLibrary.SVGData;
 import quantumforge.project.Project;
 
-public class QEFXQCButton extends QEFXResultButton<QEFXQCViewer, QEFXQCViewerController> {
+/** Result launcher adapted to the current graph viewer/editor contract. */
+public final class QEFXQCButton extends QEFXResultButton<QEFXQCViewer, QEFXGraphEditor> {
+    private final Project project;
 
-    public static QEFXResultButtonWrapper<QEFXQCButton> getWrapper(QEFXProjectController projectController, Project project) {
-        return new QEFXResultButtonWrapper<QEFXQCButton>() {
-            @Override
-            public QEFXQCButton getInstance() {
-                return new QEFXQCButton(projectController, project);
-            }
-        };
+    public static QEFXResultButtonWrapper<QEFXQCButton> getWrapper(
+            QEFXProjectController projectController, Project project) {
+        return () -> new QEFXQCButton(projectController, project);
     }
 
-    public QEFXQCButton(QEFXProjectController projectController, Project project) {
-        super(projectController, project);
-    }
-
-    @Override
-    protected String createText() {
-        return "Q-Capacitance";
+    private QEFXQCButton(QEFXProjectController projectController, Project project) {
+        super(projectController, "Q-Capacitance", null);
+        if (project == null) {
+            throw new IllegalArgumentException("project is null.");
+        }
+        this.project = project;
     }
 
     @Override
-    protected SVGData createSVGData() {
-        return SVGData.COLORS;
-    }
-
-    @Override
-    protected QEFXQCViewer createViewer() {
+    protected QEFXQCViewer createResultViewer() throws IOException {
         return new QEFXQCViewer(this.projectController, this.project);
+    }
+
+    @Override
+    protected QEFXGraphEditor createResultEditor(QEFXQCViewer resultViewer) throws IOException {
+        return new QEFXQCEditor(this.projectController, resultViewer);
     }
 }

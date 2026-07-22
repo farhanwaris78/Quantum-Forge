@@ -14,4 +14,9 @@ public class QEFXConvergence extends QEFXEditorComponent<QEFXConvergenceControll
     public QEFXConvergence(QEFXMainController mainController, QEInput input) throws IOException {
         super("QEFXConvergence.fxml", new QEFXConvergenceController(mainController, input));
     }
+
+    @Override
+    public void notifyEditorOpened() {
+        // The convergence form has no deferred refresh action.
+    }
 }
