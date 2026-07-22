@@ -86,14 +86,14 @@ public final class QEInputDiffPreview {
 
             if (baseNml == null && modNml != null) {
                 for (QEValue val : modNml.listQEValues()) {
-                    diffs.add(new DiffItem(nmlKey, val.getName(), ChangeType.ADDED, null, val.getValueString()));
+                    diffs.add(new DiffItem(nmlKey, val.getName(), ChangeType.ADDED, null, val.toString()));
                 }
                 continue;
             }
 
             if (baseNml != null && modNml == null) {
                 for (QEValue val : baseNml.listQEValues()) {
-                    diffs.add(new DiffItem(nmlKey, val.getName(), ChangeType.REMOVED, val.getValueString(), null));
+                    diffs.add(new DiffItem(nmlKey, val.getName(), ChangeType.REMOVED, val.toString(), null));
                 }
                 continue;
             }
@@ -116,10 +116,10 @@ public final class QEInputDiffPreview {
                 QEValue modVal = modVals.get(entry.getKey());
 
                 if (modVal == null) {
-                    diffs.add(new DiffItem(nmlKey, key, ChangeType.REMOVED, baseVal.getValueString(), null));
-                } else if (!equivalentValue(baseVal.getValueString(), modVal.getValueString())) {
+                    diffs.add(new DiffItem(nmlKey, key, ChangeType.REMOVED, baseVal.toString(), null));
+                } else if (!equivalentValue(baseVal.toString(), modVal.toString())) {
                     diffs.add(new DiffItem(nmlKey, key, ChangeType.MODIFIED,
-                            baseVal.getValueString(), modVal.getValueString()));
+                            baseVal.toString(), modVal.toString()));
                 }
             }
 
@@ -127,7 +127,7 @@ public final class QEInputDiffPreview {
             for (Map.Entry<String, QEValue> entry : modVals.entrySet()) {
                 String key = entry.getValue().getName();
                 if (!baseVals.containsKey(entry.getKey())) {
-                    diffs.add(new DiffItem(nmlKey, key, ChangeType.ADDED, null, entry.getValue().getValueString()));
+                    diffs.add(new DiffItem(nmlKey, key, ChangeType.ADDED, null, entry.getValue().toString()));
                 }
             }
         }

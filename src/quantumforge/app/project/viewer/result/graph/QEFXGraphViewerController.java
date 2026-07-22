@@ -47,7 +47,7 @@ public abstract class QEFXGraphViewerController extends QEFXResultViewerControll
 
     private LineChart<Number, Number> lineChart;
 
-    private GraphProperty property;
+    protected GraphProperty property;
     private GraphPropertyRefreshed onPropertyRefreshed;
     private File propertyFile;
 
