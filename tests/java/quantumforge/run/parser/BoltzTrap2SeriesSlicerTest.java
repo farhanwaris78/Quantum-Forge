@@ -117,4 +117,73 @@ class BoltzTrap2SeriesSlicerTest {
                 .contains("isotropic-average approximation"),
                 "the power factor axis never pretends to be the tensor trace form");
     }
+
+    // ------------------------------------------------------------- batch 172
+
+    /** 13-cell trace-family row exactly as the writer prints it (with cv_x). */
+    private static TransportRow fullRow(double mu, double temperature, double seebeck,
+            double dosEf, double cvX) {
+        double[] cells = {mu, temperature, 10.001, dosEf, seebeck, 9.9e19, 1.3e-3,
+                3.6e4, 15.0, 1.0e-9, cvX, -3.0e-4, 1.2e19};
+        return new TransportRow(mu, false, temperature, 10.001, seebeck, 9.9e19,
+                3.6e4, null, cells, new double[] {cvX, -3.0e-4, 1.2e19});
+    }
+
+    @Test
+    void muCurvesSliceVersusMuAtAnExactTemperature() {
+        java.util.List<TransportRow> rows = java.util.List.of(
+                row(0.5, 300, 9.0, 1, 1),
+                row(0.0, 600, 8.0, 1, 1),
+                row(-0.1, 300, 7.0, 1, 1),
+                row(0.25, 300, 6.0, 1, 1));
+        BoltzTrap2SeriesSlicer.MuCurve curve =
+                BoltzTrap2SeriesSlicer.sliceMuCurve(rows, 300, SeriesKind.SEEBECK);
+        assertEquals(java.util.List.of(-0.1, 0.25, 0.5), curve.getMuRy(),
+                "ascending mu even when the file grid was unsorted");
+        assertEquals(java.util.List.of(7.0, 6.0, 9.0), curve.getValues());
+        assertEquals(300.0, curve.getTemperatureK(), 0.0);
+        assertEquals(3, curve.size());
+        BoltzTrap2SeriesSlicer.MuCurve empty =
+                BoltzTrap2SeriesSlicer.sliceMuCurve(rows, 301.5, SeriesKind.SEEBECK);
+        assertEquals(0, empty.size(), "absent T is an honest empty curve");
+        assertEquals(java.util.List.of(300.0, 600.0),
+                BoltzTrap2SeriesSlicer.distinctTemperatures(rows));
+    }
+
+    @Test
+    void batch172RawColumnKindsReadTheWritersOwnCells() {
+        java.util.List<TransportRow> rows = java.util.List.of(
+                fullRow(0.0, 300, -2.5e-4, 5.0, 16.5),
+                fullRow(0.0, 600, -1.0e-4, 6.5, 17.5));
+        TemperatureSeries dos = BoltzTrap2SeriesSlicer.slice(rows, 0.0,
+                SeriesKind.DOS_EF);
+        assertEquals(java.util.List.of(5.0, 6.5), dos.getValues(),
+                "DOS_EF reads fullRow[3] verbatim");
+        TemperatureSeries cvx = BoltzTrap2SeriesSlicer.slice(rows, 0.0,
+                SeriesKind.CV_X);
+        assertEquals(java.util.List.of(16.5, 17.5), cvx.getValues(),
+                "CV_X reads the Yi-Wang column verbatim");
+        assertTrue(BoltzTrap2SeriesSlicer.axisLabel(SeriesKind.DOS_EF, "", "")
+                .contains("1/(Ha*uc)"));
+        assertTrue(BoltzTrap2SeriesSlicer.axisLabel(SeriesKind.CV_X, "", "")
+                .contains("Yi Wang"));
+        // the guard: a row parsed without the raw cells cannot back the series
+        IllegalArgumentException missing = assertThrows(IllegalArgumentException.class,
+                () -> BoltzTrap2SeriesSlicer.slice(
+                        java.util.List.of(row(0.0, 300, 1.0, 1, 1)), 0.0,
+                        SeriesKind.DOS_EF));
+        assertTrue(missing.getMessage().contains("fabricating"),
+                missing.getMessage());
+        // and a 10-cell trace row cannot back a 13-column kind
+        IllegalArgumentException tooShort = assertThrows(IllegalArgumentException.class,
+                () -> BoltzTrap2SeriesSlicer.sliceMuCurve(
+                        java.util.List.of(new TransportRow(0.0, false, 300, 10.0,
+                                1.0, 1.0, 1.0, null,
+                                new double[] {0.0, 300, 10.0, 5.0, 1.0, 1.0, 1.0, 1.0,
+                                        1.0, 1.0}, null)),
+                        300, SeriesKind.CV_X));
+        assertTrue(tooShort.getMessage().contains("13") || tooShort.getMessage()
+                        .contains("writer"),
+                tooShort.getMessage());
+    }
 }

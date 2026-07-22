@@ -32,6 +32,7 @@ public class ViewerItemSet {
     private ViewerItem auxDeckItem;
     private ViewerItem tensorSurfaceItem;
     private ViewerItem transportChartItem;
+    private ViewerItem boltzTrap2StudioItem;
     private ViewerItem roCratePackItem;
     private ViewerItem thermoPwLiveItem;
     private ViewerItem elateItem;
@@ -63,6 +64,7 @@ public class ViewerItemSet {
         this.auxDeckItem = new ViewerItem(SVGData.TOOL, "Auxiliary deck builder ...");
         this.tensorSurfaceItem = new ViewerItem(SVGData.RESULT, "Tensor surface viewer ...");
         this.transportChartItem = new ViewerItem(SVGData.RESULT, "Transport chart viewer ...");
+        this.boltzTrap2StudioItem = new ViewerItem(SVGData.RESULT, "BoltzTraP2 studio (WATCH / OPEN / PLAN) ...");
         this.roCratePackItem = new ViewerItem(SVGData.RESULT, "Pack RO-Crate folder ...");
         this.thermoPwLiveItem = new ViewerItem(SVGData.TOOL, "thermo_pw live monitor ...");
         this.elateItem = new ViewerItem(SVGData.TOOL, "ELATE elastic tensor analysis ...");
@@ -96,6 +98,7 @@ public class ViewerItemSet {
                 this.auxDeckItem,
                 this.tensorSurfaceItem,
                 this.transportChartItem,
+                this.boltzTrap2StudioItem,
                 this.roCratePackItem,
                 this.thermoPwLiveItem,
                 this.elateItem,
@@ -179,6 +182,10 @@ public ViewerItem getSaveAsFileItem() {
 
     public ViewerItem getTransportChartItem() {
         return this.transportChartItem;
+    }
+
+    public ViewerItem getBoltzTrap2StudioItem() {
+        return this.boltzTrap2StudioItem;
     }
 
     public ViewerItem getRoCratePackItem() {

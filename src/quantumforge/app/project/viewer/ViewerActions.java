@@ -42,6 +42,7 @@ import quantumforge.app.project.viewer.recovery.RecoveryAction;
 import quantumforge.app.project.viewer.save.SaveAction;
 import quantumforge.app.project.viewer.screenshot.QEFXScreenshotDialog;
 import quantumforge.app.project.viewer.tensor.QEFXTensorSurfaceDialog;
+import quantumforge.app.project.viewer.transport.QEFXBoltzTrap2Dialog;
 import quantumforge.app.project.viewer.transport.QEFXTransportChartDialog;
 import quantumforge.export.AtomicExporter;
 import quantumforge.export.RoCrateExporter;
@@ -212,6 +213,9 @@ public class ViewerActions extends ProjectActions<Node> {
 
             } else if (item == this.itemSet.getTransportChartItem()) {
                 this.actions.put(item, controller2 -> this.actionTransportChartViewer(controller2));
+
+            } else if (item == this.itemSet.getBoltzTrap2StudioItem()) {
+                this.actions.put(item, controller2 -> this.actionBoltzTrap2Studio(controller2));
 
             } else if (item == this.itemSet.getRoCratePackItem()) {
                 this.actions.put(item, controller2 -> this.actionRoCratePack(controller2));
@@ -665,6 +669,27 @@ public class ViewerActions extends ProjectActions<Node> {
             return;
         }
         QEFXTransportChartDialog dialog = new QEFXTransportChartDialog();
+        if (controller.getStage() != null) {
+            dialog.initOwner(controller.getStage());
+        }
+        dialog.showAndWait();
+    }
+
+    /**
+     * Roadmap #109/#152 arc closure (batch 172): launches the BoltzTraP2
+     * studio - WATCH (live 2s signature poll of a btp2 output directory)
+     * / OPEN (explicit .trace/.condtens/.halltens/.dope.* picks rendered
+     * through the tested parsers + slicer + chart geometry) / PLAN (btp2
+     * PREVIEW command lines pinned against the yiwang62/BoltzTraP2 fork
+     * branch 20210126 + the boltztrap2y readthedocs install page; never
+     * executed). The dialog writes nothing, starts nothing, changes no
+     * project state.
+     */
+    private void actionBoltzTrap2Studio(QEFXProjectController controller) {
+        if (controller == null) {
+            return;
+        }
+        QEFXBoltzTrap2Dialog dialog = new QEFXBoltzTrap2Dialog();
         if (controller.getStage() != null) {
             dialog.initOwner(controller.getStage());
         }

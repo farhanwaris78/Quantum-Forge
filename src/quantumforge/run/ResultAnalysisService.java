@@ -125,6 +125,7 @@ import quantumforge.project.property.ProjectGeometryList;
 import quantumforge.project.property.ProjectProperty;
 import quantumforge.pseudo.PseudoFamilyValidator;
 import quantumforge.run.parser.BandGapParser;
+import quantumforge.run.parser.BoltzTrap2DopeDosParser;
 import quantumforge.run.parser.BoltzTrap2TraceParser;
 import quantumforge.run.parser.CubeGridReader;
 import quantumforge.run.parser.ElasticParser;
@@ -233,7 +234,7 @@ public final class ResultAnalysisService {
         QE_AUX_DECK_AUDIT("auxiliary QE input grammar audit (24 programs)"),
         THERMOPW_EOS("thermo_pw equation of state"),
         PHONO3PY_KAPPA("phono3py lattice thermal conductivity"),
-        BOLTZTRAP2_TRANSPORT("BoltzTraP2 transport tables (.trace/.condtens)"),
+        BOLTZTRAP2_TRANSPORT("BoltzTraP2 output tables (.trace/.condtens/.halltens/.dope.*)"),
         ELIASHBERG_TC("Allen-Dynes Tc from alpha2F"),
         DRY_RUN_PREFLIGHT("Dry-run preflight check"),
         RESTART_ASSESSMENT("Restart safety assessment"),
@@ -1434,8 +1435,15 @@ public final class ResultAnalysisService {
         case PHONO3PY_KAPPA:
             return name.startsWith("kappa") || name.contains("thermal_conductivity");
         case BOLTZTRAP2_TRANSPORT:
+            // batch 172: the whole batch-152/172 grammar family routes here -
+            // .trace (+ the fork's 13/23-column variants: .dope.trace matches
+            // endsWith(".trace")), .condtens, .halltens, and the headerless
+            // dope.dos/dope.vvdos tables (+ their _raw remesh renames)
             return name.endsWith(".trace") || name.contains("condtens")
-                    || name.contains("seebeck");
+                    || name.contains("seebeck") || name.contains("halltens")
+                    || name.endsWith(".dope.dos") || name.endsWith(".dope.vvdos")
+                    || name.endsWith(".dope.dos_raw")
+                    || name.endsWith(".dope.vvdos_raw");
         case ELIASHBERG_TC:
             return name.endsWith(".a2f") || name.contains("alpha2f") || name.contains("a2f");
         case MD_MSD:
@@ -3685,14 +3693,30 @@ public final class ResultAnalysisService {
     private static AnalysisReport analyzeBoltzTrap2Transport(ProjectProperty property,
             File source) throws IOException {
         String label = AnalysisKind.BOLTZTRAP2_TRANSPORT.getLabel();
+        // batch 172: the headerless fork dope tables route by NAME (the name
+        // cross-check inside the parser then refuses a wrong-family file)
+        String sourceName = source.getName().toLowerCase(Locale.ROOT);
+        if (sourceName.endsWith(".dope.dos") || sourceName.endsWith(".dope.vvdos")
+                || sourceName.endsWith(".dope.dos_raw")
+                || sourceName.endsWith(".dope.vvdos_raw")) {
+            return analyzeBoltzTrap2DopeDos(label, source);
+        }
         BoltzTrap2TraceParser parser = new BoltzTrap2TraceParser(property);
         parser.parse(source);
         BoltzTrap2TraceParser.FileKind kind = parser.getFileKind();
         if (kind == BoltzTrap2TraceParser.FileKind.TENSOR_OTHER) {
-            return failure(label, source.getName() + " is a 30-column tensor file whose header "
-                    + "names RH[...] (a Hall tensor file), not sigma. It is NOT transport data, "
-                    + "so no Seebeck/conductivity screening was derived from it.\n"
-                    + "Provenance: " + parser.getFamilyNote());
+            // batch 172: .halltens now parses as certified Hall data (the
+            // save_halltens writer was pinned verbatim), so TENSOR_OTHER only
+            // remains for genuinely UNKNOWABLE 30-column headers - still a
+            // loud refusal, never a silent re-interpretation
+            return failure(label, source.getName() + " is a 30-column tensor file whose "
+                    + "header certifies neither the .condtens sigma/S/kappa triplet nor "
+                    + "the .halltens RH[m**3/C] token: the table's semantics are unknowable "
+                    + "from the file alone, so no transport or Hall quantity was derived "
+                    + "from it.\nProvenance: " + parser.getFamilyNote());
+        }
+        if (kind == BoltzTrap2TraceParser.FileKind.HALLTENS) {
+            return analyzeBoltzTrap2Hall(label, source, parser);
         }
         List<BoltzTrap2TraceParser.TransportRow> rows = parser.getRows();
         if (rows.size() < 2) {
@@ -3714,10 +3738,39 @@ public final class ResultAnalysisService {
 
         StringBuilder text = new StringBuilder();
         text.append("Source: ").append(source.getName()).append('\n');
-        text.append("File family: ").append(kind)
-                .append(kind == BoltzTrap2TraceParser.FileKind.CONDTENS
-                        ? " (full 3x3 tensors, Fortran-ordered blocks; isotropic = trace/3)"
-                        : " (isotropic columns as written)").append('\n');
+        String familyNote = switch (kind) {
+            case CONDTENS -> " (full 3x3 tensors, Fortran-ordered blocks;"
+                    + " isotropic = trace/3)";
+            case TRACE_DOPE_X -> " (fork .trace with the Yi-Wang cv_x/S_x/N_x"
+                    + " columns appended; first column Ef[Ry] as written)";
+            case TRACE_DOPE_EXT -> " (fork .dope.trace save_traceEXT grammar;"
+                    + " first column certified mu-Ef[eV] AS WRITTEN - no Ry"
+                    + " conversion is invented)";
+            default -> " (isotropic columns as written)";
+        };
+        text.append("File family: ").append(kind).append(familyNote).append('\n');
+        // batch 172: surface the certified dope extras + the column-1 semantics
+        if (kind == BoltzTrap2TraceParser.FileKind.TRACE_DOPE_X
+                || kind == BoltzTrap2TraceParser.FileKind.TRACE_DOPE_EXT) {
+            BoltzTrap2TraceParser.TransportRow first = rows.get(0);
+            double[] extras = first.getExtras();
+            text.append(String.format(Locale.ROOT,
+                    "Fork extras census (as written, units per the header tokens):"
+                            + " %d extra columns; first-row cv_x=%.6g, S_x=%.6g,"
+                            + " N_x=%.6g%s%n",
+                    extras.length,
+                    extras.length > 0 ? extras[0] : Double.NaN,
+                    extras.length > 1 ? extras[1] : Double.NaN,
+                    extras.length > 2 ? extras[2] : Double.NaN,
+                    kind == BoltzTrap2TraceParser.FileKind.TRACE_DOPE_EXT
+                            && extras.length > 10
+                            ? String.format(Locale.ROOT,
+                                    ", L_x=%.6g, deltaE=%.6g eV, tau=%.6g s, tau_1=%.6g s",
+                                    extras[3], extras[10], extras[11], extras[12])
+                            : ""));
+        }
+        text.append("First-column semantics (header certificate): ")
+                .append(parser.getColumnOneNote()).append('\n');
         text.append("Scattering model (header-legible): ").append(parser.getScatteringModel())
                 .append('\n');
         text.append("sigma units verbatim: ")
@@ -3730,9 +3783,16 @@ public final class ResultAnalysisService {
                 .append(" | skipped ragged/foreign rows: ").append(parser.getSkippedRowCount())
                 .append(" | temperatures: ").append(parser.getTemperatures().size()).append(" K values\n\n");
 
-        text.append(String.format(Locale.ROOT,
-                "Peak |Seebeck| (isotropic): %.4g V/K at T=%.3g K, mu=%.6g Ry (%.6g eV, 1 Ry = 13.605693122994 eV)%n",
-                best.getSeebeckVK(), best.getTemperatureK(), best.getMuRy(), best.getMuEv()));
+        if (best.isColumnOneEv()) {
+            text.append(String.format(Locale.ROOT,
+                    "Peak |Seebeck| (isotropic): %.4g V/K at T=%.3g K, mu-Ef=%.6g eV AS WRITTEN"
+                            + " (the fork's .dope.trace first column - no Ry conversion)%n",
+                    best.getSeebeckVK(), best.getTemperatureK(), best.getMuEv()));
+        } else {
+            text.append(String.format(Locale.ROOT,
+                    "Peak |Seebeck| (isotropic): %.4g V/K at T=%.3g K, mu=%.6g Ry (%.6g eV, 1 Ry = 13.605693122994 eV)%n",
+                    best.getSeebeckVK(), best.getTemperatureK(), best.getMuRy(), best.getMuEv()));
+        }
         text.append(String.format(Locale.ROOT,
                 "Peak power factor S^2.sigma (isotropic-average approximation): %.4g at T=%.3g K, mu=%.6g Ry%n",
                 BoltzTrap2TraceParser.powerFactor(bestPf), bestPf.getTemperatureK(),
@@ -3753,12 +3813,188 @@ public final class ResultAnalysisService {
                 + "publication burden left to the user - a table alone never proves it.");
 
         List<String> csv = new ArrayList<>();
-        csv.add("mu_ry,mu_ev,temperature_k,carriers_e_per_uc,seebeck_iso_v_k,sigma_iso,kappa_iso,power_factor_iso");
+        // batch 172: the 23-column fork grammar writes mu-Ef in eV (certified
+        // by its header), so the mu caption is chosen, never assumed
+        csv.add(kind == BoltzTrap2TraceParser.FileKind.TRACE_DOPE_EXT
+                ? "mu_minus_ef_ev_as_written,temperature_k,carriers_e_per_uc,seebeck_iso_v_k,sigma_iso,kappa_iso,power_factor_iso"
+                : "mu_ry,mu_ev,temperature_k,carriers_e_per_uc,seebeck_iso_v_k,sigma_iso,kappa_iso,power_factor_iso");
         for (BoltzTrap2TraceParser.TransportRow row : rows) {
+            if (kind == BoltzTrap2TraceParser.FileKind.TRACE_DOPE_EXT) {
+                csv.add(String.format(Locale.ROOT, "%.8g,%.8g,%.8g,%.8g,%.8g,%.8g,%.8g",
+                        row.getMuEv(), row.getTemperatureK(), row.getCarriersPerCell(),
+                        row.getSeebeckVK(), row.getSigmaOverTau(), row.getKappaOverTau(),
+                        BoltzTrap2TraceParser.powerFactor(row)));
+            } else {
+                csv.add(String.format(Locale.ROOT, "%.8g,%.8g,%.8g,%.8g,%.8g,%.8g,%.8g,%.8g",
+                        row.getMuRy(), row.getMuEv(), row.getTemperatureK(),
+                        row.getCarriersPerCell(), row.getSeebeckVK(),
+                        row.getSigmaOverTau(), row.getKappaOverTau(),
+                        BoltzTrap2TraceParser.powerFactor(row)));
+            }
+        }
+        return new AnalysisReport(label, true, text.toString(), csv, null);
+    }
+
+    /**
+     * Batch 172 (.halltens branch): the rank-3 Hall tensor census - rows,
+     * temperatures, mu values, the |even-permutation average| peak per the
+     * fork's save_halltens ohall formula, and the tensor's data extent. No
+     * Hall-angle or multiband modeling is derived (a table alone never
+     * proves it); units come verbatim from the RH[m**3/C] header token.
+     */
+    private static AnalysisReport analyzeBoltzTrap2Hall(String label, File source,
+            BoltzTrap2TraceParser parser) {
+        List<BoltzTrap2TraceParser.HallRow> rows = parser.getHallRows();
+        if (rows.size() < 2) {
+            return failure(label, "Fewer than two clean Hall rows were parsed from "
+                    + source.getName() + " (clean rows: " + rows.size() + ", skipped rows: "
+                    + parser.getSkippedRowCount() + "). Ragged rows are never silently "
+                    + "healed.\nProvenance: " + parser.getFamilyNote());
+        }
+        BoltzTrap2TraceParser.HallRow best = rows.get(0);
+        double[] extent = rows.get(0).getRhTensor();
+        double elementMin = extent[0];
+        double elementMax = extent[0];
+        for (BoltzTrap2TraceParser.HallRow row : rows) {
+            if (Math.abs(row.getRhEvenPermutationAverage())
+                    > Math.abs(best.getRhEvenPermutationAverage())) {
+                best = row;
+            }
+            for (double element : row.getRhTensor()) {
+                elementMin = Math.min(elementMin, element);
+                elementMax = Math.max(elementMax, element);
+            }
+        }
+        LinkedHashSet<Double> mus = new LinkedHashSet<>();
+        for (BoltzTrap2TraceParser.HallRow row : rows) {
+            mus.add(row.getMuRy());
+        }
+        StringBuilder text = new StringBuilder();
+        text.append("Source: ").append(source.getName()).append('\n');
+        text.append("File family: ").append(parser.getFileKind())
+                .append(" (rank-3 Hall tensor, Fortran ravel index i + 3j + 9k per the"
+                        + " fork's save_halltens; the even-permutation average ohall is"
+                        + " (RH012 + RH201 + RH120)/3, the writer's own scalar)\n");
+        text.append("Provenance: ").append(parser.getFamilyNote()).append('\n');
+        text.append("Units verbatim: RH[m**3/C] (header token)\n");
+        text.append("Clean rows: ").append(rows.size())
+                .append(" | skipped ragged/foreign rows: ")
+                .append(parser.getSkippedRowCount())
+                .append(" | temperatures: ").append(parser.getTemperatures().size())
+                .append(" K values | chemical potentials: ").append(mus.size())
+                .append(" Ef[Ry] values\n\n");
+        text.append(String.format(Locale.ROOT,
+                "Peak |ohall| (even-permutation average): %.6g m**3/C at T=%.3g K,"
+                        + " mu=%.6g Ry (%.6g eV)%n",
+                best.getRhEvenPermutationAverage(), best.getTemperatureK(),
+                best.getMuRy(), best.getMuEv()));
+        text.append(String.format(Locale.ROOT,
+                "Tensor data extent across the clean rows: [%.6g, %.6g] m**3/C%n",
+                elementMin, elementMax));
+        text.append(String.format(Locale.ROOT,
+                "Max |ohall| census cross-check: %.6g m**3/C%n",
+                parser.maxAbsHallAverage()));
+        text.append("\nHonesty block: the ohall scalar is the fork writer's own "
+                + "even-permutation average (save_halltens, verbatim formula); the full "
+                + "rank-3 tensor is reported as data extent only - no Hall-factor or "
+                + "single-/multi-band interpretation is inferred. Units come VERBATIM "
+                + "from the header; a table alone never certifies k-mesh / scattering "
+                + "convergence.");
+        List<String> csv = new ArrayList<>();
+        csv.add("mu_ry,mu_ev,temperature_k,carriers_e_per_uc,ohall_m3_c,rh000,rh111,rh222");
+        for (BoltzTrap2TraceParser.HallRow row : rows) {
             csv.add(String.format(Locale.ROOT, "%.8g,%.8g,%.8g,%.8g,%.8g,%.8g,%.8g,%.8g",
-                    row.getMuRy(), row.getMuEv(), row.getTemperatureK(), row.getCarriersPerCell(),
-                    row.getSeebeckVK(), row.getSigmaOverTau(), row.getKappaOverTau(),
-                    BoltzTrap2TraceParser.powerFactor(row)));
+                    row.getMuRy(), row.getMuEv(), row.getTemperatureK(),
+                    row.getCarriersPerCell(), row.getRhEvenPermutationAverage(),
+                    row.getRhComponent(0, 0, 0), row.getRhComponent(1, 1, 1),
+                    row.getRhComponent(2, 2, 2)));
+        }
+        return new AnalysisReport(label, true, text.toString(), csv, null);
+    }
+
+    /**
+     * Batch 172 (.dope.dos/.dope.vvdos branch): the fork's headerless DOS /
+     * velocity-weighted DOS tables (Yi Wang 09/24/2020). The rows are read
+     * VERBATIM ((E-Ef) in eV, channels *Volt - the fork's own write line is
+     * quoted in the parser notes), the name cross-check refuses a wrong
+     * column grammar loudly, and only a partial LAST line of a live write is
+     * held back (never mid-file lines).
+     */
+    private static AnalysisReport analyzeBoltzTrap2DopeDos(String label, File source) {
+        OperationResult<BoltzTrap2DopeDosParser.DopeDosTable> result =
+                BoltzTrap2DopeDosParser.parse(source.toPath());
+        if (!result.isSuccess()
+                || result.getValue().isEmpty()) {
+            return failure(label, source.getName() + " refused by the dope-DOS table"
+                    + " grammar: " + result.getCode() + ": " + result.getMessage()
+                    + " (the name/column cross-check is fail-closed; nothing was"
+                    + " guessed).");
+        }
+        BoltzTrap2DopeDosParser.DopeDosTable table = result.getValue().get();
+        if (table.getRows() < 2) {
+            return failure(label, "Fewer than two clean rows were parsed from "
+                    + source.getName() + "; a single point is not a spectrum.");
+        }
+        double[] energy = table.getEnergy();
+        List<double[]> channels = table.getChannels();
+        double channelSum = 0.0;
+        double channelMin = channels.get(0)[0];
+        double channelMax = channels.get(0)[0];
+        for (double[] channel : channels) {
+            for (double value : channel) {
+                channelSum += Math.abs(value);
+                channelMin = Math.min(channelMin, value);
+                channelMax = Math.max(channelMax, value);
+            }
+        }
+        StringBuilder text = new StringBuilder();
+        text.append("Source: ").append(source.getName()).append('\n');
+        text.append("File family: ").append(table.getKind())
+                .append(table.getKind() == BoltzTrap2DopeDosParser.DopeDosKind.DOS
+                        ? " (2 columns: (E-Ef)[eV], dos*Volt - the fork's"
+                                + " .dope.dos write line)"
+                        : " (4 columns: (E-Ef)[eV], vvdos_11/22/33*Volt - the"
+                                + " fork's .dope.vvdos write line)")
+                .append('\n');
+        for (String note : table.getNotes()) {
+            text.append("Provenance: ").append(note).append('\n');
+        }
+        text.append(String.format(Locale.ROOT,
+                "Clean rows: %d%s | energy extent: [%.6g, %.6g] eV (E-Ef, column 1"
+                        + " as written)%n",
+                table.getRows(),
+                table.getPartialTailHeld() > 0
+                        ? " | partial tail held back: " + table.getPartialTailHeld()
+                                + " line(s) (only a live-write's LAST line may be"
+                                + " partial - counted, never healed)"
+                        : "",
+                energy[0], energy[energy.length - 1]));
+        text.append(String.format(Locale.ROOT,
+                "Channels: %d | data extent: [%.6g, %.6g] | mean |channel value|:"
+                        + " %.6g (raw-table census, no unit re-scaling)%n",
+                channels.size(), channelMin, channelMax,
+                channels.isEmpty() ? 0.0
+                        : channelSum / (table.getRows() * channels.size())));
+        text.append("Honesty block: the cells are the fork's own writes (the"
+                + " '*Volt' scaling is already inside the written numbers); no"
+                + " carrier-count or conductivity is re-derived from the table,"
+                + " and the '_raw' suffix (when present) only marks the"
+                + " pre-remesh table the fork os.rename()'d aside - both play"
+                + " by the same column grammar.");
+        List<String> csv = new ArrayList<>();
+        StringBuilder csvHeader = new StringBuilder("energy_minus_ef_ev");
+        for (int c = 0; c < channels.size(); c++) {
+            csvHeader.append(table.getKind() == BoltzTrap2DopeDosParser.DopeDosKind.DOS
+                    ? ",dos_times_volt" : ",vvdos_" + (c + 1) + "" + (c + 1) + "_times_volt");
+        }
+        csv.add(csvHeader.toString());
+        for (int r = 0; r < table.getRows(); r++) {
+            StringBuilder line = new StringBuilder(
+                    String.format(Locale.ROOT, "%.8g", energy[r]));
+            for (double[] channel : channels) {
+                line.append(String.format(Locale.ROOT, ",%.8g", channel[r]));
+            }
+            csv.add(line.toString());
         }
         return new AnalysisReport(label, true, text.toString(), csv, null);
     }

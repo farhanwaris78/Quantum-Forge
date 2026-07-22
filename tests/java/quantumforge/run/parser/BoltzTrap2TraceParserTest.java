@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
@@ -22,11 +23,17 @@ import quantumforge.run.parser.BoltzTrap2TraceParser.FileKind;
 import quantumforge.run.parser.BoltzTrap2TraceParser.TransportRow;
 
 /**
- * Batch 152 pins of the BoltzTraP2 transport-table reader (Roadmap #109).
- * Every fixture is synthesized in the exact grammar BoltzTraP2 26.3.1's own
- * writers emit ({@code BoltzTraP2/io.py save_trace / save_condtens /
- * save_halltens}): 10-number .trace rows, 30-number Fortran-ordered tensor
- * rows, six-name condtens headers, and the scattering-model header variants.
+ * Batch 152 pins of the BoltzTraP2 transport-table reader (Roadmap #109),
+ * extended at batch 172 with the yiwang62 "BoltzTraP2Y" fork grammars
+ * (branch 20210126). Every fixture is synthesized in the exact grammar the
+ * pinned writers emit ({@code BoltzTraP2/io.py save_trace / save_condtens /
+ * save_halltens}, {@code ioEXT.save_traceEXT}): 10-number .trace rows,
+ * 30-number Fortran-ordered tensor rows, six-name condtens headers, the
+ * scattering-model header variants, the 13-column cv_x trace - whose
+ * writer is marked "changed by Yi Wang, 09/24/2020" - and the 23-column
+ * .dope.trace (header-token {@code mu-Ef[eV]}). The batch-109 posture that
+ * refused .halltens rows is superseded: since the save_halltens writer
+ * was pinned verbatim, Hall files are parsed AS Hall data.
  */
 class BoltzTrap2TraceParserTest {
 
@@ -198,21 +205,60 @@ class BoltzTrap2TraceParserTest {
 
     // ------------------------------------------------------------- refusal
 
+    private static StringBuilder appendHallRow(StringBuilder sb, double mu, double t,
+            double n) {
+        StringBuilder line = new StringBuilder();
+        line.append(String.format(java.util.Locale.ROOT, "%10g %9g %25g", mu, t, n));
+        // 27 distinctive RH cells, Fortran ravel i + 3j + 9k: cell j*1 starts at 1e-? ...
+        double[] rh = new double[27];
+        for (int i = 0; i < 27; i++) {
+            rh[i] = (i + 1) * 1.0e-21; // rh[k] = (k+1) e-21, trivially verifiable
+        }
+        // overwrite the even-permutation cube corners with screenable values
+        rh[21] = 3.0e-20;   // (0,1,2)
+        rh[11] = 6.0e-20;   // (2,0,1)
+        rh[7] = 9.0e-20;    // (1,2,0)
+        for (double v : rh) {
+            line.append(String.format(java.util.Locale.ROOT, " %25g", v));
+        }
+        sb.append(line).append('\n');
+        return sb;
+    }
+
     @Test
-    void hallTensorFilesRefuseLoudlyNotReinterpreted() throws IOException {
+    void hallTensorFilesParseAsHallDataSinceWriterWasPinned() throws IOException {
         StringBuilder sb = new StringBuilder();
         sb.append("#    Ef[Ry]      T[K]                    N[e/uc]")
                 .append("                    RH[m**3/C]\n");
-        appendTensorRow(sb, 0.05, 300, 10.001);
-        appendTensorRow(sb, 0.05, 600, 10.001);
-        appendTensorRow(sb, 0.10, 300, 10.001);
+        appendHallRow(sb, 0.05, 300, 10.001);
+        appendHallRow(sb, 0.05, 600, 10.001);
+        appendHallRow(sb, 0.10, 300, 10.001);
         BoltzTrap2TraceParser parser = parse("si.halltens", sb.toString());
-        assertEquals(FileKind.TENSOR_OTHER, parser.getFileKind());
+        // batch-172 posture: save_halltens pinned verbatim -> parsed AS Hall data
+        assertEquals(FileKind.HALLTENS, parser.getFileKind());
         assertEquals(0, parser.getRows().size(),
-                "a .halltens file is NOT transport data - no row may surface");
-        assertEquals(3, parser.getSkippedRowCount());
+                "Hall rows live in their own list, never in the transport rows");
+        assertEquals(3, parser.getHallRows().size());
+        assertEquals(0, parser.getSkippedRowCount());
         assertTrue(parser.getFamilyNote().contains("Hall"), parser.getFamilyNote());
-        assertTrue(parser.getScatteringModel().startsWith("n/a"), parser.getScatteringModel());
+        assertTrue(parser.getScatteringModel().startsWith("n/a"),
+                parser.getScatteringModel());
+        BoltzTrap2TraceParser.HallRow row = parser.getHallRows().get(0);
+        assertEquals(27, row.getRhTensor().length);
+        assertEquals(4.0e-21, row.getRhComponent(0, 1, 0), 1.0e-30); // index 3
+        assertEquals(3.0e-20, row.getRhComponent(0, 1, 2), 1.0e-30); // index 21
+        assertEquals(6.0e-20, row.getRhComponent(2, 0, 1), 1.0e-30); // index 11
+        assertEquals(9.0e-20, row.getRhComponent(1, 2, 0), 1.0e-30); // index 7
+        // save_trace's own ohall average over even permutations, verbatim closure
+        assertEquals((3.0e-20 + 6.0e-20 + 9.0e-20) / 3.0,
+                row.getRhEvenPermutationAverage(), 1.0e-30);
+        assertEquals(10.001, row.getCarriersPerCell(), 1.0e-12);
+        assertEquals(0.05, row.getMuRy(), 1.0e-12);
+        assertEquals(0.05 * BoltzTrap2TraceParser.RY_TO_EV, row.getMuEv(), 1.0e-9);
+        assertEquals((3.0e-20 + 6.0e-20 + 9.0e-20) / 3.0,
+                parser.maxAbsHallAverage(), 1.0e-30);
+        assertThrows(IllegalArgumentException.class,
+                () -> row.getRhComponent(0, 0, 3));
     }
 
     @Test
@@ -269,5 +315,115 @@ class BoltzTrap2TraceParserTest {
         assertEquals(FileKind.CONDTENS, parser.getFileKind());
         assertEquals(2, parser.getRows().size(), "state was fully reset between parses");
         assertEquals(0, parser.getSkippedRowCount());
+    }
+
+    // -------------------------------------------------- batch 172: Yi Wang channels
+
+    private static String trace13Header() {
+        // save_trace's cv_x branch header, 13 named tokens
+        return "#    Ef[Ry]      T[K] N[e/uc] DOS(ef)[1/(Ha*uc)] S[V/K]"
+                + " sigma/tau0[1/(ohm*m*s)] RH[m**3/C] kappae/tau0[W/(m*K*s)]"
+                + " cv[J/(mole-atom*K)] chi[m**3/mol]"
+                + " cv_x[J/(mole-atom*K)] S_x(V/K) N_x(e/cm^3)\n";
+    }
+
+    private static String trace13Row(double mu, double t) {
+        return String.format(java.util.Locale.ROOT,
+                "%12.8g %9g %25g %25g %25g %25g %25g %25g %25g %25g %25g %25g %25g%n",
+                mu, t, 10.001, 5.0, -2.5e-4, 9.999e19, 1.3e-3, 3.6e4, 15.0, 1.0e-9,
+                16.5, -3.0e-4, 1.2e19);
+    }
+
+    @Test
+    void yiWangThirteenColumnTraceNeedsHeaderCertification() throws IOException {
+        BoltzTrap2TraceParser parser = parse("si.trace",
+                trace13Header() + trace13Row(0.05, 300) + trace13Row(0.10, 300));
+        assertEquals(FileKind.TRACE_DOPE_X, parser.getFileKind());
+        assertEquals(2, parser.getRows().size());
+        assertEquals(0, parser.getSkippedRowCount());
+        assertTrue(parser.getFamilyNote().contains("cv_x"), parser.getFamilyNote());
+        TransportRow row = parser.getRows().get(0);
+        assertEquals(-2.5e-4, row.getSeebeckVK(), 1.0e-12);
+        assertEquals(9.999e19, row.getSigmaOverTau(), 1.0e14);
+        assertEquals(3.6e4, row.getKappaOverTau(), 1.0e-9);
+        assertEquals(13, row.getFullRow().length);
+        assertEquals(5.0, row.getFullRow()[BoltzTrap2TraceParser.COL_DOS_EF], 1.0e-12);
+        assertEquals(15.0, row.getFullRow()[BoltzTrap2TraceParser.COL_CV], 1.0e-12);
+        assertArrayEquals(new double[] {16.5, -3.0e-4, 1.2e19}, row.getExtras(), 1.0e12,
+                "extras = {cv_x, S_x, N_x} in the writer's own order");
+    }
+
+    @Test
+    void thirteenColumnRowsWithoutCertificationAreSkippedNotGuessed() throws IOException {
+        // same 13-column rows but a plain 10-name header: no cv_x/S_x/N_x tokens
+        String uncertified = "#    Ef[Ry]      T[K] N[e/uc] DOS(ef) S[V/K]"
+                + " sigma/tau0 RH kappae/tau0 cv chi\n"
+                + trace13Row(0.05, 300) + trace13Row(0.10, 300);
+        BoltzTrap2TraceParser parser = parse("weird.trace", uncertified);
+        assertNull(parser.getFileKind(), "unit honesty is never guessed");
+        assertEquals(0, parser.getRows().size());
+        assertEquals(2, parser.getSkippedRowCount());
+        assertTrue(parser.getFamilyNote().contains("cv_x"), parser.getFamilyNote());
+        assertTrue(parser.getFamilyNote().contains("skipped"), parser.getFamilyNote());
+    }
+
+    private static String trace23Header() {
+        // save_traceEXT's header: mu-Ef[eV] first, 23 named tokens in total
+        return "#  mu-Ef[eV]      T[K] N[e/uc] DOS(ef)[1/(Ha*uc)] S[V/K]"
+                + " sigma/tau0[1/(ohm*m*s)] RH[m**3/C] kappae/tau0[W/(m*K*s)]"
+                + " cv[J/(mole-atom*K)] chi[m**3/mol] cv_x[J/(mole-atom*K)]"
+                + " S_x(V/K) N_x(e/cm^3) L(W*ohm/K**2)"
+                + " L0_h L0_e M_h M_e N_h N_e deltaE(eV)\n";
+    }
+
+    private static String trace23Row(double muEv, double t) {
+        StringBuilder line = new StringBuilder(String.format(java.util.Locale.ROOT,
+                "%12.8g %9g %25g %25g %25g %25g %25g %25g %25g %25g",
+                muEv, t, 10.001, 5.0, -2.5e-4, 9.999e19, 1.3e-3, 3.6e4, 15.0,
+                1.0e-9));
+        for (double v : new double[] {16.5, -3.0e-4, 1.2e19, 2.45e-8, 1.0e19,
+                8.0e18, -2.0e18, -9.0e17, 1.0, 0.2, 0.02, 0.31, -0.17}) {
+            line.append(String.format(java.util.Locale.ROOT, " %25g", v));
+        }
+        return line.append('\n').toString();
+    }
+
+    @Test
+    void yiWangDopeTraceKeepsMuInEvAndTheExtExtras() throws IOException {
+        BoltzTrap2TraceParser parser = parse("si.dope.trace",
+                trace23Header() + trace23Row(-0.10, 300) + trace23Row(-0.05, 300));
+        assertEquals(FileKind.TRACE_DOPE_EXT, parser.getFileKind());
+        assertEquals(2, parser.getRows().size());
+        assertTrue(parser.getFamilyNote().contains("mu-Ef[eV]"),
+                parser.getFamilyNote());
+        assertTrue(parser.getColumnOneNote().contains("mu-Ef[eV]"),
+                parser.getColumnOneNote());
+        TransportRow row = parser.getRows().get(0);
+        assertEquals(-0.10, row.getMuRy(), 1.0e-12, "as written");
+        assertTrue(row.isColumnOneEv());
+        assertEquals(-0.10, row.getMuEv(), 1.0e-12,
+                "already eV upstream: no Ry conversion is applied");
+        assertEquals(23, row.getFullRow().length);
+        assertEquals(13, row.getExtras().length);
+        assertEquals(16.5, row.getExtras()[0], 1.0e-12);        // cv_x
+        assertEquals(2.45e-8, row.getExtras()[3], 1.0e-12);      // L_x (Lorenz)
+        assertEquals(0.02, row.getExtras()[10], 1.0e-12);        // deltaE(eV)
+        assertEquals(0.31, row.getExtras()[11], 1.0e-12);        // tau(s)
+        assertEquals(-0.17, row.getExtras()[12], 1.0e-12);       // tau_1(s)
+    }
+
+    @Test
+    void twentyThreeColumnRowsWithoutMuEvHeaderAreSkipped() throws IOException {
+        // 23 cells but the plain Ef[Ry] first token: not a certified .dope.trace
+        String uncertified = "#    Ef[Ry]      T[K] N[e/uc] DOS(ef) S[V/K]"
+                + " sigma/tau0 RH kappae/tau0 cv chi cv_x S_x N_x L L0_h L0_e"
+                + " M_h M_e N_h N_e deltaE\n"
+                + trace23Row(-0.10, 300);
+        BoltzTrap2TraceParser parser = parse("strange.trace", uncertified);
+        assertNull(parser.getFileKind());
+        assertEquals(0, parser.getRows().size());
+        assertEquals(1, parser.getSkippedRowCount());
+        assertTrue(parser.getFamilyNote().contains("mu-Ef[eV]"),
+                parser.getFamilyNote());
     }
 }

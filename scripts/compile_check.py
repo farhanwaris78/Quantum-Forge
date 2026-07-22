@@ -1258,6 +1258,52 @@ def main() -> int:
             or not (ROOT / "tests/java/quantumforge/run/parser/QEPhonopyQ2rPlanTest.java").is_file():
         error("batch-171 q2r tests missing")
 
+    # --- batch 172: BoltzTraP2Y fork integration (halltens + Yi-Wang dope channels + btp2 studio + plan) ---
+    btp2TraceText = (SRC / "quantumforge/run/parser/BoltzTrap2TraceParser.java").read_text(encoding="utf-8")
+    for needle in ("HALLTENS", "TRACE_DOPE_X", "TRACE_DOPE_EXT", "mu-Ef[eV]",
+                   "rh27", "getRhEvenPermutationAverage", "cv_x",
+                   "even-permutation", "save_halltens", "save_traceEXT",
+                   "headerCertifiedDopeExt"):
+        if needle not in btp2TraceText:
+            error("BoltzTrap2TraceParser lost the batch-172 fork grammars: " + needle)
+    btp2SlicerText = (SRC / "quantumforge/run/parser/BoltzTrap2SeriesSlicer.java").read_text(encoding="utf-8")
+    for needle in ("sliceMuCurve", "MuCurve", "distinctTemperatures",
+                   "DOS_EF", "N_CARRIERS", "RH_AVG", "CV_X", "S_X", "N_X",
+                   "fabricating"):
+        if needle not in btp2SlicerText:
+            error("BoltzTrap2SeriesSlicer lost the batch-172 mu-curve/raw-column channel: " + needle)
+    btp2DopeDosText = (SRC / "quantumforge/run/parser/BoltzTrap2DopeDosParser.java").read_text(encoding="utf-8")
+    for needle in ("BOLTZTRAP2_DOPEDOS", "DopeDosKind", "DopeDosTable",
+                   "os.rename", "_raw", "fp.write", "partialTailHeld"):
+        if needle not in btp2DopeDosText:
+            error("BoltzTrap2DopeDosParser lost the batch-172 dope-table grammar: " + needle)
+    btp2PlanText = (SRC / "quantumforge/run/parser/BoltzTrap2Btp2Plan.java").read_text(encoding="utf-8")
+    for needle in ("BOLTZTRAP2_PLAN_INPUT", "liznsbPreset", "qePreset",
+                   "qes-1.0", "components_argument", "L0 = 2.44e-8",
+                   "mutually-exclusive", "zero-width energy window",
+                   "empty temperature specification", "parseArrayArgument",
+                   "fermisurface", "ZeroDivisionError"):
+        if needle not in btp2PlanText:
+            error("BoltzTrap2Btp2Plan lost the batch-172 CLI mirror: " + needle)
+    btp2DialogText = (SRC / "quantumforge/app/project/viewer/transport/QEFXBoltzTrap2Dialog.java").read_text(encoding="utf-8")
+    for needle in ("familyOf", "watchTimer", "WATCH_POLL_SECONDS",
+                   "planLiznsb", "even-permutation", "enumerated, never parsed",
+                   "BoltzTrap2DopeDosParser.parse", "Hall component"):
+        if needle not in btp2DialogText:
+            error("QEFXBoltzTrap2Dialog lost the batch-172 studio: " + needle)
+    if "getBoltzTrap2StudioItem" not in (SRC / "quantumforge/app/project/viewer/ViewerItemSet.java").read_text(encoding="utf-8") \
+            or "actionBoltzTrap2Studio" not in (SRC / "quantumforge/app/project/viewer/ViewerActions.java").read_text(encoding="utf-8"):
+        error("BoltzTraP2 studio launch wiring lost")
+    if "analyzeBoltzTrap2Hall" not in rasText \
+            or "analyzeBoltzTrap2DopeDos" not in rasText \
+            or "halltens" not in rasText \
+            or "ohall_m3_c" not in rasText \
+            or "mu_minus_ef_ev_as_written" not in rasText:
+        error("ResultAnalysisService lost the batch-172 BoltzTraP2 routing")
+    if not (ROOT / "tests/java/quantumforge/run/parser/BoltzTrap2DopeDosParserTest.java").is_file() \
+            or not (ROOT / "tests/java/quantumforge/run/parser/BoltzTrap2Btp2PlanTest.java").is_file():
+        error("batch-172 BoltzTraP2 tests missing")
+
     cap = (SRC / "quantumforge/capability/CapabilityRegistry.java").read_text(encoding="utf-8")
     if "Strict known_hosts" not in cap:
         error("CapabilityRegistry SSH status not updated")

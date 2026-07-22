@@ -46,7 +46,21 @@ public final class BoltzTrap2SeriesSlicer {
         /** Seebeck tensor diagonal yy (.condtens rows only). */
         SEEBECK_YY,
         /** Seebeck tensor diagonal zz (.condtens rows only). */
-        SEEBECK_ZZ
+        SEEBECK_ZZ,
+        /** DOS(ef) column, [1/(Ha*uc)] per the header token (batch 172). */
+        DOS_EF,
+        /** N[e/uc] carrier count (batch 172). */
+        N_CARRIERS,
+        /** RH[m**3/C] column: the writer's even-permutation scalar (batch 172). */
+        RH_AVG,
+        /** cv[J/(mole-atom*K)] - mole of ATOM per the fork's save_trace (batch 172). */
+        CV,
+        /** Yi-Wang cv_x column (13/23-column kinds only, batch 172). */
+        CV_X,
+        /** Yi-Wang S_x(V/K) column (13/23-column kinds only, batch 172). */
+        S_X,
+        /** Yi-Wang N_x(e/cm^3) column (13/23-column kinds only, batch 172). */
+        N_X
     }
 
     /** One sliced temperature curve (points sorted by T, file order stable). */
@@ -80,8 +94,92 @@ public final class BoltzTrap2SeriesSlicer {
         public int size() { return this.values.size(); }
     }
 
+    /** One sliced chemical-potential curve at an exact temperature (batch 172). */
+    public static final class MuCurve {
+        private final double temperatureK;
+        private final SeriesKind kind;
+        private final List<Double> muRy;
+        private final List<Double> values;
+
+        MuCurve(double temperatureK, SeriesKind kind, List<Double> muRy,
+                List<Double> values) {
+            this.temperatureK = temperatureK;
+            this.kind = kind;
+            this.muRy = List.copyOf(muRy);
+            this.values = List.copyOf(values);
+        }
+
+        /** The exact temperature the slice was taken at (K, as written). */
+        public double getTemperatureK() { return this.temperatureK; }
+
+        /** which series this is. */
+        public SeriesKind getKind() { return this.kind; }
+
+        /** mu points as written (Ef[Ry], or mu-Ef[eV] per the parser's column note). */
+        public List<Double> getMuRy() { return this.muRy; }
+
+        /** values paired with {@link #getMuRy()}, same length. */
+        public List<Double> getValues() { return this.values; }
+
+        /** point count. */
+        public int size() { return this.values.size(); }
+    }
+
     private BoltzTrap2SeriesSlicer() {
         // Utility
+    }
+
+    /**
+     * The distinct temperatures present in the rows, ascending. Exact double
+     * grouping - the writer's own grid, never binned (batch 172).
+     */
+    public static List<Double> distinctTemperatures(List<TransportRow> rows) {
+        List<Double> out = new ArrayList<>();
+        for (TransportRow row : rows) {
+            double t = row.getTemperatureK();
+            boolean seen = false;
+            for (int i = 0; i < out.size(); i++) {
+                if (Double.doubleToLongBits(out.get(i)) == Double.doubleToLongBits(t)) {
+                    seen = true;
+                    break;
+                }
+            }
+            if (!seen) {
+                int at = out.size();
+                while (at > 0 && out.get(at - 1) > t) {
+                    at--;
+                }
+                out.add(at, t);
+            }
+        }
+        return List.copyOf(out);
+    }
+
+    /**
+     * Slices one chemical-potential curve at the exact requested temperature
+     * (batch 172). The same guards as {@link #slice} apply, plus the batch-172
+     * column kinds refusing when a row's written cells cannot back them. A
+     * temperature absent from the rows yields an EMPTY curve (size 0).
+     */
+    public static MuCurve sliceMuCurve(List<TransportRow> rows, double temperatureK,
+            SeriesKind kind) {
+        enforceGuard(rows, kind);
+        List<double[]> points = new ArrayList<>();
+        for (TransportRow row : rows) {
+            if (Double.doubleToLongBits(row.getTemperatureK())
+                    != Double.doubleToLongBits(temperatureK)) {
+                continue;
+            }
+            points.add(new double[] {row.getMuRy(), valueOf(row, kind)});
+        }
+        points.sort((first, second) -> Double.compare(first[0], second[0]));
+        List<Double> mus = new ArrayList<>();
+        List<Double> values = new ArrayList<>();
+        for (double[] point : points) {
+            mus.add(point[0]);
+            values.add(point[1]);
+        }
+        return new MuCurve(temperatureK, kind, mus, values);
     }
 
     /**
@@ -120,20 +218,7 @@ public final class BoltzTrap2SeriesSlicer {
      */
     public static TemperatureSeries slice(List<TransportRow> rows, double muRy,
             SeriesKind kind) {
-        if (kind == null) {
-            throw new IllegalArgumentException("No series kind selected.");
-        }
-        if (needsDiagonal(kind)) {
-            for (TransportRow row : rows) {
-                if (row.getSeebeckDiag() == null) {
-                    throw new IllegalArgumentException(
-                            "Series " + kind + " needs the .condtens tensor diagonal, but at"
-                                    + " least one row carries none (.trace grammar wrote"
-                                    + " isotropic columns only) - refusing instead of"
-                                    + " relabeling isotropic values as xx/yy/zz.");
-                }
-            }
-        }
+        enforceGuard(rows, kind);
         List<double[]> points = new ArrayList<>();
         for (TransportRow row : rows) {
             if (Double.doubleToLongBits(row.getMuRy()) != Double.doubleToLongBits(muRy)) {
@@ -159,6 +244,51 @@ public final class BoltzTrap2SeriesSlicer {
                 || kind == SeriesKind.SEEBECK_ZZ;
     }
 
+    /** The batch-172 quantities read the raw written cells: which column. */
+    private static int rawColumnOf(SeriesKind kind) {
+        return switch (kind) {
+            case DOS_EF -> BoltzTrap2TraceParser.COL_DOS_EF;
+            case N_CARRIERS -> 2;
+            case RH_AVG -> BoltzTrap2TraceParser.COL_RH;
+            case CV -> BoltzTrap2TraceParser.COL_CV;
+            case CV_X -> BoltzTrap2TraceParser.COL_CV_X;
+            case S_X -> BoltzTrap2TraceParser.COL_S_X;
+            case N_X -> BoltzTrap2TraceParser.COL_N_X;
+            default -> -1;
+        };
+    }
+
+    /** The shared refusal gate for slice + sliceMuCurve (never fabricate a column). */
+    private static void enforceGuard(List<TransportRow> rows, SeriesKind kind) {
+        if (kind == null) {
+            throw new IllegalArgumentException("No series kind selected.");
+        }
+        if (needsDiagonal(kind)) {
+            for (TransportRow row : rows) {
+                if (row.getSeebeckDiag() == null) {
+                    throw new IllegalArgumentException(
+                            "Series " + kind + " needs the .condtens tensor diagonal, but at"
+                                    + " least one row carries none (.trace grammar wrote"
+                                    + " isotropic columns only) - refusing instead of"
+                                    + " relabeling isotropic values as xx/yy/zz.");
+                }
+            }
+        }
+        int rawColumn = rawColumnOf(kind);
+        if (rawColumn >= 0) {
+            for (TransportRow row : rows) {
+                double[] full = row.getFullRow();
+                if (full == null || full.length <= rawColumn) {
+                    throw new IllegalArgumentException(
+                            "Series " + kind + " needs raw column " + rawColumn + " (the"
+                                    + " writer's own cell) but at least one row was parsed"
+                                    + " without it - refusing instead of fabricating the"
+                                    + " quantity.");
+                }
+            }
+        }
+    }
+
     /** The parser's own number for this series kind (no rescaled physics). */
     static double valueOf(TransportRow row, SeriesKind kind) {
         return switch (kind) {
@@ -169,6 +299,13 @@ public final class BoltzTrap2SeriesSlicer {
             case SEEBECK_XX -> row.getSeebeckDiag()[0];
             case SEEBECK_YY -> row.getSeebeckDiag()[1];
             case SEEBECK_ZZ -> row.getSeebeckDiag()[2];
+            case DOS_EF -> row.getFullRow()[BoltzTrap2TraceParser.COL_DOS_EF];
+            case N_CARRIERS -> row.getCarriersPerCell();
+            case RH_AVG -> row.getFullRow()[BoltzTrap2TraceParser.COL_RH];
+            case CV -> row.getFullRow()[BoltzTrap2TraceParser.COL_CV];
+            case CV_X -> row.getFullRow()[BoltzTrap2TraceParser.COL_CV_X];
+            case S_X -> row.getFullRow()[BoltzTrap2TraceParser.COL_S_X];
+            case N_X -> row.getFullRow()[BoltzTrap2TraceParser.COL_N_X];
         };
     }
 
@@ -184,6 +321,13 @@ public final class BoltzTrap2SeriesSlicer {
                     "S^2.sigma (isotropic-average approximation)%s",
                     sigmaUnits == null || sigmaUnits.isEmpty() ? ""
                             : "  [ (V/K)^2 x " + sigmaUnits + " ]");
+            case DOS_EF -> "DOS(ef) [1/(Ha*uc)] (header token)";
+            case N_CARRIERS -> "N [e/uc] (base electrons included)";
+            case RH_AVG -> "RH [m**3/C] (even-permutation scalar, per save_trace)";
+            case CV -> "cv [J/(mole-atom*K)] (mole of ATOM, save_trace note)";
+            case CV_X -> "cv_x [J/(mole-atom*K)] (Yi Wang 09/24/2020 column)";
+            case S_X -> "S_x (V/K) (Yi Wang 09/24/2020 column)";
+            case N_X -> "N_x (e/cm^3) (Yi Wang 09/24/2020 column)";
         };
     }
 }
