@@ -1229,6 +1229,35 @@ def main() -> int:
             or not (ROOT / "tests/java/quantumforge/run/parser/QEPhonopyGruneisenPlanTest.java").is_file():
         error("batch-170 gruneisen tests missing")
 
+    # --- batch 171: phonopy q2r.x Experimental route (PH_Q2R parser + flow plan) ---
+    q2rFcText = (SRC / "quantumforge/run/parser/QEPhonopyQ2rFc.java").read_text(encoding="utf-8")
+    for needle in ("PHONOPY_Q2R_INPUT", "PHONOPY_Q2R_EMPTY",
+                   "PHONOPY_Q2R_HEADER", "PHONOPY_Q2R_SHAPE",
+                   "PHONOPY_Q2R_PARTIAL", "PHONOPY_Q2R_OK",
+                   "Ry/au^2", "xyz2 xzy1 p2 p1", "translationIndex", "toBornText",
+                   "pw_forum", "describe("):
+        if needle not in q2rFcText:
+            error("QEPhonopyQ2rFc lost the batch-171 PH_Q2R grammar: " + needle)
+    q2rPlanText = (SRC / "quantumforge/run/parser/QEPhonopyQ2rPlan.java").read_text(encoding="utf-8")
+    for needle in ("PHONOPY_Q2R_PLAN_INPUT", "PHONOPY_Q2R_PLAN_OK",
+                   "make_fc_q2r.py", "zasr", "epsil=.false.", "cp ",
+                   "Experimental", "naclPreset", "make_born_q2r.py"):
+        if needle not in q2rPlanText:
+            error("QEPhonopyQ2rPlan lost the batch-171 flow builder: " + needle)
+    phDialogText171 = (SRC / "quantumforge/app/project/viewer/phonopy/QEFXPhonopyDialog.java").read_text(encoding="utf-8")
+    for needle in ("q2rButton", "q2rFlowButton", "drawQ2rFc",
+                   "QEPhonopyQ2rFc.parse", "MAX_WATCHED_FC", "flowPreview"):
+        if needle not in phDialogText171:
+            error("QEFXPhonopyDialog lost the batch-171 q2r studio: " + needle)
+    if "QEPhonopyQ2rFc.parse" not in rasText \
+            or "phonopy,q2r_blocks_parsed" not in rasText \
+            or "phonopy,q2r_nac_block" not in rasText \
+            or "endsWith(\".fc\")" not in rasText:
+        error("ResultAnalysisService lost the batch-171 q2r .fc routing")
+    if not (ROOT / "tests/java/quantumforge/run/parser/QEPhonopyQ2rFcTest.java").is_file() \
+            or not (ROOT / "tests/java/quantumforge/run/parser/QEPhonopyQ2rPlanTest.java").is_file():
+        error("batch-171 q2r tests missing")
+
     cap = (SRC / "quantumforge/capability/CapabilityRegistry.java").read_text(encoding="utf-8")
     if "Strict known_hosts" not in cap:
         error("CapabilityRegistry SSH status not updated")

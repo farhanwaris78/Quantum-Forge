@@ -176,6 +176,7 @@ import quantumforge.run.parser.QEPhonopyBandYaml;
 import quantumforge.run.parser.QEPhonopyBorn;
 import quantumforge.run.parser.QEPhonopyForceConstants;
 import quantumforge.run.parser.QEPhonopyGruneisenYaml;
+import quantumforge.run.parser.QEPhonopyQ2rFc;
 import quantumforge.run.parser.QEPhonopyDos;
 import quantumforge.run.parser.QEPhonopyThermalYaml;
 import quantumforge.run.parser.QEThermoPwElasticParser;
@@ -1419,8 +1420,10 @@ public final class ResultAnalysisService {
                     || name.equals("partial_dos.dat") || name.equals("projected_dos.dat")
                     || name.equals("thermal_properties.yaml")
                     || name.equals("BORN") || name.equals("FORCE_CONSTANTS")
-                    || name.equals("gruneisen.yaml") || name.equals("gruneisen_mesh.yaml");
-                    // distinctive pinned names
+                    || name.equals("gruneisen.yaml") || name.equals("gruneisen_mesh.yaml")
+                    || name.endsWith(".fc");
+                    // distinctive pinned names + the q2r.x flfrc convention;
+                    // a foreign '.fc' simply fails the pinned grammar loudly
         case QE_CARD_AUDIT:
             return false; // manual select only: EVERY pw input is a candidate
         case QE_AUX_DECK_AUDIT:
@@ -3306,7 +3309,8 @@ public final class ResultAnalysisService {
         if (source == null || !source.isFile()) {
             return failure(label, "Pick a phonopy artifact: band.yaml, total_dos.dat,"
                     + " partial_dos.dat, projected_dos.dat, thermal_properties.yaml,"
-                    + " BORN, FORCE_CONSTANTS, gruneisen.yaml, or gruneisen_mesh.yaml.");
+                    + " BORN, FORCE_CONSTANTS, gruneisen.yaml, gruneisen_mesh.yaml,"
+                    + " or a q2r.x .fc flfrc file (Experimental route).");
         }
         String name = source.getName();
         StringBuilder text = new StringBuilder();
@@ -3460,6 +3464,31 @@ public final class ResultAnalysisService {
                     fc.getDistinctFirstIndices()));
             csv.add(String.format(Locale.ROOT, "phonopy,fc_max_abs_element,%.10g",
                     fc.getMaxAbsElement()));
+        } else if (name.endsWith(".fc")) {
+            OperationResult<QEPhonopyQ2rFc.Q2rFc> parsed =
+                    QEPhonopyQ2rFc.parse(source.toPath());
+            if (!parsed.isSuccess() || parsed.getValue().isEmpty()) {
+                return failure(label, "[" + parsed.getCode() + "] " + parsed.getMessage());
+            }
+            QEPhonopyQ2rFc.Q2rFc q2r = parsed.getValue().orElseThrow();
+            text.append("== q2r.x flfrc inspection (").append(name)
+                    .append("; Experimental PH_Q2R grammar) ==\n");
+            text.append(QEPhonopyQ2rFc.describe(q2r)).append('\n');
+            csv.add(String.format(Locale.ROOT, "phonopy,q2r_atoms,%d", q2r.getNatom()));
+            csv.add(String.format(Locale.ROOT, "phonopy,q2r_species,%d", q2r.getNtype()));
+            csv.add(String.format(Locale.ROOT, "phonopy,q2r_ibrav,%d", q2r.getIbrav()));
+            csv.add(String.format(Locale.ROOT, "phonopy,q2r_grid,%dx%dx%d",
+                    q2r.getDim()[0], q2r.getDim()[1], q2r.getDim()[2]));
+            csv.add(String.format(Locale.ROOT, "phonopy,q2r_blocks_parsed,%d",
+                    q2r.getBlocks().size()));
+            csv.add(String.format(Locale.ROOT, "phonopy,q2r_blocks_expected,%d",
+                    q2r.getExpectedBlockCount()));
+            csv.add(String.format(Locale.ROOT, "phonopy,q2r_max_abs_element,%.10g",
+                    q2r.getMaxAbsElement()));
+            csv.add(String.format(Locale.ROOT, "phonopy,q2r_nac_block,%s",
+                    q2r.hasNac() ? "present" : "absent"));
+            csv.add(String.format(Locale.ROOT, "phonopy,q2r_partial_blocks_held,%d",
+                    q2r.getPartialBlocksHeld()));
         } else {
             OperationResult<QEPhonopyDos.DosTable> parsed =
                     QEPhonopyDos.parse(source.toPath());

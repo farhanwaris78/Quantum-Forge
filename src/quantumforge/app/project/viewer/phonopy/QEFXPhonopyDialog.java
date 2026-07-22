@@ -8,6 +8,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -46,6 +47,8 @@ import quantumforge.run.parser.QEPhonopyBorn;
 import quantumforge.run.parser.QEPhonopyForceConstants;
 import quantumforge.run.parser.QEPhonopyGruneisenYaml;
 import quantumforge.run.parser.QEPhonopyQeBorn;
+import quantumforge.run.parser.QEPhonopyQ2rFc;
+import quantumforge.run.parser.QEPhonopyQ2rPlan;
 import quantumforge.run.parser.QEPhonopyBandYaml.QRow;
 import quantumforge.run.parser.QEPhonopyBandYaml.Segment;
 import quantumforge.run.parser.QEPhonopyDos;
@@ -74,7 +77,11 @@ import quantumforge.run.parser.QEPhonopyThermalYaml.ThermalYaml;
  * {@code gruneisen_mesh.yaml} (batch 170) draw a LIVE gamma chart
  * (gamma-vs-distance segment lines, or gamma-vs-frequency scatter for the
  * mesh, the Gamma-divergence caveat named on the caption) as
- * phonopy-gruneisen writes them; {@code band.hdf5} / {@code mesh.hdf5} /
+ * phonopy-gruneisen writes them; any {@code *.fc} file (batch 171, the
+ * q2r.x {@code flfrc} name convention) is scanned per poll and parsed
+ * through {@link QEPhonopyQ2rFc} - q2r.x writes the file block by block,
+ * so trailing incomplete blocks are held back and COUNTED while it is
+ * still running; {@code band.hdf5} / {@code mesh.hdf5} /
  * {@code phonopy.yaml} / {@code FORCE_SETS} stay NAMED as present/absent
  * (binary/input artifacts are enumerated, not parsed). The timer always
  * stops when the dialog closes.</p>
@@ -86,7 +93,13 @@ import quantumforge.run.parser.QEPhonopyThermalYaml.ThermalYaml;
  * {@code epsil = .true.} run (the raw half of upstream's
  * {@code phonopy-qe-born}, nat from the pw input asserted against the ph.x
  * print; RAW values, NOT symmetrized - stated on the card) with a
- * consent-gated one-file BORN save.</p>
+ * consent-gated one-file BORN save. Batch 171 adds the Experimental
+ * q2r.x route: open a {@code .fc} flfrc file for the census card (blocks
+ * parsed / expected, order census, unit note) - when its NAC block is
+ * present the same BORN preview is filled from it (raw, upstream's
+ * make_born_q2r.py shape) - and PREVIEW the doc-pinned q2r flow commands
+ * (the SCF &rarr; ldisp ph.x &rarr; epsil=.false. Gamma swap &rarr;
+ * q2r.x &rarr; make_fc_q2r.py &rarr; phonopy band sequence) for copy.</p>
  *
  * <p><b>BUILD</b> - fill-in phonopy settings (DIM, band path with labels,
  * band_connection, BAND_POINTS, MESH, DOS/PDOS, TPROP range, NAC toggle)
@@ -111,6 +124,8 @@ public final class QEFXPhonopyDialog extends Dialog<Void> {
             "band.yaml", "total_dos.dat", "partial_dos.dat", "projected_dos.dat",
             "thermal_properties.yaml", "FORCE_CONSTANTS", "BORN",
             "gruneisen.yaml", "gruneisen_mesh.yaml"};
+    /** How many '*.fc' q2r flfrc files one poll follows (bounded, name-sorted). */
+    private static final int MAX_WATCHED_FC = 4;
     private static final String[] ENUMERATED = {
             "band.hdf5", "mesh.hdf5", "qpoints.hdf5", "phonopy.yaml",
             "phonopy_disp.yaml", "FORCE_SETS"};
@@ -130,6 +145,7 @@ public final class QEFXPhonopyDialog extends Dialog<Void> {
     // ---------- OPEN ----------
     private final Label openLabel = new Label("(no file picked)");
     private final TextArea bornPreview = new TextArea();
+    private final TextArea flowPreview = new TextArea();
     private QEPhonopyQeBorn.QeBornExtract currentQeBorn;
 
     // ---------- shared chart ----------
@@ -277,17 +293,30 @@ public final class QEFXPhonopyDialog extends Dialog<Void> {
                 this.refusalCache.remove(name);
                 continue;
             }
-            long[] signature = new long[] {file.length(), file.lastModified()};
-            long[] previous = this.signatures.get(name);
-            boolean changed = previous == null || previous[0] != signature[0]
-                    || previous[1] != signature[1];
-            rows.add((changed ? "[changed] " : "[fresh] ") + name + " ("
-                    + file.length() + " B)");
-            if (changed) {
-                this.signatures.put(name, signature);
-                reparse(file.toPath(), name);
+            pollOne(file, name, rows);
+        }
+        // batch 171: q2r.x flfrc files keep the user-chosen name from q2r.in
+        // ('.fc' by convention) - scan the directory. q2r.x writes blocks
+        // progressively, so the parser holds a partial tail block back.
+        List<String> fcNames = new ArrayList<>();
+        File[] fcFiles = this.runDir.listFiles((dir, n) -> n.endsWith(".fc"));
+        if (fcFiles != null) {
+            Arrays.sort(fcFiles, (a, b) -> a.getName().compareTo(b.getName()));
+            for (File fcFile : fcFiles) {
+                if (fcNames.size() >= MAX_WATCHED_FC || !fcFile.isFile()) {
+                    continue;
+                }
+                fcNames.add(fcFile.getName());
+                pollOne(fcFile, fcFile.getName(), rows);
             }
         }
+        if (fcNames.isEmpty()) {
+            rows.add("[waiting] *.fc (q2r.x flfrc name per q2r.in)");
+        }
+        // drop stale .fc cache entries for files that vanished between polls
+        this.signatures.keySet().removeIf(n -> n.endsWith(".fc") && !fcNames.contains(n));
+        this.artifactCache.keySet().removeIf(n -> n.endsWith(".fc") && !fcNames.contains(n));
+        this.refusalCache.keySet().removeIf(n -> n.endsWith(".fc") && !fcNames.contains(n));
         int enumerated = 0;
         StringBuilder names = new StringBuilder();
         for (String name : ENUMERATED) {
@@ -314,6 +343,20 @@ public final class QEFXPhonopyDialog extends Dialog<Void> {
                 .withNano(0) + " - only [changed] files are re-parsed; a '[waiting]'"
                 + " artifact renders its waiting state, never a placeholder curve.");
         renderSelectedArtifact();
+    }
+
+    /** Signature check + conditional reparse for one present artifact file. */
+    private void pollOne(File file, String name, List<String> rows) {
+        long[] signature = new long[] {file.length(), file.lastModified()};
+        long[] previous = this.signatures.get(name);
+        boolean changed = previous == null || previous[0] != signature[0]
+                || previous[1] != signature[1];
+        rows.add((changed ? "[changed] " : "[fresh] ") + name + " ("
+                + file.length() + " B)");
+        if (changed) {
+            this.signatures.put(name, signature);
+            reparse(file.toPath(), name);
+        }
     }
 
     private void reparse(Path file, String name) {
@@ -357,6 +400,15 @@ public final class QEFXPhonopyDialog extends Dialog<Void> {
         } else if ("FORCE_CONSTANTS".equals(name)) {
             OperationResult<QEPhonopyForceConstants.ForceConstants> result =
                     QEPhonopyForceConstants.parse(file);
+            if (result.isSuccess() && result.getValue().isPresent()) {
+                this.artifactCache.put(name, result.getValue().orElseThrow());
+                this.refusalCache.remove(name);
+            } else {
+                this.refusalCache.put(name, "[" + result.getCode() + "] "
+                        + result.getMessage());
+            }
+        } else if (name.endsWith(".fc")) {
+            OperationResult<QEPhonopyQ2rFc.Q2rFc> result = QEPhonopyQ2rFc.parse(file);
             if (result.isSuccess() && result.getValue().isPresent()) {
                 this.artifactCache.put(name, result.getValue().orElseThrow());
                 this.refusalCache.remove(name);
@@ -435,19 +487,36 @@ public final class QEFXPhonopyDialog extends Dialog<Void> {
         Button qebornButton = new Button(
                 "Extract BORN from a ph.x output (epsil run) ...");
         qebornButton.setMaxWidth(Double.MAX_VALUE);
+        Button q2rButton = new Button(
+                "Open a q2r .fc force-constants file (Experimental PH_Q2R) ...");
+        q2rButton.setMaxWidth(Double.MAX_VALUE);
         this.bornPreview.setEditable(false);
         this.bornPreview.setPrefRowCount(6);
         Button saveBorn = new Button("Save the preview as BORN (a folder I choose) ...");
         saveBorn.setMaxWidth(Double.MAX_VALUE);
+        Button q2rFlowButton = new Button(
+                "PREVIEW the q2r.x flow commands (doc's pinned NaCl example) ...");
+        q2rFlowButton.setMaxWidth(Double.MAX_VALUE);
+        this.flowPreview.setEditable(false);
+        this.flowPreview.setPrefRowCount(10);
+        this.flowPreview.setWrapText(true);
+        Button copyFlow = new Button("Copy flow commands");
         this.openLabel.setWrapText(true);
         VBox pane = new VBox(8, bandButton, dosButton, tpropButton,
-                gruButton,
+                gruButton, q2rButton,
                 new HBox(8, bornButton, fcButton),
                 new HBox(8, new Label("nat:"), natomField, qebornButton),
                 new Label("BORN PREVIEW (raw values, NOT symmetrized - upstream's"
                         + " phonopy-qe-born symmetrizes by default):"),
                 this.bornPreview,
                 saveBorn,
+                q2rFlowButton,
+                new Label("q2r.x flow PREVIEW (Experimental route: SCF -> ldisp"
+                        + " ph.x -> epsil=.false. Gamma swap -> q2r.x ->"
+                        + " make_fc_q2r.py -> phonopy band; QuantumForge never"
+                        + " runs these lines):"),
+                this.flowPreview,
+                copyFlow,
                 this.openLabel);
         pane.setPadding(new Insets(8));
         bandButton.setOnAction(e -> {
@@ -585,14 +654,77 @@ public final class QEFXPhonopyDialog extends Dialog<Void> {
                         + result.getMessage());
             }
         });
+        q2rButton.setOnAction(e -> {
+            File picked = pickFile("q2r.x flfrc output (e.g. NaCl.fc)");
+            if (picked != null) {
+                OperationResult<QEPhonopyQ2rFc.Q2rFc> result =
+                        QEPhonopyQ2rFc.parse(picked.toPath());
+                if (result.isSuccess() && result.getValue().isPresent()) {
+                    QEPhonopyQ2rFc.Q2rFc fc = result.getValue().orElseThrow();
+                    this.currentProduct = fc;
+                    this.currentKind = picked.getName();
+                    StringBuilder label = new StringBuilder(picked.getAbsolutePath());
+                    label.append("\n[").append(result.getCode()).append("] ")
+                            .append(result.getMessage());
+                    if (fc.hasNac()) {
+                        this.bornPreview.setText(fc.toBornText());
+                        label.append("\nNAC block present -> the BORN preview above"
+                                + " was filled from it (raw values,"
+                                + " make_born_q2r.py's print shape, NOT"
+                                + " symmetrized).");
+                    }
+                    this.openLabel.setText(label.toString());
+                    redraw();
+                } else {
+                    this.openLabel.setText("[" + result.getCode() + "] "
+                            + result.getMessage());
+                }
+            }
+        });
+        q2rFlowButton.setOnAction(e -> {
+            OperationResult<QEPhonopyQ2rPlan.Plan> result =
+                    QEPhonopyQ2rPlan.build(QEPhonopyQ2rPlan.naclPreset());
+            if (result.isSuccess() && result.getValue().isPresent()) {
+                QEPhonopyQ2rPlan.Plan plan = result.getValue().orElseThrow();
+                StringBuilder text = new StringBuilder();
+                for (String step : plan.getSteps()) {
+                    text.append(step).append('\n');
+                }
+                this.flowPreview.setText(text.toString());
+                StringBuilder label = new StringBuilder("[" + result.getCode()
+                        + "] " + result.getMessage());
+                for (String warning : plan.getWarnings()) {
+                    label.append("\nWARNING: ").append(warning);
+                }
+                for (String note : plan.getNotes()) {
+                    label.append("\nnote: ").append(note);
+                }
+                label.append("\n(preset: the doc's pinned NaCl example - adjust"
+                        + " prefix / grid / masses in your own copy; PREVIEW only,"
+                        + " nothing was run)");
+                this.openLabel.setText(label.toString());
+            } else {
+                this.openLabel.setText("[" + result.getCode() + "] "
+                        + result.getMessage());
+            }
+        });
+        copyFlow.setOnAction(e -> {
+            javafx.scene.input.ClipboardContent content =
+                    new javafx.scene.input.ClipboardContent();
+            content.putString(this.flowPreview.getText());
+            javafx.scene.input.Clipboard.getSystemClipboard().setContent(content);
+            this.openLabel.setText("q2r flow commands copied to the clipboard.");
+        });
         saveBorn.setOnAction(e -> saveBorn());
         return pane;
     }
 
     /** Consent-gated single-file write of the BORN preview. Nothing else is written. */
     private void saveBorn() {
-        if (this.currentQeBorn == null || this.bornPreview.getText().isBlank()) {
-            this.openLabel.setText("nothing to save: extract a ph.x output first.");
+        if (this.bornPreview.getText().isBlank()) {
+            this.openLabel.setText("nothing to save: fill the BORN preview first"
+                    + " (extract a ph.x epsil output, or open a q2r .fc whose NAC"
+                    + " block is present).");
             return;
         }
         DirectoryChooser chooser = new DirectoryChooser();
@@ -871,6 +1003,8 @@ public final class QEFXPhonopyDialog extends Dialog<Void> {
             drawBorn((QEPhonopyBorn.BornFile) product);
         } else if (product instanceof QEPhonopyForceConstants.ForceConstants) {
             drawForceConstants((QEPhonopyForceConstants.ForceConstants) product);
+        } else if (product instanceof QEPhonopyQ2rFc.Q2rFc) {
+            drawQ2rFc((QEPhonopyQ2rFc.Q2rFc) product);
         } else {
             redrawEmpty("no chartable product selected.");
         }
@@ -1035,6 +1169,18 @@ public final class QEFXPhonopyDialog extends Dialog<Void> {
         drawTextCard("FORCE_CONSTANTS " + fc.getDimI() + " x " + fc.getDimJ()
                 + " (tensor census; written by phonopy --writefc, consumed by"
                 + " --readfc / phonopy-load)", lines);
+    }
+
+    /** q2r.x flfrc census card (batch 171) - a 9N x 9N matrix is not a curve. */
+    private void drawQ2rFc(QEPhonopyQ2rFc.Q2rFc fc) {
+        List<String> lines = new ArrayList<>();
+        for (String line : QEPhonopyQ2rFc.describe(fc).split("\n")) {
+            lines.add(line);
+        }
+        drawTextCard("q2r.x flfrc grid " + fc.getDim()[0] + " x " + fc.getDim()[1]
+                + " x " + fc.getDim()[2] + " (Experimental PH_Q2R grammar; census"
+                + " only - a real-space force-constant matrix is not a curve)",
+                lines);
     }
 
     /** Text-card renderer for tensor artifacts (no curve would be honest). */
