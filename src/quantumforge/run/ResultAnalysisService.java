@@ -111,10 +111,14 @@ import quantumforge.input.schema.QEAuxSchema;
 import quantumforge.input.schema.QECardSchema;
 import quantumforge.input.schema.QENamelistSchema;
 import quantumforge.input.schema.QEThermoPwSchema;
+import quantumforge.input.schema.VaspIncarSchema;
 import quantumforge.input.validation.QEAuxDeckAudit;
 import quantumforge.input.validation.QECardAudit;
 import quantumforge.input.validation.QESchemaValidator;
 import quantumforge.input.validation.QEThermoPwDeckAudit;
+import quantumforge.input.validation.VaspIncarDeck;
+import quantumforge.input.validation.VaspIncarDeckAudit;
+import quantumforge.input.validation.VaspKpointsDeck;
 import quantumforge.input.validation.ValidationIssue;
 import quantumforge.input.validation.ValidationSeverity;
 import quantumforge.operation.OperationResult;
@@ -235,6 +239,7 @@ public final class ResultAnalysisService {
         THERMOPW_EOS("thermo_pw equation of state"),
         PHONO3PY_KAPPA("phono3py lattice thermal conductivity"),
         BOLTZTRAP2_TRANSPORT("BoltzTraP2 output tables (.trace/.condtens/.halltens/.dope.*)"),
+        VASP_INPUT_AUDIT("VASP INCAR/KPOINTS grammar audit (wiki-pinned 6.x window)"),
         ELIASHBERG_TC("Allen-Dynes Tc from alpha2F"),
         DRY_RUN_PREFLIGHT("Dry-run preflight check"),
         RESTART_ASSESSMENT("Restart safety assessment"),
@@ -1444,6 +1449,13 @@ public final class ResultAnalysisService {
                     || name.endsWith(".dope.dos") || name.endsWith(".dope.vvdos")
                     || name.endsWith(".dope.dos_raw")
                     || name.endsWith(".dope.vvdos_raw");
+        case VASP_INPUT_AUDIT:
+            // batch 173: VASP's two free-form input files. INCAR exact or
+            // with a suffix (INCAR.relax, INCAR.2 ...); KPOINTS with the
+            // wiki-documented companions (KPOINTS_OPT) and user renames.
+            // POTCAR is VASP's LICENSED file - never routed, never read.
+            return name.equals("incar") || name.startsWith("incar.")
+                    || name.startsWith("incar_") || name.startsWith("kpoints");
         case ELIASHBERG_TC:
             return name.endsWith(".a2f") || name.contains("alpha2f") || name.contains("a2f");
         case MD_MSD:
@@ -1657,6 +1669,8 @@ public final class ResultAnalysisService {
                 return analyzeKappa(property, source);
             case BOLTZTRAP2_TRANSPORT:
                 return analyzeBoltzTrap2Transport(property, source);
+            case VASP_INPUT_AUDIT:
+                return analyzeVaspInputAudit(property, source);
             case ELIASHBERG_TC:
                 return analyzeTc(property, source, params);
             case HULL_STABILITY:
@@ -3006,6 +3020,177 @@ public final class ResultAnalysisService {
                 + " shown are the procedural assignments (last-assignment-wins); the audit"
                 + " is the grammar, not a thermodynamics result.\n");
         return new AnalysisReport(label, errors == 0, text.toString(), csv, null);
+    }
+
+    /**
+     * VASP INPUT AUDIT (batch 173, roadmap #111): INCAR-family files run
+     * through the batch-173 {@link VaspIncarDeckAudit} (53-tag tier-1 grammar
+     * + tier-2 wiki-index window + 12 mined consistency rules, every quote
+     * verbatim from the vasp.at wiki 6.x window of 2026-07-22); KPOINTS-family
+     * files run through {@link VaspKpointsDeck} (all four documented modes
+     * with their wiki-verbatim notes). The audit NEVER runs VASP, NEVER
+     * touches a POTCAR (VASP's licensed file - referenced only through the
+     * wiki facts the schema pins), and never edits the source: it reads the
+     * text and states findings. A parse-level refusal becomes an honest
+     * failure report, never a crash.
+     */
+    private static AnalysisReport analyzeVaspInputAudit(ProjectProperty property,
+            File source) throws IOException {
+        String label = AnalysisKind.VASP_INPUT_AUDIT.getLabel();
+        String sourceName = source.getName().toLowerCase(Locale.ROOT);
+        long size = source.length();
+        if (sourceName.equals("incar") || sourceName.startsWith("incar.")
+                || sourceName.startsWith("incar_")) {
+            if (size > 1024 * 1024) {
+                return failure(label, source.getName() + " is " + size
+                        + " bytes: the INCAR audit bound is 1 MiB"
+                        + " (bounded-reads doctrine) - refusing instead of"
+                        + " reading on.");
+            }
+            String content = Files.readString(source.toPath(), StandardCharsets.UTF_8);
+            List<ValidationIssue> issues = VaspIncarDeckAudit.auditDeckText(content);
+            StringBuilder text = new StringBuilder();
+            List<String> csv = new ArrayList<>();
+            text.append(String.format(Locale.ROOT,
+                    "== VASP INCAR grammar audit (wiki-pinned 6.x window: %d tier-1 tags with"
+                            + " type/options/verbatim defaults; tier-2 name window = wiki"
+                            + " index page 1 of 4, 200 of 614 tags; window %s) ==%n",
+                    VaspIncarSchema.entryCount(), VaspIncarSchema.WIKI_WINDOW));
+            text.append("Source: ").append(source.getName()).append('\n');
+            OperationResult<VaspIncarDeck> census = VaspIncarDeck.parse(content);
+            if (census.isSuccess() && census.getValue().isPresent()) {
+                VaspIncarDeck deck = census.getValue().get();
+                text.append(String.format(Locale.ROOT,
+                        "Deck census: %d statement(s), %d distinct tag(s), %d ignored"
+                                + " bare-text line(s), %d physical line(s).%n",
+                        deck.getStatements().size(), deck.distinctTags().size(),
+                        deck.getIgnoredLineCount(), deck.getTotalLines()));
+            }
+            csv.add("vasp-incar-audit,severity,code,message");
+            int errors = 0;
+            int warnings = 0;
+            for (ValidationIssue issue : issues) {
+                if (issue.getSeverity() == ValidationSeverity.ERROR) {
+                    errors += 1;
+                } else if (issue.getSeverity() == ValidationSeverity.WARNING) {
+                    warnings += 1;
+                }
+                text.append("  ").append(issue.getSeverity())
+                        .append(" [").append(issue.getCode()).append("] ")
+                        .append(issue.getMessage()).append('\n');
+                if (!issue.getDocumentationUrl().isEmpty()) {
+                    text.append("      docs: ")
+                            .append(issue.getDocumentationUrl()).append('\n');
+                }
+                csv.add(String.format(Locale.ROOT, "vasp-incar-audit,%s,%s,%s",
+                        issue.getSeverity(), csvCell(issue.getCode()),
+                        csvCell(issue.getMessage())));
+            }
+            if (issues.isEmpty()) {
+                text.append("  No grammar findings: every statement parses inside the pinned\n"
+                        + "  window, all tier-1 types/options hold, and no mined consistency\n"
+                        + "  rule trips.\n");
+            }
+            text.append(String.format(Locale.ROOT,
+                    "%nVerdict: %d ERROR (VASP would crash, misparse, or a required companion"
+                            + " tag is absent), %d WARNING (documented trap: VASP silently"
+                            + " ignores unknown tags, prints no warning for ALGO=Fast hybrids,"
+                            + " lets NPAR override NCORE, ...), remainder INFO advisories.%n",
+                    errors, warnings));
+            text.append("\nHonesty boundary: this is a GRAMMAR audit over the pinned wiki"
+                    + " window - never a physics, k-point-convergence or functional review,"
+                    + " and never a POTCAR census (licensed file; the audit references only"
+                    + " the ENMAX/LEXCH facts the wiki states). Severities mirror VASP's own"
+                    + " documented behavior: unknown tags are WARNING because VASP does NOT"
+                    + " abort on them (it silently ignores them, so a typo passes"
+                    + " unnoticed). VASP is never executed.\n");
+            return new AnalysisReport(label, errors == 0, text.toString(), csv, null);
+        }
+        // KPOINTS family (KPOINTS, KPOINTS_OPT, KPOINTS_* user renames)
+        if (size > 512 * 1024) {
+            return failure(label, source.getName() + " is " + size
+                    + " bytes: the KPOINTS audit bound is 512 KiB"
+                    + " (bounded-reads doctrine) - refusing instead of reading on.");
+        }
+        String content = Files.readString(source.toPath(), StandardCharsets.UTF_8);
+        OperationResult<VaspKpointsDeck> parsed = VaspKpointsDeck.parse(content);
+        if (!parsed.isSuccess() || parsed.getValue().isEmpty()) {
+            return failure(label, "KPOINTS grammar refusal " + parsed.getCode()
+                    + ": " + parsed.getMessage());
+        }
+        VaspKpointsDeck deck = parsed.getValue().get();
+        StringBuilder text = new StringBuilder();
+        List<String> csv = new ArrayList<>();
+        text.append("== VASP KPOINTS grammar census (all four documented modes of the"
+                + " kpoints page, wiki window 2026-07-22) ==\n");
+        text.append("Source: ").append(source.getName()).append('\n');
+        csv.add("vasp-kpoints,field,value");
+        csv.add(String.format(Locale.ROOT, "vasp-kpoints,comment,%s",
+                csvCell(deck.getComment())));
+        csv.add(String.format(Locale.ROOT, "vasp-kpoints,mode,%s", deck.getMode()));
+        csv.add(String.format(Locale.ROOT, "vasp-kpoints,cartesian,%s",
+                deck.isCartesian()));
+        text.append(String.format(Locale.ROOT,
+                "Mode census: %s (%s coordinates), comment '%s'.%n",
+                deck.getMode(), deck.isCartesian() ? "Cartesian" : "fractional/reciprocal",
+                deck.getComment()));
+        switch (deck.getMode()) {
+            case AUTO_GAMMA, AUTO_MP -> {
+                int[] sub = deck.getSubdivisions();
+                text.append(String.format(Locale.ROOT,
+                        "  mesh %d x %d x %d%s%n", sub[0], sub[1], sub[2],
+                        deck.getShift().length == 3
+                                ? String.format(Locale.ROOT, " + shift (%s, %s, %s)",
+                                        VaspKpointsDeck.fmt(deck.getShift()[0]),
+                                        VaspKpointsDeck.fmt(deck.getShift()[1]),
+                                        VaspKpointsDeck.fmt(deck.getShift()[2]))
+                                : ""));
+                csv.add(String.format(Locale.ROOT, "vasp-kpoints,subdivisions,%d %d %d",
+                        sub[0], sub[1], sub[2]));
+            }
+            case AUTO_GENERALIZED -> {
+                double[][] generators = deck.getGenerators();
+                for (int g = 0; g < 3; g++) {
+                    csv.add(String.format(Locale.ROOT, "vasp-kpoints,generator%d,%s %s %s",
+                            g + 1, VaspKpointsDeck.fmt(generators[g][0]),
+                            VaspKpointsDeck.fmt(generators[g][1]),
+                            VaspKpointsDeck.fmt(generators[g][2])));
+                }
+                text.append("  3 generating vectors + shift (census in the CSV rows)\n");
+            }
+            case LINE_MODE -> {
+                text.append(String.format(Locale.ROOT,
+                        "  %d points per segment, %d segment(s), %d vertex line(s)%n",
+                        deck.getPointsPerSegment(), deck.getVertices().size() / 2,
+                        deck.getVertices().size()));
+                csv.add(String.format(Locale.ROOT, "vasp-kpoints,points_per_segment,%d",
+                        deck.getPointsPerSegment()));
+                csv.add(String.format(Locale.ROOT, "vasp-kpoints,segments,%d",
+                        deck.getVertices().size() / 2));
+            }
+            case EXPLICIT -> {
+                text.append(String.format(Locale.ROOT,
+                        "  %d explicit k-point(s)%s%n", deck.getPoints().size(),
+                        deck.getTetras().isEmpty() ? ""
+                                : " + " + deck.getTetras().size() + " tetrahedra"));
+                csv.add(String.format(Locale.ROOT, "vasp-kpoints,explicit_points,%d",
+                        deck.getPoints().size()));
+                csv.add(String.format(Locale.ROOT, "vasp-kpoints,tetrahedra,%d",
+                        deck.getTetras().size()));
+            }
+            default -> {
+            }
+        }
+        for (String note : deck.getNotes()) {
+            text.append("  note: ").append(note).append('\n');
+        }
+        text.append("\nHonesty boundary: a KPOINTS census is grammar-level only - the\n"
+                + "actual k vectors derive from the reciprocal lattice of the POSCAR and the\n"
+                + "energies from VASP itself. Nothing is executed and no mesh is generated\n"
+                + "here; k-point SAMPLING adequacy (density vs. the cell) is a physics\n"
+                + "convergence question this report deliberately does not answer. KSPACING\n"
+                + "(INCAR route) and KPOINTS_OPT are the wiki-documented alternatives.\n");
+        return new AnalysisReport(label, true, text.toString(), csv, null);
     }
 
     /**

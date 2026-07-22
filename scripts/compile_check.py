@@ -1304,6 +1304,52 @@ def main() -> int:
             or not (ROOT / "tests/java/quantumforge/run/parser/BoltzTrap2Btp2PlanTest.java").is_file():
         error("batch-172 BoltzTraP2 tests missing")
 
+    # --- batch 173: VASP input side (INCAR schema/deck/audit + KPOINTS grammar + presets + workbench) ---
+    vasSchemaText = (SRC / "quantumforge/input/schema/VaspIncarSchema.java").read_text(encoding="utf-8")
+    for needle in ("tierOf", "WIKI_WINDOW", "wikiUrl", "TIER2", "isRecognizedName"):
+        if needle not in vasSchemaText:
+            error("VaspIncarSchema lost the batch-173 tier window: " + needle)
+    vasSchemaDataText = (SRC / "quantumforge/input/schema/VaspIncarSchemaData.java").read_text(encoding="utf-8")
+    for needle in ("TIER1_ROWS", "10^{-4}", "AEXX", "TIER2_NAMES", "available ranks"):
+        if needle not in vasSchemaDataText:
+            error("VaspIncarSchemaData lost the batch-173 pinned catalogue: " + needle)
+    vasDeckText = (SRC / "quantumforge/input/validation/VaspIncarDeck.java").read_text(encoding="utf-8")
+    for needle in ("VASP_INCAR_EMPTY", "expandArray", "curly group", "blank(s) after",
+                   "VASP_INCAR_INPUT", "occurrencesOf", "ignored"):
+        if needle not in vasDeckText:
+            error("VaspIncarDeck lost the batch-173 INCAR grammar: " + needle)
+    vasAuditText = (SRC / "quantumforge/input/validation/VaspIncarDeckAudit.java").read_text(encoding="utf-8")
+    for needle in ("VASP_NPAR_OVERRIDES_NCORE", "VASP_POTIM_REQUIRED_FOR_MD",
+                   "silently ignored", "CODE_CONTINUATION",
+                   "VASP_LDIPOL_NEEDS_IDIPOL", "VASP_TETRA_GAMMA_MESH",
+                   "auditDeckText"):
+        if needle not in vasAuditText:
+            error("VaspIncarDeckAudit lost the batch-173 consistency rules: " + needle)
+    vasKptText = (SRC / "quantumforge/input/validation/VaspKpointsDeck.java").read_text(encoding="utf-8")
+    for needle in ("VASP_KPOINTS_SHAPE", "Tetrahedra", "ICHARG = 11",
+                   "commensurate with the reciprocal lattice", "gammaMesh",
+                   "bandPath", "LINE_MODE", "we recommend", "toKpointsText"):
+        if needle not in vasKptText:
+            error("VaspKpointsDeck lost the batch-173 KPOINTS grammar: " + needle)
+    vasPresetsText = (SRC / "quantumforge/input/VaspIncarPresets.java").read_text(encoding="utf-8")
+    for needle in ("KEYS", "HFSCREEN = 0.2", "commented recipe",
+                   "companionMeshes", "EXAMPLE VALUE", "never executes VASP"):
+        if needle not in vasPresetsText:
+            error("VaspIncarPresets lost the batch-173 preset bundles: " + needle)
+    if "VASP_INPUT_AUDIT" not in rasText or "analyzeVaspInputAudit" not in rasText \
+            or "vasp-incar-audit" not in rasText or "vasp-kpoints" not in rasText:
+        error("ResultAnalysisService lost the batch-173 VASP input audit routing")
+    vasExtText = (SRC / "quantumforge/app/extension/vasp/VASPExtension.java").read_text(encoding="utf-8")
+    for needle in ("VaspIncarPresets", "Audit the preview text", "copyToClipboard"):
+        if needle not in vasExtText:
+            error("VASPExtension lost the batch-173 workbench: " + needle)
+    if not (ROOT / "tests/java/quantumforge/input/schema/VaspIncarSchemaTest.java").is_file() \
+            or not (ROOT / "tests/java/quantumforge/input/validation/VaspIncarDeckTest.java").is_file() \
+            or not (ROOT / "tests/java/quantumforge/input/validation/VaspIncarDeckAuditTest.java").is_file() \
+            or not (ROOT / "tests/java/quantumforge/input/validation/VaspKpointsDeckTest.java").is_file() \
+            or not (ROOT / "tests/java/quantumforge/input/VaspIncarPresetsTest.java").is_file():
+        error("batch-173 VASP input tests missing")
+
     cap = (SRC / "quantumforge/capability/CapabilityRegistry.java").read_text(encoding="utf-8")
     if "Strict known_hosts" not in cap:
         error("CapabilityRegistry SSH status not updated")
