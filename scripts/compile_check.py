@@ -1108,6 +1108,53 @@ def main() -> int:
             or not (ROOT / "tests/java/quantumforge/run/parser/QEThermoPwElasticParserTest.java").is_file():
         error("batch-167 ELATE/elastic-channel tests missing")
 
+    # --- batch 168: phonopy integration (band/dos/thermal parsers + plan builder + live studio) ---
+    phBandText = (SRC / "quantumforge/run/parser/QEPhonopyBandYaml.java").read_text(encoding="utf-8")
+    for needle in ("PHONOPY_BAND_INPUT", "PHONOPY_BAND_HEADER", "PHONOPY_BAND_PARTIAL",
+                   "PHONOPY_BAND_SHAPE", "PHONOPY_BAND_OK",
+                   "segment_nqpoint", "distance-reset",
+                   "3a3e0f099da5de2556e75d72ea89b3bb22c8e97e",
+                   "describe(BandYaml", "group_velocity"):
+        if needle not in phBandText:
+            error("QEPhonopyBandYaml lost the batch-168 band.yaml grammar: " + needle)
+    phDosText = (SRC / "quantumforge/run/parser/QEPhonopyDos.java").read_text(encoding="utf-8")
+    for needle in ("PHONOPY_DOS_INPUT", "PHONOPY_DOS_EMPTY", "PHONOPY_DOS_PARTIAL",
+                   "PHONOPY_DOS_SHAPE", "PHONOPY_DOS_OK",
+                   "# Sigma", "seriesLabels", "partialTail", "peakSummary"):
+        if needle not in phDosText:
+            error("QEPhonopyDos lost the batch-168 dos grammar: " + needle)
+    phTpText = (SRC / "quantumforge/run/parser/QEPhonopyThermalYaml.java").read_text(encoding="utf-8")
+    for needle in ("PHONOPY_TPROP_INPUT", "PHONOPY_TPROP_HEADER", "PHONOPY_TPROP_PARTIAL",
+                   "PHONOPY_TPROP_SHAPE", "PHONOPY_TPROP_OK",
+                   "thermal_properties:", "unit:", "primitive cell",
+                   "zero_point_energy"):
+        if needle not in phTpText:
+            error("QEPhonopyThermalYaml lost the batch-168 thermal grammar: " + needle)
+    phPlanText = (SRC / "quantumforge/run/parser/QEPhonopyPlan.java").read_text(encoding="utf-8")
+    for needle in ("PHONOPY_PLAN_INPUT", "BAND_CONNECTION",
+                   "phonopy-init --qe -d", "phonopy-load --band",
+                   "cubicBccPreset", "FORCE_SETS", "band.conf"):
+        if needle not in phPlanText:
+            error("QEPhonopyPlan lost the batch-168 plan builder: " + needle)
+    phDialogText = (SRC / "quantumforge/app/project/viewer/phonopy/QEFXPhonopyDialog.java").read_text(encoding="utf-8")
+    for needle in ("WATCH run (live)", "BUILD conf + commands", "phonopy-load",
+                   "band.yaml", "thermal_properties.yaml"):
+        if needle not in phDialogText:
+            error("QEFXPhonopyDialog lost the batch-168 phonopy studio: " + needle)
+    if "getPhonopyItem" not in itemSetText or "Phonopy band/DOS studio ..." not in itemSetText:
+        error("ViewerItemSet lost the batch-168 phonopy menu item")
+    if "actionPhonopy" not in vactText2 or "QEFXPhonopyDialog" not in vactText2:
+        error("ViewerActions lost the batch-168 phonopy action wiring")
+    if "PHONOPY_OUTPUT" not in rasText \
+            or "analyzePhonopyOutput" not in rasText \
+            or "QEPhonopyBandYaml.parse" not in rasText:
+        error("ResultAnalysisService lost the batch-168 PHONOPY_OUTPUT kind")
+    if not (ROOT / "tests/java/quantumforge/run/parser/QEPhonopyBandYamlTest.java").is_file() \
+            or not (ROOT / "tests/java/quantumforge/run/parser/QEPhonopyDosTest.java").is_file() \
+            or not (ROOT / "tests/java/quantumforge/run/parser/QEPhonopyThermalYamlTest.java").is_file() \
+            or not (ROOT / "tests/java/quantumforge/run/parser/QEPhonopyPlanTest.java").is_file():
+        error("batch-168 phonopy tests missing")
+
     cap = (SRC / "quantumforge/capability/CapabilityRegistry.java").read_text(encoding="utf-8")
     if "Strict known_hosts" not in cap:
         error("CapabilityRegistry SSH status not updated")

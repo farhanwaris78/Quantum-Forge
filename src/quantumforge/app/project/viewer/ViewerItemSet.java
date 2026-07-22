@@ -35,6 +35,7 @@ public class ViewerItemSet {
     private ViewerItem roCratePackItem;
     private ViewerItem thermoPwLiveItem;
     private ViewerItem elateItem;
+    private ViewerItem phonopyItem;
     private ViewerItem diagnoseLogItem;
     private ViewerItem bandGapItem;
     private ViewerItem finalGeometryItem;
@@ -65,6 +66,7 @@ public class ViewerItemSet {
         this.roCratePackItem = new ViewerItem(SVGData.RESULT, "Pack RO-Crate folder ...");
         this.thermoPwLiveItem = new ViewerItem(SVGData.TOOL, "thermo_pw live monitor ...");
         this.elateItem = new ViewerItem(SVGData.TOOL, "ELATE elastic tensor analysis ...");
+        this.phonopyItem = new ViewerItem(SVGData.TOOL, "Phonopy band/DOS studio ...");
         this.diagnoseLogItem = new ViewerItem(SVGData.RESULT, "Diagnose QE log");
         this.bandGapItem = new ViewerItem(SVGData.RESULT, "Analyze band gap from QE log");
         this.finalGeometryItem = new ViewerItem(SVGData.ATOMS, "Preview final geometry");
@@ -97,6 +99,7 @@ public class ViewerItemSet {
                 this.roCratePackItem,
                 this.thermoPwLiveItem,
                 this.elateItem,
+                this.phonopyItem,
                 this.diagnoseLogItem,
                 this.bandGapItem,
                 this.finalGeometryItem,
@@ -188,6 +191,10 @@ public ViewerItem getSaveAsFileItem() {
 
     public ViewerItem getElateItem() {
         return this.elateItem;
+    }
+
+    public ViewerItem getPhonopyItem() {
+        return this.phonopyItem;
     }
 
     public ViewerItem getDiagnoseLogItem() {

@@ -29,6 +29,7 @@ import quantumforge.app.project.viewer.auxdeck.QEFXAuxDeckDialog;
 import quantumforge.app.project.viewer.rocrate.QEFXRoCratePackDialog;
 import quantumforge.app.project.viewer.thermopw.QEFXThermoPwLiveDialog;
 import quantumforge.app.project.viewer.elate.QEFXElateDialog;
+import quantumforge.app.project.viewer.phonopy.QEFXPhonopyDialog;
 import quantumforge.app.project.viewer.designer.DesignerAction;
 import quantumforge.app.project.viewer.inputfile.QEFXInputFile;
 import quantumforge.app.project.viewer.modeler.ModelerAction;
@@ -220,6 +221,9 @@ public class ViewerActions extends ProjectActions<Node> {
 
             } else if (item == this.itemSet.getElateItem()) {
                 this.actions.put(item, controller2 -> this.actionElate(controller2));
+
+            } else if (item == this.itemSet.getPhonopyItem()) {
+                this.actions.put(item, controller2 -> this.actionPhonopy(controller2));
 
             } else if (item == this.itemSet.getDiagnoseLogItem()) {
                 this.actions.put(item, controller2 -> this.actionDiagnoseLog(controller2));
@@ -769,6 +773,29 @@ public class ViewerActions extends ProjectActions<Node> {
             return;
         }
         QEFXElateDialog dialog = new QEFXElateDialog();
+        if (controller.getStage() != null) {
+            dialog.initOwner(controller.getStage());
+        }
+        dialog.showAndWait();
+    }
+
+    /**
+     * Phonopy integration (auxiliary software, full backend + frontend): opens
+     * the Phonopy band/DOS studio. The WATCH card live-monitors a chosen
+     * phonopy run directory (band.yaml / total_dos.dat / partial_dos.dat /
+     * projected_dos.dat / thermal_properties.yaml re-charted as they land,
+     * 2 s poll, partial row hold-back, binary artifacts enumerated); the OPEN
+     * card charts a finished artifact; the BUILD card previews the verbatim
+     * phonopy conf plus the four-step QE -> phonopy flow (doc/qe.md) and the
+     * phonopy-load one-liner of the user's own band command. phonopy stays
+     * external: the dialog NEVER executes it; only the BUILD card can write,
+     * and only the explicitly consented conf file.
+     */
+    private void actionPhonopy(QEFXProjectController controller) {
+        if (controller == null) {
+            return;
+        }
+        QEFXPhonopyDialog dialog = new QEFXPhonopyDialog();
         if (controller.getStage() != null) {
             dialog.initOwner(controller.getStage());
         }

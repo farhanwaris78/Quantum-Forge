@@ -172,6 +172,9 @@ import quantumforge.symmetry.MagneticSpaceGroupDetector;
 import quantumforge.symmetry.QEBrillouinZoneGeometry;
 import quantumforge.run.parser.QEPwcondConductanceParser;
 import quantumforge.run.parser.QEElateAnalyzer;
+import quantumforge.run.parser.QEPhonopyBandYaml;
+import quantumforge.run.parser.QEPhonopyDos;
+import quantumforge.run.parser.QEPhonopyThermalYaml;
 import quantumforge.run.parser.QEThermoPwElasticParser;
 import quantumforge.run.parser.QEThermoPwEosParser;
 import quantumforge.run.parser.QEThermoPwRunScanner;
@@ -221,6 +224,7 @@ public final class ResultAnalysisService {
         THERMO_PW_DECK_AUDIT("thermo_pw thermo_control grammar audit (mined)"),
         THERMO_PW_RUN_SUMMARY("thermo_pw run summary (directory census + stdout EOS extracts)"),
         ELATE_TENSOR_ANALYSIS("ELATE elastic tensor analysis (averages/eigen/extrema)"),
+        PHONOPY_OUTPUT("phonopy band/DOS/thermal output inspection (parser only)"),
         QE_CARD_AUDIT("pw.x card grammar audit (mined read_cards)"),
         QE_AUX_DECK_AUDIT("auxiliary QE input grammar audit (24 programs)"),
         THERMOPW_EOS("thermo_pw equation of state"),
@@ -1407,6 +1411,10 @@ public final class ResultAnalysisService {
             return false; // manual select only: ANY *.out would else hijack run routing
         case ELATE_TENSOR_ANALYSIS:
             return false; // manual select only: shares the same *.out / .dat* surface
+        case PHONOPY_OUTPUT:
+            return name.equals("band.yaml") || name.equals("total_dos.dat")
+                    || name.equals("partial_dos.dat") || name.equals("projected_dos.dat")
+                    || name.equals("thermal_properties.yaml"); // distinctive pinned names
         case QE_CARD_AUDIT:
             return false; // manual select only: EVERY pw input is a candidate
         case QE_AUX_DECK_AUDIT:
@@ -1620,6 +1628,8 @@ public final class ResultAnalysisService {
                 return analyzeThermoPwRunSummary(property, source);
             case ELATE_TENSOR_ANALYSIS:
                 return analyzeElateTensor(property, source);
+            case PHONOPY_OUTPUT:
+                return analyzePhonopyOutput(property, source);
             case QE_CARD_AUDIT:
                 return analyzeQeCardAudit(property, source);
             case QE_AUX_DECK_AUDIT:
@@ -3269,6 +3279,134 @@ public final class ResultAnalysisService {
         return new AnalysisReport(label, true, text.toString(), csv, null,
                 stable ? List.of() : List.of("tensor is not positive definite: spatial"
                         + " extrema withheld by ELATE's own gate"));
+    }
+
+    /**
+     * phonopy OUTPUT inspection (batch 168): one pinned phonopy artifact
+     * (band.yaml / total_dos.dat / partial_dos.dat / projected_dos.dat /
+     * thermal_properties.yaml - the distinctive output names of the upstream
+     * writers, commit 3a3e0f09) run through its pinned reader and rendered as
+     * a self-describing summary: per-segment census + frequency reach for
+     * band.yaml, comments/columns/peak for the DOS tables, verbatim units +
+     * row census + endpoints for thermal_properties.yaml. Units are only ever
+     * STATED (THz = phonopy's default; DOS unit = its frequency unit; thermal
+     * units read from the file's own unit: block); imaginary modes are named;
+     * live partial rows held back are reported. No thermodynamics review is
+     * implied.
+     */
+    private static AnalysisReport analyzePhonopyOutput(ProjectProperty property,
+            File source) throws IOException {
+        String label = AnalysisKind.PHONOPY_OUTPUT.getLabel();
+        if (source == null || !source.isFile()) {
+            return failure(label, "Pick a phonopy artifact: band.yaml, total_dos.dat,"
+                    + " partial_dos.dat, projected_dos.dat, or"
+                    + " thermal_properties.yaml.");
+        }
+        String name = source.getName();
+        StringBuilder text = new StringBuilder();
+        List<String> csv = new ArrayList<>();
+        csv.add("phonopy,field,value");
+        if (name.equals("band.yaml")) {
+            OperationResult<QEPhonopyBandYaml.BandYaml> parsed =
+                    QEPhonopyBandYaml.parse(source.toPath());
+            if (!parsed.isSuccess() || parsed.getValue().isEmpty()) {
+                return failure(label, "[" + parsed.getCode() + "] " + parsed.getMessage());
+            }
+            QEPhonopyBandYaml.BandYaml yaml = parsed.getValue().orElseThrow();
+            text.append("== phonopy band.yaml inspection ==\n");
+            text.append(yaml.getFrequencyUnitNote()).append("\n\n");
+            text.append(QEPhonopyBandYaml.describe(yaml));
+            csv.add(String.format(Locale.ROOT, "phonopy,nqpoint,%d", yaml.getNqpoint()));
+            csv.add(String.format(Locale.ROOT, "phonopy,parsed_rows,%d",
+                    yaml.getParsedRowCount()));
+            csv.add(String.format(Locale.ROOT, "phonopy,bands,%d", yaml.getBandCount()));
+            csv.add(String.format(Locale.ROOT, "phonopy,f_min,%.10g",
+                    yaml.getMinFrequency()));
+            csv.add(String.format(Locale.ROOT, "phonopy,f_max,%.10g",
+                    yaml.getMaxFrequency()));
+            csv.add(String.format(Locale.ROOT, "phonopy,imaginary_values,%d",
+                    yaml.getNegativeFrequencyCount()));
+            for (int i = 0; i < yaml.getSegments().size(); i++) {
+                QEPhonopyBandYaml.Segment segment = yaml.getSegments().get(i);
+                csv.add(String.format(Locale.ROOT, "phonopy,segment_%d_rows,%d",
+                        i + 1, segment.getRows().size()));
+                if (segment.getStartLabel() != null) {
+                    csv.add(String.format(Locale.ROOT, "phonopy,segment_%d_labels,%s->%s",
+                            i + 1, csvCell(segment.getStartLabel()),
+                            csvCell(segment.getEndLabel() == null
+                                    ? "" : segment.getEndLabel())));
+                }
+            }
+        } else if (name.equals("thermal_properties.yaml")) {
+            OperationResult<QEPhonopyThermalYaml.ThermalYaml> parsed =
+                    QEPhonopyThermalYaml.parse(source.toPath());
+            if (!parsed.isSuccess() || parsed.getValue().isEmpty()) {
+                return failure(label, "[" + parsed.getCode() + "] " + parsed.getMessage());
+            }
+            QEPhonopyThermalYaml.ThermalYaml yaml = parsed.getValue().orElseThrow();
+            text.append("== phonopy thermal_properties.yaml inspection ==\n");
+            text.append(yaml.getMolNote()).append("\n\n");
+            text.append("unit block (verbatim from the file):\n");
+            for (String[] unit : yaml.getUnitLabels()) {
+                text.append("  ").append(unit[0]).append(" -> ").append(unit[1])
+                        .append('\n');
+            }
+            text.append(String.format(Locale.ROOT, "%n%d temperature rows", 
+                    yaml.getRows().size()));
+            if (!yaml.getRows().isEmpty()) {
+                QEPhonopyThermalYaml.ThermalRow first = yaml.getRows().get(0);
+                QEPhonopyThermalYaml.ThermalRow last = yaml.getRows()
+                        .get(yaml.getRows().size() - 1);
+                text.append(String.format(Locale.ROOT,
+                        " (T %.4g .. %.4g K-ish per the file's own unit label)%n",
+                        first.getTemperature(), last.getTemperature()));
+                text.append(String.format(Locale.ROOT,
+                        "endpoints: F %.7g -> %.7g, S %.7g -> %.7g, Cv %.7g -> %.7g%n",
+                        first.getFreeEnergy(), last.getFreeEnergy(), first.getEntropy(),
+                        last.getEntropy(), first.getHeatCapacity(),
+                        last.getHeatCapacity()));
+            }
+            if (yaml.getZeroPointEnergy() != null) {
+                text.append(String.format(Locale.ROOT,
+                        "zero_point_energy (verbatim): %.10g%n",
+                        yaml.getZeroPointEnergy()));
+            }
+            csv.add(String.format(Locale.ROOT, "phonopy,t_rows,%d",
+                    yaml.getRows().size()));
+            csv.add(String.format(Locale.ROOT, "phonopy,partial_held,%d",
+                    yaml.getPartialRowsHeld()));
+        } else {
+            OperationResult<QEPhonopyDos.DosTable> parsed =
+                    QEPhonopyDos.parse(source.toPath());
+            if (!parsed.isSuccess() || parsed.getValue().isEmpty()) {
+                return failure(label, "[" + parsed.getCode() + "] " + parsed.getMessage());
+            }
+            QEPhonopyDos.DosTable table = parsed.getValue().orElseThrow();
+            text.append("== phonopy DOS table inspection (").append(name)
+                    .append(") ==\n");
+            text.append(table.getUnitNote()).append("\n\n");
+            text.append(parsed.getMessage()).append('\n');
+            for (String comment : table.getComments()) {
+                text.append("comment: ").append(comment).append('\n');
+            }
+            double[] peak = table.peakSummary();
+            text.append(String.format(Locale.ROOT,
+                    "peak DOS %.10g at frequency %.10g (across %d series)%n",
+                    peak[0], peak[1], table.getSeriesCount()));
+            csv.add(String.format(Locale.ROOT, "phonopy,dos_rows,%d",
+                    table.getFrequencies().length));
+            csv.add(String.format(Locale.ROOT, "phonopy,dos_series,%d",
+                    table.getSeriesCount()));
+            csv.add(String.format(Locale.ROOT, "phonopy,dos_peak,%.10g", peak[0]));
+            csv.add(String.format(Locale.ROOT, "phonopy,negative_freq_rows,%d",
+                    table.getNegativeFrequencyRows()));
+        }
+        text.append("\nHonesty boundary: a parser-level inspection of one pinned"
+                + " phonopy artifact (upstream writer grammars, commit 3a3e0f09); live"
+                + " partial rows are held back and reported; units are stated from the"
+                + " file or the doc, never inferred; this is not a phonon-quality"
+                + " review.\n");
+        return new AnalysisReport(label, true, text.toString(), csv, null);
     }
 
     /**
