@@ -175,4 +175,43 @@ class QEPhonopyPlanTest {
         assertTrue(plan.getFlowCommands().get(0).contains(
                 "--dim=\"0 1 1 1 0 1 1 1 0\""));
     }
+
+    @Test
+    void testNacEmissionMirrorsDocQeMdFlow() {
+        OperationResult<Plan> result = QEPhonopyPlan.build(new QEPhonopyPlan.Request()
+                .cellFilename("NaCl.in").supercellDim(2, 2, 2)
+                .bandVertex("0", "0", "0").bandVertex("1/2", "1/2", "1/2")
+                .bandLabels("G", "L").nac(true));
+        assertTrue(result.isSuccess(), () -> result.getMessage());
+        Plan plan = result.getValue().orElseThrow();
+        // conf tag pinned to settings.py: confs["nac"] = ".true."
+        assertTrue(plan.getConfText().contains("NAC = .TRUE.\n"), plan.getConfText());
+        // doc/qe.md NAC flow: SCF -> ph.x epsil -> phonopy-qe-born, before post-process
+        assertTrue(plan.getFlowCommands().stream().anyMatch(c
+                -> c.contains("ph.x -i NaCl.ph.in") && c.contains("epsil = .true.")),
+                plan.getFlowCommands().toString());
+        assertTrue(plan.getFlowCommands().stream().anyMatch(c
+                -> c.equals("phonopy-qe-born NaCl.in NaCl.ph.out | tee BORN    # step 4:"
+                + " dielectric + Born charges into the BORN file (upstream helper"
+                + " command); QuantumForge's studio can also BUILD this BORN text from"
+                + " the ph.out (raw values)")),
+                plan.getFlowCommands().toString());
+        String post = plan.getFlowCommands().get(plan.getFlowCommands().size() - 1);
+        assertTrue(post.contains("step 5") && post.startsWith("phonopy --qe -p -s"));
+        // the v4 removal note (verbatim upstream argparse claim) is stated
+        assertTrue(plan.getNotes().stream().anyMatch(n
+                -> n.contains("--nonac") && n.contains("removed in phonopy v4")
+                && n.contains("phonopy.yaml")), plan.getNotes().toString());
+    }
+
+    @Test
+    void testNacOffByDefaultEmitsNothing() {
+        Plan plan = QEPhonopyPlan.build(QEPhonopyPlan.cubicBccPreset())
+                .getValue().orElseThrow();
+        assertTrue(!plan.getConfText().contains("NAC"));
+        assertTrue(plan.getFlowCommands().stream().noneMatch(c -> c.contains("born")));
+        // 1 init + 1 pw + 1 -f + 1 post = 4 steps without NAC
+        assertTrue(plan.getFlowCommands().get(plan.getFlowCommands().size() - 1)
+                .contains("step 4"));
+    }
 }

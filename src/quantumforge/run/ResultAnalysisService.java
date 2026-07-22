@@ -173,6 +173,8 @@ import quantumforge.symmetry.QEBrillouinZoneGeometry;
 import quantumforge.run.parser.QEPwcondConductanceParser;
 import quantumforge.run.parser.QEElateAnalyzer;
 import quantumforge.run.parser.QEPhonopyBandYaml;
+import quantumforge.run.parser.QEPhonopyBorn;
+import quantumforge.run.parser.QEPhonopyForceConstants;
 import quantumforge.run.parser.QEPhonopyDos;
 import quantumforge.run.parser.QEPhonopyThermalYaml;
 import quantumforge.run.parser.QEThermoPwElasticParser;
@@ -1414,7 +1416,9 @@ public final class ResultAnalysisService {
         case PHONOPY_OUTPUT:
             return name.equals("band.yaml") || name.equals("total_dos.dat")
                     || name.equals("partial_dos.dat") || name.equals("projected_dos.dat")
-                    || name.equals("thermal_properties.yaml"); // distinctive pinned names
+                    || name.equals("thermal_properties.yaml")
+                    || name.equals("BORN") || name.equals("FORCE_CONSTANTS");
+                    // distinctive pinned names
         case QE_CARD_AUDIT:
             return false; // manual select only: EVERY pw input is a candidate
         case QE_AUX_DECK_AUDIT:
@@ -3299,8 +3303,8 @@ public final class ResultAnalysisService {
         String label = AnalysisKind.PHONOPY_OUTPUT.getLabel();
         if (source == null || !source.isFile()) {
             return failure(label, "Pick a phonopy artifact: band.yaml, total_dos.dat,"
-                    + " partial_dos.dat, projected_dos.dat, or"
-                    + " thermal_properties.yaml.");
+                    + " partial_dos.dat, projected_dos.dat, thermal_properties.yaml,"
+                    + " BORN, or FORCE_CONSTANTS.");
         }
         String name = source.getName();
         StringBuilder text = new StringBuilder();
@@ -3375,6 +3379,58 @@ public final class ResultAnalysisService {
                     yaml.getRows().size()));
             csv.add(String.format(Locale.ROOT, "phonopy,partial_held,%d",
                     yaml.getPartialRowsHeld()));
+        } else if (name.equals("BORN")) {
+            OperationResult<QEPhonopyBorn.BornFile> parsed =
+                    QEPhonopyBorn.parse(source.toPath());
+            if (!parsed.isSuccess() || parsed.getValue().isEmpty()) {
+                return failure(label, "[" + parsed.getCode() + "] " + parsed.getMessage());
+            }
+            QEPhonopyBorn.BornFile born = parsed.getValue().orElseThrow();
+            text.append("== phonopy BORN (NAC) inspection ==\n");
+            text.append("line 1 (verbatim): ").append(born.getFirstLine()).append('\n');
+            text.append("dielectric [row-major]: ");
+            double[] eps = born.getDielectric();
+            for (int r = 0; r < 3; r++) {
+                text.append(String.format(Locale.ROOT, "%n  %13.6f %13.6f %13.6f",
+                        eps[r * 3], eps[r * 3 + 1], eps[r * 3 + 2]));
+            }
+            text.append(String.format(Locale.ROOT, "%n%d Born effective charge"
+                    + " tensor(s) verbatim (one per SYMMETRY-INDEPENDENT atom of the"
+                    + " primitive cell is phonopy's OWN expectation - its Symmetry"
+                    + " counts, we report)%n", born.getChargeCount()));
+            for (int i = 0; i < born.getCharges().size(); i++) {
+                double[] z = born.getCharges().get(i);
+                text.append(String.format(Locale.ROOT,
+                        "  Z* line %d diag: %13.6f %13.6f %13.6f%n",
+                        i + 1, z[0], z[4], z[8]));
+                csv.add(String.format(Locale.ROOT, "phonopy,born_zstar_%d_diag,%.10g",
+                        i + 1, z[0]));
+            }
+            for (String note : born.getNotes()) {
+                text.append("  - ").append(note).append('\n');
+            }
+            csv.add(String.format(Locale.ROOT, "phonopy,born_charge_tensors,%d",
+                    born.getChargeCount()));
+            csv.add(String.format(Locale.ROOT, "phonopy,born_epsilon_xx,%.10g", eps[0]));
+            csv.add(String.format(Locale.ROOT, "phonopy,born_factor_present,%s",
+                    born.getFactor().isPresent() ? "yes" : "no(default)"));
+        } else if (name.equals("FORCE_CONSTANTS")) {
+            OperationResult<QEPhonopyForceConstants.ForceConstants> parsed =
+                    QEPhonopyForceConstants.parse(source.toPath());
+            if (!parsed.isSuccess() || parsed.getValue().isEmpty()) {
+                return failure(label, "[" + parsed.getCode() + "] " + parsed.getMessage());
+            }
+            QEPhonopyForceConstants.ForceConstants fc = parsed.getValue().orElseThrow();
+            text.append("== phonopy FORCE_CONSTANTS inspection ==\n");
+            text.append(QEPhonopyForceConstants.describe(fc)).append('\n');
+            csv.add(String.format(Locale.ROOT, "phonopy,fc_dim_i,%d", fc.getDimI()));
+            csv.add(String.format(Locale.ROOT, "phonopy,fc_dim_j,%d", fc.getDimJ()));
+            csv.add(String.format(Locale.ROOT, "phonopy,fc_blocks_parsed,%d",
+                    fc.getCells().size()));
+            csv.add(String.format(Locale.ROOT, "phonopy,fc_distinct_first_tokens,%d",
+                    fc.getDistinctFirstIndices()));
+            csv.add(String.format(Locale.ROOT, "phonopy,fc_max_abs_element,%.10g",
+                    fc.getMaxAbsElement()));
         } else {
             OperationResult<QEPhonopyDos.DosTable> parsed =
                     QEPhonopyDos.parse(source.toPath());

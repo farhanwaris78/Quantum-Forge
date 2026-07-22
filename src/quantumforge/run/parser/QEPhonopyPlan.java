@@ -35,6 +35,11 @@ import quantumforge.operation.OperationResult;
  *       summary yaml then feeds the user's own
  *       {@code phonopy-load --band "..." --band_labels "..." --band_connection
  *       -p} flow.</li>
+ *   <li>the NAC machinery (batch 169): {@code NAC = .TRUE.} conf tag
+ *       (settings.py), the doc/qe.md BORN flow (pw.x SCF &rarr; ph.x epsil
+ *       &rarr; {@code phonopy-qe-born ... | tee BORN}), and the v4 argparse
+ *       removal note for {@code --nac} (verbatim from phonopy_argparse.py;
+ *       {@code --nonac} disables, BORN-in-cwd activates automatically).</li>
  * </ul>
  *
  * <p>What is NOT here, deliberately: QuantumForge does not bundle phonopy
@@ -77,6 +82,7 @@ public final class QEPhonopyPlan {
         private double tmin = 0.0;
         private double tmax = 1000.0;
         private double tstep = 10.0;
+        private boolean nac;
 
         /** Unit-cell input file phonopy reads (QE pw input name). */
         public Request cellFilename(String name) {
@@ -157,6 +163,17 @@ public final class QEPhonopyPlan {
             this.tmin = tmin;
             this.tmax = tmax;
             this.tstep = tstep;
+            return this;
+        }
+
+        /**
+         * Non-analytical term correction (LO-TO splitting via a BORN file).
+         * True emits {@code NAC = .TRUE.} into the conf (pinned: settings.py
+         * line 'confs["nac"] = ".true."') and adds the doc/qe.md NAC run
+         * steps (pw.x SCF -&gt; ph.x with epsil -&gt; phonopy-qe-born).
+         */
+        public Request nac(boolean enable) {
+            this.nac = enable;
             return this;
         }
     }
@@ -384,6 +401,9 @@ public final class QEPhonopyPlan {
             conf.append(String.format(Locale.ROOT, "TSTEP = %s%n",
                     formatNumber(request.tstep)));
         }
+        if (request.nac) {
+            conf.append("NAC = .TRUE.\n");
+        }
 
         // ---- flow commands (doc/qe.md, verbatim shape) ----
         List<String> flow = new ArrayList<>();
@@ -394,11 +414,29 @@ public final class QEPhonopyPlan {
                 + "    # step 2: forces are measured by QE, not guessed");
         flow.add("phonopy-init -f disp-001.out disp-002.out ..."
                 + "    # step 3: FORCE_SETS (needs phonopy_disp.yaml beside it)");
+        int step = 4;
+        if (request.nac) {
+            // doc/qe.md 'Non-analytical term correction (Optional)', verbatim shape
+            String stem = cell.replaceAll("\\.in$", "");
+            flow.add("(BORN/NAC step A: SCF on the UNIT cell with a denser k mesh -"
+                    + " 'pw.x -i " + stem + ".in |& tee " + stem + ".out'; doc/qe.md"
+                    + " carries the verbatim NaCl.in example)");
+            flow.add("(BORN/NAC step B: write '" + stem + ".ph.in' as   &inputph /"
+                    + " tr2_ph = 1.0d-14, epsil = .true. / 0 0 0   then"
+                    + " 'ph.x -i " + stem + ".ph.in |& tee " + stem + ".ph.out'"
+                    + " - exact template from doc/qe.md)");
+            flow.add("phonopy-qe-born " + stem + ".in " + stem + ".ph.out | tee BORN"
+                    + "    # step " + step + ": dielectric + Born charges into the"
+                    + " BORN file (upstream helper command); QuantumForge's studio"
+                    + " can also BUILD this BORN text from the ph.out (raw values)");
+            step++;
+        }
         StringBuilder post = new StringBuilder("phonopy --qe -p -s --config ")
                 .append(confName);
         flow.add(post.toString()
-                + "    # step 4: post-process (-p plots, -s writes band.yaml /"
-                + " total_dos.dat / projected_dos.dat / thermal_properties.yaml)");
+                + "    # step " + step + ": post-process (-p plots, -s writes"
+                + " band.yaml / total_dos.dat / projected_dos.dat /"
+                + " thermal_properties.yaml)");
 
         // ---- phonopy-load one-liner (the user's own command #4 shape) ----
         List<String> load = new ArrayList<>();
@@ -451,6 +489,20 @@ public final class QEPhonopyPlan {
             notes.add("BAND kept connected segments (" + (vertices.size() - 1)
                     + " segments sharing " + vertices.size() + " vertices) - the shape"
                     + " your own phonopy-load command encodes");
+        }
+        if (request.nac) {
+            notes.add("NAC = .TRUE. emitted + BORN steps above; HOW NAC activates is"
+                    + " version-sensitive, stated not hidden: doc/qe.md still says"
+                    + " 'just adding the --nac option', but upstream REMOVED --nac in"
+                    + " phonopy v4 - its own argparse message reads: '--nac was"
+                    + " removed in phonopy v4. NAC is now enabled automatically when"
+                    + " a BORN file is present or nac_params are stored in"
+                    + " phonopy.yaml. Use --nonac to disable NAC.' So on v4 the BORN"
+                    + " file next to the conf is ENOUGH (load.py: 'BORN is searched"
+                    + " in the current directory when is_nac=True', default True -"
+                    + " the doc's own run prints: NAC params were read from"
+                    + " \"BORN\".); on pre-v4 installs append --nac to the"
+                    + " post-process command. Check 'phonopy --version' first");
         }
 
         Plan plan = new Plan(conf.toString(), List.copyOf(flow), List.copyOf(load),

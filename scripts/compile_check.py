@@ -1155,6 +1155,50 @@ def main() -> int:
             or not (ROOT / "tests/java/quantumforge/run/parser/QEPhonopyPlanTest.java").is_file():
         error("batch-168 phonopy tests missing")
 
+    # --- batch 169: phonopy NAC closure (BORN + ph.x extraction + FORCE_CONSTANTS) ---
+    phBornText = (SRC / "quantumforge/run/parser/QEPhonopyBorn.java").read_text(encoding="utf-8")
+    for needle in ("PHONOPY_BORN_INPUT", "PHONOPY_BORN_HEADER", "PHONOPY_BORN_EMPTY",
+                   "PHONOPY_BORN_SHAPE", "PHONOPY_BORN_OK",
+                   "default value", "symmetry-independent atoms", "bornText",
+                   "3a3e0f099da5de2556e75d72ea89b3bb22c8e97e"):
+        if needle not in phBornText:
+            error("QEPhonopyBorn lost the batch-169 BORN grammar: " + needle)
+    phQeBornText = (SRC / "quantumforge/run/parser/QEPhonopyQeBorn.java").read_text(encoding="utf-8")
+    for needle in ("PHONOPY_QEBORN_INPUT", "PHONOPY_QEBORN_NATOM",
+                   "PHONOPY_QEBORN_HEADER", "PHONOPY_QEBORN_SHAPE", "PHONOPY_QEBORN_OK",
+                   "Dielectric constant in cartesian axis", "without acoustic",
+                   "LAST-BLOCK-WINS", "parse_ph_out", "symmetrize_tensors"):
+        if needle not in phQeBornText:
+            error("QEPhonopyQeBorn lost the batch-169 ph.x extraction grammar: " + needle)
+    phFcText = (SRC / "quantumforge/run/parser/QEPhonopyForceConstants.java").read_text(encoding="utf-8")
+    for needle in ("PHONOPY_FC_INPUT", "PHONOPY_FC_EMPTY", "PHONOPY_FC_PARTIAL",
+                   "PHONOPY_FC_SHAPE", "PHONOPY_FC_OK",
+                   "%4d %4d", "check_force_constants_indices", "p2s_map",
+                   "MAX_CELLS", "describe("):
+        if needle not in phFcText:
+            error("QEPhonopyForceConstants lost the batch-169 FC grammar: " + needle)
+    phPlanText169 = (SRC / "quantumforge/run/parser/QEPhonopyPlan.java").read_text(encoding="utf-8")
+    for needle in ("NAC = .TRUE.", "phonopy-qe-born", "--nonac",
+                   "removed in phonopy v4", "epsil = .true.",
+                   "public Request nac(boolean enable)"):
+        if needle not in phPlanText169:
+            error("QEPhonopyPlan lost the batch-169 NAC extension: " + needle)
+    phDialogText169 = (SRC / "quantumforge/app/project/viewer/phonopy/QEFXPhonopyDialog.java").read_text(encoding="utf-8")
+    for needle in ("Extract BORN from a ph.x output", "NAC (BORN file: LO-TO correction)",
+                   "saveBorn", "drawForceConstants", "drawTextCard",
+                   "currentQeBorn", "FORCE_CONSTANTS", "bornPreview"):
+        if needle not in phDialogText169:
+            error("QEFXPhonopyDialog lost the batch-169 NAC/FC studio: " + needle)
+    if "QEPhonopyBorn.parse" not in rasText \
+            or "QEPhonopyForceConstants.parse" not in rasText \
+            or "phonopy,born_charge_tensors" not in rasText \
+            or "phonopy,fc_blocks_parsed" not in rasText:
+        error("ResultAnalysisService lost the batch-169 BORN/FORCE_CONSTANTS routing")
+    if not (ROOT / "tests/java/quantumforge/run/parser/QEPhonopyBornTest.java").is_file() \
+            or not (ROOT / "tests/java/quantumforge/run/parser/QEPhonopyQeBornTest.java").is_file() \
+            or not (ROOT / "tests/java/quantumforge/run/parser/QEPhonopyForceConstantsTest.java").is_file():
+        error("batch-169 BORN/qe-born/FORCE_CONSTANTS tests missing")
+
     cap = (SRC / "quantumforge/capability/CapabilityRegistry.java").read_text(encoding="utf-8")
     if "Strict known_hosts" not in cap:
         error("CapabilityRegistry SSH status not updated")

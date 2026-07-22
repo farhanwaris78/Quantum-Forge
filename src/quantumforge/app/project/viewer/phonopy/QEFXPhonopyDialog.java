@@ -42,6 +42,9 @@ import quantumforge.com.math.ChartGeometry;
 import quantumforge.operation.OperationResult;
 import quantumforge.run.parser.QEPhonopyBandYaml;
 import quantumforge.run.parser.QEPhonopyBandYaml.BandYaml;
+import quantumforge.run.parser.QEPhonopyBorn;
+import quantumforge.run.parser.QEPhonopyForceConstants;
+import quantumforge.run.parser.QEPhonopyQeBorn;
 import quantumforge.run.parser.QEPhonopyBandYaml.QRow;
 import quantumforge.run.parser.QEPhonopyBandYaml.Segment;
 import quantumforge.run.parser.QEPhonopyDos;
@@ -64,18 +67,27 @@ import quantumforge.run.parser.QEPhonopyThermalYaml.ThermalYaml;
  * re-parses only changed files; the parsers' last-line partial-hold rule
  * keeps a mid-write row off screen (and SAYS how many rows are held back);
  * a file that has not landed yet renders an explicit "waiting" state, never
- * a fake flat line. {@code band.hdf5} / {@code mesh.hdf5} /
- * {@code phonopy.yaml} / {@code FORCE_SETS} are NAMED as present/absent
+ * a fake flat line. {@code FORCE_CONSTANTS} (tensor census card) and
+ * {@code BORN} (NAC card: dielectric + Z* verbatim, batch 169) are parsed
+ * the moment they land too; {@code band.hdf5} / {@code mesh.hdf5} /
+ * {@code phonopy.yaml} / {@code FORCE_SETS} stay NAMED as present/absent
  * (binary/input artifacts are enumerated, not parsed). The timer always
  * stops when the dialog closes.</p>
  *
  * <p><b>OPEN</b> - chart one finished artifact picked explicitly
- * (band.yaml / any DOS table / thermal_properties.yaml).</p>
+ * (band.yaml / any DOS table / thermal_properties.yaml / BORN /
+ * FORCE_CONSTANTS), or EXTRACT a BORN file from a {@code ph.x} output of an
+ * {@code epsil = .true.} run (the raw half of upstream's
+ * {@code phonopy-qe-born}, nat from the pw input asserted against the ph.x
+ * print; RAW values, NOT symmetrized - stated on the card) with a
+ * consent-gated one-file BORN save.</p>
  *
  * <p><b>BUILD</b> - fill-in phonopy settings (DIM, band path with labels,
- * band_connection, BAND_POINTS, MESH, DOS/PDOS, TPROP range) and preview
- * the verbatim conf text plus the four-step QE&rarr;phonopy run flow (per
- * doc/qe.md) and the user's own {@code phonopy-load --band "..."
+ * band_connection, BAND_POINTS, MESH, DOS/PDOS, TPROP range, NAC toggle)
+ * and preview the verbatim conf text plus the QE&rarr;phonopy run flow (per
+ * doc/qe.md, with the doc's own pw.x &rarr; ph.x &rarr; phonopy-qe-born BORN
+ * steps when NAC is on, and the v4 {@code --nac} removal note stated) and
+ * the user's own {@code phonopy-load --band "..."}
  * --band_labels "..." --band_connection -p} one-liner. Copy, or save the
  * conf into a chosen folder (explicit consent, one file). QuantumForge does
  * not bundle phonopy: this card PREVIEWS commands, never executes them.</p>
@@ -85,16 +97,16 @@ import quantumforge.run.parser.QEPhonopyThermalYaml.ThermalYaml;
  * from the file's own unit: block (thermal yaml). Imaginary modes (negative
  * frequencies) are named on the chart, never hidden. The viewer reads only
  * through the tested parsers; it writes nothing except the BUILD card's
- * explicitly consented conf file.</p>
+ * explicitly consented conf file and the OPEN card's consented BORN file.</p>
  */
 public final class QEFXPhonopyDialog extends Dialog<Void> {
 
     private static final String[] WATCHED = {
             "band.yaml", "total_dos.dat", "partial_dos.dat", "projected_dos.dat",
-            "thermal_properties.yaml"};
+            "thermal_properties.yaml", "FORCE_CONSTANTS", "BORN"};
     private static final String[] ENUMERATED = {
             "band.hdf5", "mesh.hdf5", "qpoints.hdf5", "phonopy.yaml",
-            "phonopy_disp.yaml", "FORCE_SETS", "FORCE_CONSTANTS", "BORN"};
+            "phonopy_disp.yaml", "FORCE_SETS"};
 
     // ---------- WATCH (live) ----------
     private final Label dirLabel = new Label("(no run directory chosen)");
@@ -110,6 +122,8 @@ public final class QEFXPhonopyDialog extends Dialog<Void> {
 
     // ---------- OPEN ----------
     private final Label openLabel = new Label("(no file picked)");
+    private final TextArea bornPreview = new TextArea();
+    private QEPhonopyQeBorn.QeBornExtract currentQeBorn;
 
     // ---------- shared chart ----------
     private final Canvas canvas = new Canvas(760, 480);
@@ -131,6 +145,8 @@ public final class QEFXPhonopyDialog extends Dialog<Void> {
     private final TextField meshField = new TextField("8 8 8");
     private final TextField pdosField = new TextField();
     private final CheckBox tpropBox = new CheckBox("TPROP");
+    private final CheckBox nacBox = new CheckBox(
+            "NAC (BORN file: LO-TO correction)");
     private final TextField tminField = new TextField("0");
     private final TextField tmaxField = new TextField("1000");
     private final TextField tstepField = new TextField("10");
@@ -199,7 +215,7 @@ public final class QEFXPhonopyDialog extends Dialog<Void> {
                 + " total_dos.dat, partial_dos.dat, projected_dos.dat,"
                 + " thermal_properties.yaml. Enumerated only: band.hdf5,"
                 + " mesh.hdf5, phonopy.yaml, phonopy_disp.yaml, FORCE_SETS,"
-                + " FORCE_CONSTANTS, BORN.");
+                + " FORCE_SETS.");
         help.setWrapText(true);
         this.statusLabel.setWrapText(true);
         this.heldLabel.setWrapText(true);
@@ -312,6 +328,25 @@ public final class QEFXPhonopyDialog extends Dialog<Void> {
                 this.refusalCache.put(name, "[" + result.getCode() + "] "
                         + result.getMessage());
             }
+        } else if ("BORN".equals(name)) {
+            OperationResult<QEPhonopyBorn.BornFile> result = QEPhonopyBorn.parse(file);
+            if (result.isSuccess() && result.getValue().isPresent()) {
+                this.artifactCache.put(name, result.getValue().orElseThrow());
+                this.refusalCache.remove(name);
+            } else {
+                this.refusalCache.put(name, "[" + result.getCode() + "] "
+                        + result.getMessage());
+            }
+        } else if ("FORCE_CONSTANTS".equals(name)) {
+            OperationResult<QEPhonopyForceConstants.ForceConstants> result =
+                    QEPhonopyForceConstants.parse(file);
+            if (result.isSuccess() && result.getValue().isPresent()) {
+                this.artifactCache.put(name, result.getValue().orElseThrow());
+                this.refusalCache.remove(name);
+            } else {
+                this.refusalCache.put(name, "[" + result.getCode() + "] "
+                        + result.getMessage());
+            }
         } else {
             OperationResult<DosTable> result = QEPhonopyDos.parse(file);
             if (result.isSuccess() && result.getValue().isPresent()) {
@@ -371,8 +406,29 @@ public final class QEFXPhonopyDialog extends Dialog<Void> {
         dosButton.setMaxWidth(Double.MAX_VALUE);
         Button tpropButton = new Button("Open thermal_properties.yaml ...");
         tpropButton.setMaxWidth(Double.MAX_VALUE);
+        Button bornButton = new Button("Open BORN (NAC) ...");
+        bornButton.setMaxWidth(Double.MAX_VALUE);
+        Button fcButton = new Button("Open FORCE_CONSTANTS ...");
+        fcButton.setMaxWidth(Double.MAX_VALUE);
+        TextField natomField = new TextField();
+        natomField.setPromptText("nat from the pw input (phonopy-qe-born's check)");
+        natomField.setPrefColumnCount(6);
+        Button qebornButton = new Button(
+                "Extract BORN from a ph.x output (epsil run) ...");
+        qebornButton.setMaxWidth(Double.MAX_VALUE);
+        this.bornPreview.setEditable(false);
+        this.bornPreview.setPrefRowCount(6);
+        Button saveBorn = new Button("Save the preview as BORN (a folder I choose) ...");
+        saveBorn.setMaxWidth(Double.MAX_VALUE);
         this.openLabel.setWrapText(true);
-        VBox pane = new VBox(8, bandButton, dosButton, tpropButton, this.openLabel);
+        VBox pane = new VBox(8, bandButton, dosButton, tpropButton,
+                new HBox(8, bornButton, fcButton),
+                new HBox(8, new Label("nat:"), natomField, qebornButton),
+                new Label("BORN PREVIEW (raw values, NOT symmetrized - upstream's"
+                        + " phonopy-qe-born symmetrizes by default):"),
+                this.bornPreview,
+                saveBorn,
+                this.openLabel);
         pane.setPadding(new Insets(8));
         bandButton.setOnAction(e -> {
             File picked = pickFile("band.yaml");
@@ -424,7 +480,103 @@ public final class QEFXPhonopyDialog extends Dialog<Void> {
                 }
             }
         });
+        bornButton.setOnAction(e -> {
+            File picked = pickFile("BORN");
+            if (picked != null) {
+                OperationResult<QEPhonopyBorn.BornFile> result =
+                        QEPhonopyBorn.parse(picked.toPath());
+                if (result.isSuccess() && result.getValue().isPresent()) {
+                    this.currentProduct = result.getValue().orElseThrow();
+                    this.currentKind = "BORN";
+                    this.openLabel.setText(picked.getAbsolutePath()
+                            + "\n[" + result.getCode() + "] " + result.getMessage());
+                    redraw();
+                } else {
+                    this.openLabel.setText("[" + result.getCode() + "] "
+                            + result.getMessage());
+                }
+            }
+        });
+        fcButton.setOnAction(e -> {
+            File picked = pickFile("FORCE_CONSTANTS");
+            if (picked != null) {
+                OperationResult<QEPhonopyForceConstants.ForceConstants> result =
+                        QEPhonopyForceConstants.parse(picked.toPath());
+                if (result.isSuccess() && result.getValue().isPresent()) {
+                    this.currentProduct = result.getValue().orElseThrow();
+                    this.currentKind = "FORCE_CONSTANTS";
+                    this.openLabel.setText(picked.getAbsolutePath()
+                            + "\n[" + result.getCode() + "] " + result.getMessage());
+                    redraw();
+                } else {
+                    this.openLabel.setText("[" + result.getCode() + "] "
+                            + result.getMessage());
+                }
+            }
+        });
+        qebornButton.setOnAction(e -> {
+            File picked = pickFile("ph.x output of an epsil=.true. run");
+            if (picked == null) {
+                return;
+            }
+            int natom;
+            try {
+                natom = Integer.parseInt(natomField.getText().trim());
+            } catch (NumberFormatException ex) {
+                this.openLabel.setText("nat must be a plain integer (from the pw"
+                        + " input's nat card) - upstream's phonopy-qe-born takes the"
+                        + " same count from the pw input and asserts against the"
+                        + " ph.x print.");
+                return;
+            }
+            OperationResult<QEPhonopyQeBorn.QeBornExtract> result =
+                    QEPhonopyQeBorn.parse(picked.toPath(), natom);
+            if (result.isSuccess() && result.getValue().isPresent()) {
+                this.currentQeBorn = result.getValue().orElseThrow();
+                this.bornPreview.setText(this.currentQeBorn.toBornText());
+                StringBuilder notes = new StringBuilder(picked.getAbsolutePath());
+                notes.append("\n[").append(result.getCode()).append("] ")
+                        .append(result.getMessage());
+                for (String note : this.currentQeBorn.getNotes()) {
+                    notes.append("\n- ").append(note);
+                }
+                this.openLabel.setText(notes.toString());
+            } else {
+                this.currentQeBorn = null;
+                this.bornPreview.setText("");
+                this.openLabel.setText("[" + result.getCode() + "] "
+                        + result.getMessage());
+            }
+        });
+        saveBorn.setOnAction(e -> saveBorn());
         return pane;
+    }
+
+    /** Consent-gated single-file write of the BORN preview. Nothing else is written. */
+    private void saveBorn() {
+        if (this.currentQeBorn == null || this.bornPreview.getText().isBlank()) {
+            this.openLabel.setText("nothing to save: extract a ph.x output first.");
+            return;
+        }
+        DirectoryChooser chooser = new DirectoryChooser();
+        chooser.setTitle("Choose the folder for the BORN file");
+        File dir = chooser.showDialog(getOwner());
+        if (dir == null) {
+            this.openLabel.setText("BORN save cancelled - nothing was written.");
+            return;
+        }
+        File target = new File(dir, "BORN");
+        try {
+            Files.writeString(target.toPath(), this.bornPreview.getText());
+            this.openLabel.setText("WROTE " + target.getAbsolutePath()
+                    + " - exactly ONE file, with your folder consent. phonopy v4"
+                    + " picks it up automatically from the run directory"
+                    + " ('NAC params were read from \"BORN\".' in the doc's own"
+                    + " log); pre-v4 needs --nac on the post-process command.");
+        } catch (IOException ex) {
+            this.openLabel.setText("BORN save FAILED: " + ex.getMessage()
+                    + " (nothing else was touched)");
+        }
     }
 
     private File pickFile(String description) {
@@ -475,6 +627,7 @@ public final class QEFXPhonopyDialog extends Dialog<Void> {
                 new HBox(8, this.tpropBox, new Label("TMIN"), this.tminField,
                         new Label("TMAX"), this.tmaxField,
                         new Label("TSTEP"), this.tstepField),
+                new HBox(8, this.nacBox),
                 build, doctrine,
                 new Label("setting-file PREVIEW (verbatim phonopy tag grammar):"),
                 this.confPreview,
@@ -625,6 +778,7 @@ public final class QEFXPhonopyDialog extends Dialog<Void> {
                 request.tprop(0, -1, 0); // enumerated by the builder
             }
         }
+        request.nac(this.nacBox.isSelected());
         OperationResult<QEPhonopyPlan.Plan> result = QEPhonopyPlan.build(request);
         if (!result.isSuccess() || result.getValue().isEmpty()) {
             this.currentPlan = null;
@@ -674,9 +828,80 @@ public final class QEFXPhonopyDialog extends Dialog<Void> {
             drawDos((DosTable) product);
         } else if (product instanceof ThermalYaml) {
             drawThermal((ThermalYaml) product);
+        } else if (product instanceof QEPhonopyBorn.BornFile) {
+            drawBorn((QEPhonopyBorn.BornFile) product);
+        } else if (product instanceof QEPhonopyForceConstants.ForceConstants) {
+            drawForceConstants((QEPhonopyForceConstants.ForceConstants) product);
         } else {
             redrawEmpty("no chartable product selected.");
         }
+    }
+
+    private void drawBorn(QEPhonopyBorn.BornFile born) {
+        List<String> lines = new ArrayList<>();
+        lines.add("line 1 (verbatim): " + born.getFirstLine());
+        lines.add("factor: " + (born.getFactor().isPresent()
+                ? born.getFactor().orElseThrow().toString()
+                + (born.getGCutoff().isPresent()
+                        ? "  G_cutoff=" + born.getGCutoff().orElseThrow() : "")
+                + (born.getLambda().isPresent()
+                        ? "  Lambda=" + born.getLambda().orElseThrow() : "")
+                : "(phonopy calculator default - line 1 is not a float, exactly"
+                        + " how upstream reads it)"));
+        double[] eps = born.getDielectric();
+        lines.add(String.format(Locale.ROOT,
+                "dielectric: [ %.6f %.6f %.6f ][ %.6f %.6f %.6f ][ %.6f %.6f %.6f ]",
+                eps[0], eps[1], eps[2], eps[3], eps[4], eps[5], eps[6], eps[7],
+                eps[8]));
+        lines.add("Born charge tensors: " + born.getChargeCount()
+                + " (one per symmetry-independent atom of the primitive cell is"
+                + " phonopy's OWN expectation - it counts via its Symmetry, we"
+                + " report verbatim)");
+        for (int i = 0; i < born.getCharges().size(); i++) {
+            double[] z = born.getCharges().get(i);
+            lines.add(String.format(Locale.ROOT,
+                    "Z*[atom line %d]: diag %.6f %.6f %.6f",
+                    i + 1, z[0], z[4], z[8]));
+        }
+        if (born.getPartialLinesHeld() > 0) {
+            lines.add(born.getPartialLinesHeld()
+                    + " trailing partial line held (live write)");
+        }
+        for (String note : born.getNotes()) {
+            lines.add("- " + note);
+        }
+        drawTextCard("BORN (non-analytical term correction; THz frequencies get"
+                + " LO-TO splitting when phonopy reads this file)", lines);
+    }
+
+    private void drawForceConstants(QEPhonopyForceConstants.ForceConstants fc) {
+        List<String> lines = new ArrayList<>();
+        for (String line : QEPhonopyForceConstants.describe(fc).split("\n")) {
+            lines.add(line);
+        }
+        drawTextCard("FORCE_CONSTANTS " + fc.getDimI() + " x " + fc.getDimJ()
+                + " (tensor census; written by phonopy --writefc, consumed by"
+                + " --readfc / phonopy-load)", lines);
+    }
+
+    /** Text-card renderer for tensor artifacts (no curve would be honest). */
+    private void drawTextCard(String title, List<String> lines) {
+        GraphicsContext gc = this.canvas.getGraphicsContext2D();
+        gc.setFill(Color.WHITE);
+        gc.fillRect(0, 0, this.canvas.getWidth(), this.canvas.getHeight());
+        gc.setFill(Color.DARKSLATEBLUE);
+        gc.fillText(title, 20, 26);
+        gc.setFill(Color.BLACK);
+        int y = 52;
+        for (String line : lines) {
+            if (y > this.canvas.getHeight() - 14) {
+                gc.fillText("... (card truncated to canvas)", 20, y);
+                break;
+            }
+            gc.fillText(line, 20, y);
+            y += 16;
+        }
+        this.chartCaption.setText(title);
     }
 
     private void drawBand(BandYaml yaml) {
