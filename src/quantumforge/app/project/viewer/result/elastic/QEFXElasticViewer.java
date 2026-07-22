@@ -5,12 +5,12 @@
 package quantumforge.app.project.viewer.result.elastic;
 
 import quantumforge.app.project.QEFXProjectController;
-import quantumforge.app.project.viewer.result.QEFXResultViewer;
+import quantumforge.app.project.viewer.result.graph.QEFXGraphViewer;
 import quantumforge.project.Project;
 
-public class QEFXElasticViewer extends QEFXResultViewer<QEFXElasticViewerController> {
+public class QEFXElasticViewer extends QEFXGraphViewer<QEFXElasticViewerController> {
 
     public QEFXElasticViewer(QEFXProjectController projectController, Project project) {
-        super("QEFXGraphViewer.fxml", new QEFXElasticViewerController(projectController), projectController, project);
+        super(new QEFXElasticViewerController(projectController), projectController, project);
     }
 }

@@ -4,6 +4,9 @@
 
 package quantumforge.app.project.editor.input.convergence;
 
+import java.net.URL;
+import java.util.ResourceBundle;
+
 import javafx.fxml.FXML;
 import javafx.scene.control.Button;
 import javafx.scene.control.ComboBox;
@@ -37,7 +40,7 @@ public class QEFXConvergenceController extends QEFXInputController {
     }
 
     @Override
-    protected void setupFXComponents() {
+    public void initialize(URL location, ResourceBundle resources) {
         if (parameterCombo != null) {
             parameterCombo.getItems().addAll("ecutwfc", "ecutrho", "k-points", "degauss");
             parameterCombo.setValue("ecutwfc");
