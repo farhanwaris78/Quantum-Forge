@@ -4,13 +4,14 @@
 
 package quantumforge.app.project.viewer.result.elastic;
 
+import java.io.IOException;
+
 import quantumforge.app.project.QEFXProjectController;
-import quantumforge.app.project.viewer.result.QEFXResultViewer;
-import quantumforge.project.Project;
+import quantumforge.app.project.viewer.result.graph.QEFXGraphViewer;
 
-public class QEFXElasticViewer extends QEFXResultViewer<QEFXElasticViewerController> {
+public class QEFXElasticViewer extends QEFXGraphViewer<QEFXElasticViewerController> {
 
-    public QEFXElasticViewer(QEFXProjectController projectController, Project project) {
-        super("QEFXGraphViewer.fxml", new QEFXElasticViewerController(projectController), projectController, project);
+    public QEFXElasticViewer(QEFXProjectController projectController) throws IOException {
+        super(new QEFXElasticViewerController(projectController));
     }
 }

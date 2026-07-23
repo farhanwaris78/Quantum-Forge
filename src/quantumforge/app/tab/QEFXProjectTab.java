@@ -229,10 +229,6 @@ public class QEFXProjectTab extends QEFXTab<Project> {
 
         return false;
     }
-    public void setProjectController(QEFXProjectController controller) {
-        this.projectController = controller;
-    }
-
     public QEFXProjectController getProjectController() {
         return this.projectController;
     }

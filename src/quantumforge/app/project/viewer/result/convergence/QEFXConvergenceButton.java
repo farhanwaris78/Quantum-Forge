@@ -4,39 +4,48 @@
 
 package quantumforge.app.project.viewer.result.convergence;
 
+import java.io.IOException;
+
 import quantumforge.app.project.QEFXProjectController;
+import quantumforge.app.project.editor.result.convergence.QEFXConvergenceEditor;
 import quantumforge.app.project.viewer.result.QEFXResultButton;
 import quantumforge.app.project.viewer.result.QEFXResultButtonWrapper;
-import quantumforge.com.graphic.svg.SVGLibrary.SVGData;
 import quantumforge.project.Project;
 
-public class QEFXConvergenceButton extends QEFXResultButton<QEFXConvergenceViewer, QEFXConvergenceViewerController> {
+public class QEFXConvergenceButton extends QEFXResultButton<QEFXConvergenceViewer, QEFXConvergenceEditor> {
+
+    private static final String BUTTON_TITLE = "Convergence";
+    private static final String BUTTON_SUBTITLE = null;
+    private static final String BUTTON_BACKGROUND = "-fx-background-color: derive(lightslategrey, -55.0%)";
 
     public static QEFXResultButtonWrapper<QEFXConvergenceButton> getWrapper(QEFXProjectController projectController, Project project) {
-        return new QEFXResultButtonWrapper<QEFXConvergenceButton>() {
-            @Override
-            public QEFXConvergenceButton getInstance() {
-                return new QEFXConvergenceButton(projectController, project);
-            }
-        };
+        if (projectController == null) {
+            return null;
+        }
+        return () -> new QEFXConvergenceButton(projectController, project);
     }
 
     public QEFXConvergenceButton(QEFXProjectController projectController, Project project) {
-        super(projectController, project);
+        super(projectController, BUTTON_TITLE, BUTTON_SUBTITLE);
+        this.setIconStyle(BUTTON_BACKGROUND);
     }
 
     @Override
-    protected String createText() {
-        return "Convergence";
+    protected QEFXConvergenceViewer createResultViewer() throws IOException {
+        if (this.projectController == null) {
+            return null;
+        }
+        return new QEFXConvergenceViewer(this.projectController);
     }
 
     @Override
-    protected SVGData createSVGData() {
-        return SVGData.ARROW_ROUND;
-    }
-
-    @Override
-    protected QEFXConvergenceViewer createViewer() {
-        return new QEFXConvergenceViewer(this.projectController, this.project);
+    protected QEFXConvergenceEditor createResultEditor(QEFXConvergenceViewer resultViewer) throws IOException {
+        if (resultViewer == null) {
+            return null;
+        }
+        if (this.projectController == null) {
+            return null;
+        }
+        return new QEFXConvergenceEditor(this.projectController, resultViewer);
     }
 }

@@ -419,7 +419,10 @@ public final class CifStructureReader {
         int iLabel = indexOfIgnoreCase(headers, "_atom_site_label");
         int iType = indexOfIgnoreCase(headers, "_atom_site_type_symbol");
         int iOcc = indexOfIgnoreCase(headers, "_atom_site_occupancy");
-        for (String[] row : rows == null ? new String[0][] : rows) {
+        if (rows == null) {
+            return null;
+        }
+        for (String[] row : rows) {
             if (builder.atoms.size() >= MAX_ATOMS) {
                 return "The coordinate loop exceeds the " + MAX_ATOMS
                         + "-atom review bound.";
