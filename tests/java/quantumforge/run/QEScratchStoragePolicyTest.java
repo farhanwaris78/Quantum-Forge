@@ -47,7 +47,7 @@ class QEScratchStoragePolicyTest {
     }
 
     @Test
-    void testEstimateScratchSizeGeneratesReasonableValues() {
+    void testEstimateScratchSizeGeneratesReasonableValues() throws Exception {
         QEScratchStoragePolicy policy = new QEScratchStoragePolicy();
         Cell cell = new Cell(Matrix3D.unit(10.0)); // 1000 Bohr^3 volume
         MockQEInput input = new MockQEInput();

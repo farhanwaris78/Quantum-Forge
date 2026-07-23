@@ -35,7 +35,7 @@ class QEBerryPolarizationParserTest {
     }
 
     @Test
-    void testCalculatePolarizationQuantumSIForCubicCell() {
+    void testCalculatePolarizationQuantumSIForCubicCell() throws Exception {
         QEBerryPolarizationParser parser = new QEBerryPolarizationParser(new ProjectProperty());
         Cell cell = new Cell(Matrix3D.unit(4.0)); // 4x4x4 Angstrom cubic cell (volume = 64)
 

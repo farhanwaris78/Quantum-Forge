@@ -37,7 +37,7 @@ class QEEsmAuditorTest {
     }
 
     @Test
-    void readyEsmSlabCarriesVerbatimKeywordsAndHonestGeometry() {
+    void readyEsmSlabCarriesVerbatimKeywordsAndHonestGeometry() throws Exception {
         QESCFInput input = input("'esm'", "'bc1'");
         input.getNamelist(QEInput.NAMELIST_SYSTEM).setValue(
                 QEValueBase.getInstance("esm_w", "-0.2"));
@@ -58,7 +58,7 @@ class QEEsmAuditorTest {
     }
 
     @Test
-    void periodicAndNonEsmVerdicts() {
+    void periodicAndNonEsmVerdicts() throws Exception {
         OperationResult<EsmAudit> periodic = QEEsmAuditor.audit(input("'esm'", "'pbc'"),
                 slabCell());
         assertTrue(periodic.isSuccess(), periodic.toString());
@@ -81,7 +81,7 @@ class QEEsmAuditorTest {
     }
 
     @Test
-    void skewedCellFlagsTheZOrientationGate() {
+    void skewedCellFlagsTheZOrientationGate() throws Exception {
         double[][] skewed = {{10.0, 0.0, 0.5}, {0.0, 10.0, 0.0}, {0.0, 0.0, 30.0}};
         Cell cell = new Cell(skewed);
         cell.addAtom("Cu", 0.5, 0.5, 0.5);
@@ -92,7 +92,7 @@ class QEEsmAuditorTest {
     }
 
     @Test
-    void missingInputOrCellFailsClosed() {
+    void missingInputOrCellFailsClosed() throws Exception {
         assertEquals("ESM_INPUT", QEEsmAuditor.audit(null, slabCell()).getCode());
         assertEquals("ESM_CELL", QEEsmAuditor.audit(input("'esm'", "'bc1'"), null)
                 .getCode());

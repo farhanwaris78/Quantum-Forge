@@ -11,7 +11,7 @@ import quantumforge.com.math.Matrix3D;
 class GeometryMeasurerTest {
 
     @Test
-    void testStandardDistanceWithoutCellIsCorrect() {
+    void testStandardDistanceWithoutCellIsCorrect() throws Exception {
         GeometryMeasurer measurer = new GeometryMeasurer();
         Atom a = new Atom("Si", 0.0, 0.0, 0.0);
         Atom b = new Atom("Si", 3.0, 4.0, 0.0);

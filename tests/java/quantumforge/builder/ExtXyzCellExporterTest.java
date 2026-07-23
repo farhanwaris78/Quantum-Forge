@@ -14,7 +14,7 @@ import quantumforge.operation.OperationResult;
 class ExtXyzCellExporterTest {
 
     @Test
-    void exportsLosslessExtXyzDocument() {
+    void exportsLosslessExtXyzDocument() throws Exception {
         Cell cell = new Cell(Matrix3D.unit(10.0));
         cell.addAtom("Si", 0.0, 0.0, 0.0);
         cell.addAtom("Si", 0.15, 0.0, 0.0);
@@ -35,7 +35,7 @@ class ExtXyzCellExporterTest {
     }
 
     @Test
-    void failsClosedOnEmptyOrDegenerateCells() {
+    void failsClosedOnEmptyOrDegenerateCells() throws Exception {
         assertEquals("XXYZ_EMPTY", ExtXyzCellExporter.export(null).getCode());
         Cell empty = new Cell(Matrix3D.unit(10.0));
         assertEquals("XXYZ_EMPTY", ExtXyzCellExporter.export(empty).getCode());

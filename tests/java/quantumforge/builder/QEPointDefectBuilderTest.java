@@ -37,7 +37,7 @@ class QEPointDefectBuilderTest {
     }
 
     @Test
-    void testImageSeparationDistanceCalculation() {
+    void testImageSeparationDistanceCalculation() throws Exception {
         // Cubic unit cell size = 8.0 Angstroms
         Cell cell1 = new Cell(Matrix3D.unit(8.0));
         QEPointDefectBuilder builder1 = new QEPointDefectBuilder(cell1);

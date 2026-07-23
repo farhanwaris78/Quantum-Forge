@@ -45,7 +45,7 @@ class QEResourceEstimatorTest {
     }
 
     @Test
-    void testMpiTopologyAdvisorRecommendsOptimalPools() {
+    void testMpiTopologyAdvisorRecommendsOptimalPools() throws Exception {
         MockQEInput input = new MockQEInput();
         // Total ranks = 16, irreducible k-points = 4
         // Optimal pools should be 4, with 4 ranks per pool
@@ -58,7 +58,7 @@ class QEResourceEstimatorTest {
     }
 
     @Test
-    void testResourceEstimatorScalesCubicly() {
+    void testResourceEstimatorScalesCubicly() throws Exception {
         Cell cell1 = new Cell(Matrix3D.unit(5.0));
         cell1.addAtom("Si", 0.0, 0.0, 0.0); // 1 atom
 

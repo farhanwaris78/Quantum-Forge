@@ -11,7 +11,7 @@ import quantumforge.com.math.Matrix3D;
 class QEAbinitInputBuilderTest {
 
     @Test
-    void testAbinitBuilderGeneratesCleanInputStructure() {
+    void testAbinitBuilderGeneratesCleanInputStructure() throws Exception {
         Cell cell = new Cell(Matrix3D.unit(5.43)); // Silicon conventional cell size
         cell.addAtom("Si", 0.0, 0.0, 0.0);
         cell.addAtom("Si", 1.3575, 1.3575, 1.3575);
