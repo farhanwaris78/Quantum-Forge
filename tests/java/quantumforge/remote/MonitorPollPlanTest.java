@@ -75,8 +75,7 @@ class MonitorPollPlanTest {
                 .getValue().orElseThrow();
         String text = plan.render();
         assertTrue(text.contains("single_flight"), text);
-        assertTrue(text.contains("NOT IMPLEMENTED in this slice"), text,
-                "jitter absence is stated - no fake claim");
+        assertTrue(text.contains("NOT IMPLEMENTED in this slice"), text + " | " + "jitter absence is stated - no fake claim");
         assertTrue(text.contains("never\n                     'job finished'"), text);
         assertTrue(text.contains("RESUMES the same plan/counters"), text);
     }
@@ -89,8 +88,7 @@ class MonitorPollPlanTest {
         String text = result.getValue().orElseThrow().render();
         assertTrue(text.contains("runtime_relationship"), text);
         assertTrue(text.contains("USER POLICY preview"), text);
-        assertTrue(text.contains("NOT the runtime loop"), text,
-                "the draft arithmetic can never be mistaken for the runtime's"
+        assertTrue(text.contains("NOT the runtime loop"), text + " | " + "the draft arithmetic can never be mistaken for the runtime's"
                         + " owned growth shape");
         assertTrue(text.contains("JOB_MONITOR_AUDIT"), text);
     }

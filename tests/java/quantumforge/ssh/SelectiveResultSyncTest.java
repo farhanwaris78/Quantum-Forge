@@ -41,7 +41,7 @@ class SelectiveResultSyncTest {
     }
 
     /** Minimal connected transport for unit tests. */
-    static final class FakeTransport implements SshTransport {
+    static class FakeTransport implements SshTransport {
         final Map<String, String> remote = new HashMap<>();
         boolean connected = true;
 

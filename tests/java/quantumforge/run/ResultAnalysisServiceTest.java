@@ -4435,7 +4435,7 @@ class ResultAnalysisServiceTest {
                 "sha256 pinned at draft time is the verify-after-transfer target");
         assertTrue(report.getText().contains("REFUSE-IF-EXISTS"), report.getText());
         assertTrue(report.getText().contains("NOTHING transfers"), report.getText());
-        String draft = report.getGeneratedInput().orElseThrow();
+        String draft = report.getGeneratedInput();
         assertTrue(draft.contains("local_file      = deck.cube\n"), draft);
         assertTrue(draft.contains("remote_path     = /home/farhan/qe/deck.cube\n"), draft);
         assertTrue(draft.contains("overwrite       = REFUSE-IF-EXISTS\n"), draft);
@@ -4489,9 +4489,7 @@ class ResultAnalysisServiceTest {
                 new AnalysisParameters().withSftpPlan(
                         "deck.cube", "/tmp/deck.cube", true));
         assertTrue(allowed.isSuccess(), allowed.getText());
-        assertTrue(allowed.getText().contains("ALLOWED (explicit analyst choice"),
-                allowed.getText(),
-                "flipping clobber posture is a deliberate act, printed in uppercase");
+        assertTrue(allowed.getText().contains("ALLOWED (explicit analyst choice"), allowed.getText() + " | " + "flipping clobber posture is a deliberate act, printed in uppercase");
     }
 
 
@@ -4591,8 +4589,7 @@ class ResultAnalysisServiceTest {
                         + "energy_above_hull_ev_per_atom,is_stable"),
                 csv);
         assertTrue(csv.contains("mp-149,Si,2,0.610000,0.000000,true"), csv);
-        assertTrue(csv.contains("mp-13,Fe,,,0.000000,"), csv,
-                "absent numerics stay blank in the CSV - a missing gap is not 0.0");
+        assertTrue(csv.contains("mp-13,Fe,,,0.000000,"), csv + " | " + "absent numerics stay blank in the CSV - a missing gap is not 0.0");
     }
 
     @Test
@@ -4638,7 +4635,7 @@ class ResultAnalysisServiceTest {
                         + "partition 'main', modules 1, payload 1 reviewed line."),
                 report.getText());
         assertTrue(report.getText().contains("NOTHING is submitted"), report.getText());
-        String script = report.getGeneratedInput().orElseThrow();
+        String script = report.getGeneratedInput();
         assertTrue(script.startsWith("#!/bin/bash\n"), script);
         assertTrue(script.contains("#SBATCH --job-name=qe-scf\n"), script);
         assertTrue(script.contains("#SBATCH --nodes=2\n"), script);
@@ -4683,9 +4680,9 @@ class ResultAnalysisServiceTest {
                 new AnalysisParameters().withSlurmScript("qe-bands", "", 1, 8,
                         "00:20:00", "", "srun pw.x -in bands.in > bands.out"));
         assertTrue(omitted.isSuccess(), omitted.getText());
-        assertTrue(omitted.getGeneratedInput().orElseThrow()
+        assertTrue(omitted.getGeneratedInput()
                 .contains("# --partition intentionally omitted"), "honest omission comment");
-        assertTrue(omitted.getGeneratedInput().orElseThrow()
+        assertTrue(omitted.getGeneratedInput()
                 .contains("# no modules declared"), "no assumption about module environment");
     }
 
@@ -4706,11 +4703,9 @@ class ResultAnalysisServiceTest {
                 "rung,n1,n2,n3,worst_spacing_inv_ang,total_grid_points,"
                         + "refinement_factor_vs_prev"),
                 csv);
-        assertTrue(csv.contains("1,4,4,4,0.289281,64,"), csv,
-                "2pi/5.43 / 4 = 0.289281 A^-1 - advisor arithmetic pinned");
+        assertTrue(csv.contains("1,4,4,4,0.289281,64,"), csv + " | " + "2pi/5.43 / 4 = 0.289281 A^-1 - advisor arithmetic pinned");
         assertTrue(csv.contains("2,8,8,8,0.144641,512,2.000000"), csv);
-        assertTrue(csv.contains("3,12,12,12,0.096427,1728,1.500000"), csv,
-                "refinement vs previous rung is spacing arithmetic, not a promise");
+        assertTrue(csv.contains("3,12,12,12,0.096427,1728,1.500000"), csv + " | " + "refinement vs previous rung is spacing arithmetic, not a promise");
     }
 
     @Test
@@ -4754,7 +4749,7 @@ class ResultAnalysisServiceTest {
                 report.getText());
         assertTrue(report.getText().contains("no submit path reads profiles"),
                 report.getText());
-        String block = report.getGeneratedInput().orElseThrow();
+        String block = report.getGeneratedInput();
         assertTrue(block.contains("# qf-site-profile v1"), block);
         assertTrue(block.contains("NOT YAML"), block);
         assertTrue(block.contains("cluster = atlas\n"), block);
@@ -4777,7 +4772,7 @@ class ResultAnalysisServiceTest {
                 new AnalysisParameters().withSiteProfile("atlas", "sge", "mpirun",
                         "", "", "/scratch/farhan", 8, ""));
         assertTrue(omitted.isSuccess(), omitted.getText());
-        String block = omitted.getGeneratedInput().orElseThrow();
+        String block = omitted.getGeneratedInput();
         assertTrue(block.contains("# default_partition = (unset - honestly omitted"),
                 block);
         assertTrue(block.contains("# account = (unset - honestly omitted)"), block);
@@ -4828,15 +4823,14 @@ class ResultAnalysisServiceTest {
                 report.getText());
         assertTrue(report.getText().contains(
                 "Intermediate images are NOT interpolated here"), report.getText());
-        String draft = report.getGeneratedInput().orElseThrow();
+        String draft = report.getGeneratedInput();
         assertTrue(draft.contains("&PATH\n"), draft);
         assertTrue(draft.contains("nstep_path    = 300\n"), draft);
         assertTrue(draft.contains("opt_scheme    = 'broyden'\n"), draft);
         assertTrue(draft.contains("CI_scheme     = 'highest'\n"), draft);
         assertTrue(draft.contains("k_min         = 0.100000\n"), draft);
         assertTrue(draft.contains("path_thr      = 0.050000\n"), draft);
-        assertTrue(draft.contains("# image 1 = FIRST end point (fixed)"), draft,
-                "numbered images are explicit - nothing reorders silently");
+        assertTrue(draft.contains("# image 1 = FIRST end point (fixed)"), draft + " | " + "numbered images are explicit - nothing reorders silently");
         assertTrue(draft.contains("# image 7 = LAST end point (fixed)"), draft);
         String csv = String.join("\n", report.getCsvLines());
         assertTrue(csv.contains("CI_scheme,highest,interior image required (images>=3)"),
@@ -4894,7 +4888,7 @@ class ResultAnalysisServiceTest {
                 "Cancelling (review-only) job 4521_3 on slurm via 'scancel 4521_3'."),
                 report.getText());
         assertTrue(report.getText().contains("NOTHING was cancelled"), report.getText());
-        String block = report.getGeneratedInput().orElseThrow();
+        String block = report.getGeneratedInput();
         assertTrue(block.contains("cancel_command   = scancel 4521_3"), block);
         assertTrue(block.contains("ONLY success signal"), block);
         assertTrue(block.contains("NEVER a successful cancellation"), block);
@@ -4952,11 +4946,10 @@ class ResultAnalysisServiceTest {
         String csv = String.join("\n", report.getCsvLines());
         assertTrue(csv.contains("1,10.000,10.000"), csv);
         assertTrue(csv.contains("4,80.000,150.000"), csv);
-        assertTrue(csv.contains("6,300.000,610.000"), csv,
-                "the cap row is visibly engaged (160*2=320 clamps to 300)");
+        assertTrue(csv.contains("6,300.000,610.000"), csv + " | " + "the cap row is visibly engaged (160*2=320 clamps to 300)");
         assertTrue(csv.contains("policy,horizon_s=610.000,max_polls=6,capped=1,"
                 + "factor=2.000"), csv);
-        String block = report.getGeneratedInput().orElseThrow();
+        String block = report.getGeneratedInput();
         assertTrue(block.contains("single_flight"), block);
         assertTrue(block.contains("NOT IMPLEMENTED in this slice"), block);
         assertTrue(report.getText().contains("never 'job finished'")
@@ -4989,7 +4982,7 @@ class ResultAnalysisServiceTest {
                 AnalysisKind.MONITOR_POLL_PLAN, stubProject(this.tempDir),
                 new AnalysisParameters().withMonitorPoll(30.0, 30.0, 1.0, 20));
         assertTrue(constant.isSuccess(), constant.getText());
-        assertTrue(constant.getGeneratedInput().orElseThrow()
+        assertTrue(constant.getGeneratedInput()
                 .contains("CONSTANT polling - declared plainly"),
                 "factor 1.0 is an honest declaration, not dressed up as backoff");
     }
@@ -5007,7 +5000,7 @@ class ResultAnalysisServiceTest {
                 report.getText());
         assertTrue(report.getText().contains("records INTENT for the #98 runtime"),
                 report.getText());
-        String block = report.getGeneratedInput().orElseThrow();
+        String block = report.getGeneratedInput();
         assertTrue(block.contains("# qf-sync-manifest v1"), block);
         assertTrue(block.contains("required = pw.out, xml/data-file-schema.xml\n"), block);
         assertTrue(block.contains("optional = *.dat\n"), block);
@@ -5057,11 +5050,9 @@ class ResultAnalysisServiceTest {
         assertTrue(report.getText().contains("Scheme: gaussian"), report.getText());
         assertTrue(report.getText().contains("NEVER declares convergence"),
                 report.getText());
-        assertTrue(report.getText().contains("-T*S"), report.getText(),
-                "the entropy term is named as the thing to monitor");
+        assertTrue(report.getText().contains("-T*S"), report.getText() + " | " + "the entropy term is named as the thing to monitor");
         String csv = String.join("\n", report.getCsvLines());
-        assertTrue(csv.contains("1,0.020000,0.272114,"), csv,
-                "0.02 Ry = 0.272114 eV via shared QEUnits.EV_PER_RY");
+        assertTrue(csv.contains("1,0.020000,0.272114,"), csv + " | " + "0.02 Ry = 0.272114 eV via shared QEUnits.EV_PER_RY");
         assertTrue(csv.contains("2,0.010000,0.136057,2.000000"), csv);
         assertTrue(csv.contains("3,0.005000,0.068028,2.000000"), csv);
     }
@@ -5098,13 +5089,11 @@ class ResultAnalysisServiceTest {
         assertTrue(report.getText().contains("ecutwfc = 8.000000")
                 || report.getText().contains("ratio ecutrho/ecutwfc = 8.000000"),
                 report.getText());
-        assertTrue(report.getText().contains("RULE-OF-THUMB"), report.getText(),
-                "the 1.5 exponent is labeled, never sold as a measurement");
+        assertTrue(report.getText().contains("RULE-OF-THUMB"), report.getText() + " | " + "the 1.5 exponent is labeled, never sold as a measurement");
         assertTrue(report.getText().contains("NEVER declares convergence"),
                 report.getText());
         String csv = String.join("\n", report.getCsvLines());
-        assertTrue(csv.contains("1,30.000000,408.170794,240.000000,"), csv,
-                "eV via shared QEUnits constant; ecutrho implied from the deck ratio");
+        assertTrue(csv.contains("1,30.000000,408.170794,240.000000,"), csv + " | " + "eV via shared QEUnits constant; ecutrho implied from the deck ratio");
         assertTrue(csv.contains("2,40.000000,544.227725,320.000000,1.539601"), csv);
         assertTrue(csv.contains("3,60.000000,816.341587,480.000000,1.837117"), csv);
     }
@@ -5149,10 +5138,9 @@ class ResultAnalysisServiceTest {
         assertTrue(report.getText().contains(
                 "Array 'ecut-sweep': 3 task(s), 1-based mapping"), report.getText());
         assertTrue(report.getText().contains("VERBATIM"), report.getText());
-        String block = report.getGeneratedInput().orElseThrow();
+        String block = report.getGeneratedInput();
         assertTrue(block.contains("slurm_array_line = #SBATCH --array=1-3"), block);
-        assertTrue(block.contains("task 1 = 30.00   (dir ecut-sweep/task_1)"), block,
-                "echo stays verbatim - '30.00' is never re-rounded to '30'");
+        assertTrue(block.contains("task 1 = 30.00   (dir ecut-sweep/task_1)"), block + " | " + "echo stays verbatim - '30.00' is never re-rounded to '30'");
         assertTrue(block.contains("task 3 = 60.000000   (dir ecut-sweep/task_3)"), block);
         String csv = String.join("\n", report.getCsvLines());
         assertTrue(csv.contains("task,value_verbatim,directory"), csv);
@@ -5197,7 +5185,7 @@ class ResultAnalysisServiceTest {
                 + "1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f801") || report.getText().contains("image=qe/qe:7.3@sha256:"
                         + "1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f801"), report.getText());
         assertTrue(report.getText().contains("NOTHING launches"), report.getText());
-        String block = report.getGeneratedInput().orElseThrow();
+        String block = report.getGeneratedInput();
         assertTrue(block.contains("image   = qe/qe:7.3@sha256:1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f801\n"), block);
         assertTrue(block.contains("binds = /scratch/farhan\n"), block);
         assertTrue(block.contains("host-MPI COMPATIBLE (declared by analyst - NOT "
@@ -5251,8 +5239,7 @@ class ResultAnalysisServiceTest {
         assertTrue(legal.isSuccess(), legal.getText());
         assertTrue(legal.getText().contains("transition PENDING -> RUNNING : LEGAL "
                 + "(forward edge)"), legal.getText());
-        assertTrue(legal.getText().contains("staged     -> submitted"), legal.getText(),
-                "the full legal table renders");
+        assertTrue(legal.getText().contains("staged     -> submitted"), legal.getText() + " | " + "the full legal table renders");
 
         AnalysisReport sideways = ResultAnalysisService.analyze(
                 AnalysisKind.JOB_STATE_GUARD, stubProject(this.tempDir),
@@ -5342,12 +5329,9 @@ class ResultAnalysisServiceTest {
         assertTrue(good.getText().contains(
                 "Deck K_POINTS automatic k-grid: 8 8 8"), good.getText());
         String csv = String.join("\n", good.getCsvLines());
-        assertTrue(csv.contains("1,2,2,2,COMMENSURATE,"), csv,
-                "8%2==0 in every direction - exact divisibility pinned");
-        assertTrue(csv.contains("2,3,3,3,NOT_COMMENSURATE,1 2 3"), csv,
-                "8%3!=0 in ALL directions - failing directions are NAMED");
-        assertTrue(good.getText().contains("fresh SCFs follow"), good.getText(),
-                "the cost of non-commensurate q is stated, not hidden");
+        assertTrue(csv.contains("1,2,2,2,COMMENSURATE,"), csv + " | " + "8%2==0 in every direction - exact divisibility pinned");
+        assertTrue(csv.contains("2,3,3,3,NOT_COMMENSURATE,1 2 3"), csv + " | " + "8%3!=0 in ALL directions - failing directions are NAMED");
+        assertTrue(good.getText().contains("fresh SCFs follow"), good.getText() + " | " + "the cost of non-commensurate q is stated, not hidden");
     }
 
     @Test
@@ -5360,8 +5344,7 @@ class ResultAnalysisServiceTest {
                 new AnalysisParameters().withPhononPlan("2 2 2; 4 4 4"));
         assertTrue(report.isSuccess(), report.getText());
         String csv = String.join("\n", report.getCsvLines());
-        assertTrue(csv.contains("1,2,2,2,UNVERIFIABLE,"), csv,
-                "absent k-grid renders an HONEST UNVERIFIABLE, never a silent pass");
+        assertTrue(csv.contains("1,2,2,2,UNVERIFIABLE,"), csv + " | " + "absent k-grid renders an HONEST UNVERIFIABLE, never a silent pass");
         assertTrue(csv.contains("2,4,4,4,UNVERIFIABLE,"), csv);
         assertTrue(report.getText().contains("UNVERIFIABLE - no automatic deck k-grid"),
                 report.getText());
@@ -5402,8 +5385,7 @@ class ResultAnalysisServiceTest {
                 report.getText());
         assertTrue(report.getText().contains("restart_mode = 'restart'"),
                 report.getText());
-        assertTrue(report.getText().contains("No files were written"), report.getText(),
-                "the advice must never create a plan file or script");
+        assertTrue(report.getText().contains("No files were written"), report.getText() + " | " + "the advice must never create a plan file or script");
         long resubmitNamed;
         try (java.util.stream.Stream<Path> entries = Files.list(dir)) {
             resubmitNamed = entries.filter(p ->
@@ -5438,8 +5420,7 @@ class ResultAnalysisServiceTest {
         assertTrue(scf.isSuccess(), scf.getText());
         assertTrue(scf.getText().contains("RECOMMENDATION: REVIEW_BEFORE_RESUBMIT"),
                 scf.getText());
-        assertTrue(scf.getText().contains("mixing_beta"), scf.getText(),
-                "the review gate names what to change");
+        assertTrue(scf.getText().contains("mixing_beta"), scf.getText() + " | " + "the review gate names what to change");
 
         // Prefix override is honored for the signature scan.
         Path dir2 = this.tempDir.resolve("qe-other");
@@ -5479,16 +5460,13 @@ class ResultAnalysisServiceTest {
                 new ProjectProperty(), this.tempDir.toFile(), "espresso", "espresso.log",
                 queue, new AnalysisParameters());
         assertTrue(report.isSuccess(), report.getText());
-        assertTrue(report.getText().contains("1 malformed (RAW"), report.getText(),
-                "the malformed JSONL line is counted RAW, not silently dropped");
+        assertTrue(report.getText().contains("1 malformed (RAW"), report.getText() + " | " + "the malformed JSONL line is counted RAW, not silently dropped");
         assertTrue(report.getText().contains("Malformed line numbers"), report.getText());
         assertTrue(report.getText().contains("jobB"), report.getText());
         assertTrue(report.getText().contains("STAGED -> RUNNING")
-                        && report.getText().contains("ILLEGAL"), report.getText(),
-                "typed-chain violation named with states and edge context");
+                        && report.getText().contains("ILLEGAL"), report.getText() + " | " + "typed-chain violation named with states and edge context");
         assertTrue(report.getText().contains("Review-only boundary"), report.getText());
-        assertTrue(report.getText().contains("RUNNING: 2"), report.getText(),
-                "histogram over last occurrence per jobId");
+        assertTrue(report.getText().contains("RUNNING: 2"), report.getText() + " | " + "histogram over last occurrence per jobId");
         String csv = String.join("\n", report.getCsvLines());
         assertTrue(csv.contains("jobA,slurm,RUNNING,4,0,0"), csv);
         assertTrue(csv.contains("jobB,slurm,RUNNING,2,1,0"), csv);
@@ -5540,8 +5518,7 @@ class ResultAnalysisServiceTest {
         assertTrue(report.isSuccess(), report.getText());
         assertTrue(report.getText().contains("Exported stages (1):"), report.getText());
         assertTrue(report.getText().contains("#0   scf"), report.getText());
-        assertTrue(report.getText().contains("IN_SYNC"), report.getText(),
-                "a fresh export of the current config is IN_SYNC");
+        assertTrue(report.getText().contains("IN_SYNC"), report.getText() + " | " + "a fresh export of the current config is IN_SYNC");
         assertTrue(report.getText().contains("Read-only boundary"), report.getText());
         String csv = String.join("\n", report.getCsvLines());
         assertTrue(csv.contains("0,scf,false,true,false"), csv);
@@ -5565,10 +5542,8 @@ class ResultAnalysisServiceTest {
         assertTrue(report.isSuccess(), report.getText());
         assertTrue(report.getText().contains("Workflow type stamped in artifact: PHONON"),
                 report.getText());
-        assertTrue(report.getText().contains("MISMATCH with the current type SCF"),
-                report.getText(), "a pre-type-change artifact is flagged, never trusted quietly");
-        assertTrue(report.getText().contains("AHEAD_OF_CONFIG"), report.getText(),
-                "artifact carries stages the current SCF config lacks");
+        assertTrue(report.getText().contains("MISMATCH with the current type SCF"), report.getText() + " | " + "a pre-type-change artifact is flagged, never trusted quietly");
+        assertTrue(report.getText().contains("AHEAD_OF_CONFIG"), report.getText() + " | " + "artifact carries stages the current SCF config lacks");
         assertTrue(report.getText().contains(
                 "stage(s) in the artifact but NOT in the current config: [ph, q2r, matdyn]"),
                 report.getText());
@@ -5600,8 +5575,7 @@ class ResultAnalysisServiceTest {
         assertTrue(report.getText().contains("Frames: 3, atoms/frame: 1"), report.getText());
         assertTrue(report.getText().contains("DUPLICATED-IMAGE pair(s) NAMED"),
                 report.getText());
-        assertTrue(report.getText().contains("1 -> 2"), report.getText(),
-                "the duplicated pair is NAMED by image numbers");
+        assertTrue(report.getText().contains("1 -> 2"), report.getText() + " | " + "the duplicated pair is NAMED by image numbers");
         assertTrue(report.getText().contains("INFINITE (duplicated image present)"),
                 report.getText());
         assertTrue(report.getText().contains("2 -> 3"), report.getText());
@@ -5609,8 +5583,7 @@ class ResultAnalysisServiceTest {
         assertTrue(csv.contains("1,2,0.000000,0.000000"), csv);
         assertTrue(csv.contains("2,3,1.000000,1.000000"), csv);
         assertTrue(report.getText().contains("no minimum-image wrap"), report.getText());
-        assertTrue(report.getText().contains("NO editing"), report.getText(),
-                "the read-only boundary is printed on every report");
+        assertTrue(report.getText().contains("NO editing"), report.getText() + " | " + "the read-only boundary is printed on every report");
     }
 
     @Test
@@ -5646,8 +5619,7 @@ class ResultAnalysisServiceTest {
                 AnalysisKind.FINAL_GEOMETRY_APPLY, stubProject(this.tempDir),
                 new AnalysisParameters());
         assertFalse(report.isSuccess(), "an empty property has no converged trail");
-        assertTrue(report.getText().contains("[GEOMETRY_MISSING]"), report.getText(),
-                "the preview pass-through code is surfaced, not swallowed");
+        assertTrue(report.getText().contains("[GEOMETRY_MISSING]"), report.getText() + " | " + "the preview pass-through code is surfaced, not swallowed");
         assertFalse(java.nio.file.Files.exists(this.tempDir.resolve(".quantumforge")),
                 "a refused apply stages nothing on disk");
     }
@@ -5675,7 +5647,7 @@ class ResultAnalysisServiceTest {
             @Override public boolean isValid() { return true; }
             @Override public boolean isSameAs(Project p) { return false; }
             @Override public ProjectProperty getProperty() {
-                return new ProjectProperty(this.tempDir.toString(), "espresso") {
+                return new ProjectProperty(ResultAnalysisServiceTest.this.tempDir.toString(), "espresso") {
                     @Override
                     public synchronized quantumforge.project.property.ProjectGeometryList
                             getOptList() {
@@ -5721,8 +5693,7 @@ class ResultAnalysisServiceTest {
         assertTrue(report.getText().contains("geometry   COMMITTED"), report.getText());
         assertTrue(report.getText().contains("BOHR"), report.getText());
         assertTrue(report.getText().contains("forfeits the recovery path")
-                || report.getText().contains("forfeits it"), report.getText(),
-                "the recovery-forfeiture warning is printed on every success");
+                || report.getText().contains("forfeits it"), report.getText() + " | " + "the recovery-forfeiture warning is printed on every success");
         String csv = String.join("\n", report.getCsvLines());
         assertTrue(csv.startsWith("mode,state,pre_sha256,staged_sha256,reason"), csv);
         assertTrue(csv.contains("geometry,COMMITTED,"), csv);
@@ -5748,13 +5719,11 @@ class ResultAnalysisServiceTest {
         assertTrue(text.contains("submit=sbatch"), text);
         assertTrue(text.contains("submit=qsub"), text);
         assertTrue(text.contains("submit=pjsub"), text);
-        assertTrue(text.contains("cancel=pjdel"), text,
-                "the corrected Fujitsu PJM cancel command renders in the census");
+        assertTrue(text.contains("cancel=pjdel"), text + " | " + "the corrected Fujitsu PJM cancel command renders in the census");
         assertTrue(text.contains("status=pjstat"), text);
         assertTrue(text.contains("NO default"), text);
         assertTrue(text.contains("REVIEW line"), text);
-        assertTrue(text.contains("batch-126 correction"), text,
-                "the pdel->pjdel provenance is stated to the user");
+        assertTrue(text.contains("batch-126 correction"), text + " | " + "the pdel->pjdel provenance is stated to the user");
         String csv = String.join("\n", report.getCsvLines());
         assertTrue(csv.startsWith("section,scheduler,verdict,detail"), csv);
         assertTrue(csv.contains("census,pjm,registered,"), csv);
@@ -5780,8 +5749,7 @@ class ResultAnalysisServiceTest {
                 AnalysisKind.SCHEDULER_ADAPTER_AUDIT, stubProject(this.tempDir),
                 new AnalysisParameters().withSchedulerAudit("slurm", "4521_3"));
         assertTrue(slurmArray.isSuccess(), slurmArray.getText());
-        assertTrue(slurmArray.getText().contains("GRAMMAR-OK"), slurmArray.getText(),
-                "array syntax is SLURM grammar, owned by the slurm adapter");
+        assertTrue(slurmArray.getText().contains("GRAMMAR-OK"), slurmArray.getText() + " | " + "array syntax is SLURM grammar, owned by the slurm adapter");
         assertTrue(slurmArray.getText().contains("scancel 4521_3"), slurmArray.getText());
 
         AnalysisReport refused = ResultAnalysisService.analyze(
@@ -5791,8 +5759,7 @@ class ResultAnalysisServiceTest {
                 "a REFUSED verdict is the audit's FINDING, not a run failure");
         assertTrue(refused.getText().contains("REFUSED by the pjm adapter"),
                 refused.getText());
-        assertTrue(refused.getText().contains("id_index"), refused.getText(),
-                "the adapter's verbatim refusal names the foreign grammar");
+        assertTrue(refused.getText().contains("id_index"), refused.getText() + " | " + "the adapter's verbatim refusal names the foreign grammar");
         String csv = String.join("\n", refused.getCsvLines());
         assertTrue(csv.contains("focus,pjm,REFUSED,"), csv);
 
@@ -5800,9 +5767,7 @@ class ResultAnalysisServiceTest {
                 AnalysisKind.SCHEDULER_ADAPTER_AUDIT, stubProject(this.tempDir),
                 new AnalysisParameters().withSchedulerAudit("sge", "  "));
         assertTrue(censusOnly.isSuccess(), censusOnly.getText());
-        assertTrue(censusOnly.getText().contains("no per-id verdict requested"),
-                censusOnly.getText(),
-                "a blank job id is an explicit census-only choice, never defaulted");
+        assertTrue(censusOnly.getText().contains("no per-id verdict requested"), censusOnly.getText() + " | " + "a blank job id is an explicit census-only choice, never defaulted");
     }
 
     @Test
@@ -5838,15 +5803,13 @@ class ResultAnalysisServiceTest {
         assertTrue(text.contains("slurm PD=PENDING, R=RUNNING"), text);
         assertTrue(text.contains("CD=COMPLETED"), text);
         assertTrue(text.contains("Q=PENDING, H=PENDING"), text);
-        assertTrue(text.contains("F=COMPLETED"), text,
-                "the corrected PBS-F reading renders in the probed census");
+        assertTrue(text.contains("F=COMPLETED"), text + " | " + "the corrected PBS-F reading renders in the probed census");
         assertTrue(text.contains("ACC=PENDING, QUE=PENDING, HLD=PENDING"), text);
         assertTrue(text.contains("QW=PENDING, HQW=PENDING"), text);
         assertTrue(text.contains("maps to UNKNOWN honestly, never guessed"), text);
         assertTrue(text.contains("accepts ONLY stderr carrying:"
                 + " 'slurm_load_jobs error: Invalid job id specified'"), text);
-        assertTrue(text.contains("NO needle pinned - declared fail-closed"), text,
-                "PJM ships no pinned needle - rendered honestly");
+        assertTrue(text.contains("NO needle pinned - declared fail-closed"), text + " | " + "PJM ships no pinned needle - rendered honestly");
         assertFalse(text.contains("TRIPWIRE"),
                 "no adapter may accept a transport complaint as absence");
         assertTrue(text.contains("NOTHING contacted any scheduler"), text);
@@ -5899,10 +5862,9 @@ class ResultAnalysisServiceTest {
         String text = report.getText();
         assertTrue(text.contains("probed from ResultSyncManifest.forWorkflow"), text);
         assertTrue(text.contains("Prefix = 'espresso' (blank input"), text);
-        assertTrue(text.contains("REQUIRED(2)"), text, "SCF log + log.scf");
-        assertTrue(text.contains("REQUIRED(4)"), text, "DOS scf/nscf/dos + .dos");
-        assertTrue(text.contains("LARGE_OPTIONAL(1)"), text,
-                "charge-density.dat is named even when skipped");
+        assertTrue(text.contains("REQUIRED(2)"), text + " | " + "SCF log + log.scf");
+        assertTrue(text.contains("REQUIRED(4)"), text + " | " + "DOS scf/nscf/dos + .dos");
+        assertTrue(text.contains("LARGE_OPTIONAL(1)"), text + " | " + "charge-density.dat is named even when skipped");
         assertTrue(text.contains("named in the report's skippedLarge list"), text);
         assertTrue(text.contains("SYNC_TRANSPORT"), text);
         assertTrue(text.contains("NOT declared missing"), text);
@@ -5935,9 +5897,7 @@ class ResultAnalysisServiceTest {
                 AnalysisKind.SYNC_RUNTIME_AUDIT, stubProject(this.tempDir),
                 new AnalysisParameters().withSyncRuntimeAudit("scf", "", true));
         assertTrue(large.isSuccess(), large.getText());
-        assertTrue(large.getText().contains("will be fetched - explicit opt-in"),
-                large.getText(),
-                "the opt-in renders as an explicit choice, never a default");
+        assertTrue(large.getText().contains("will be fetched - explicit opt-in"), large.getText() + " | " + "the opt-in renders as an explicit choice, never a default");
         String csv = String.join("\n", large.getCsvLines());
         assertFalse(csv.contains("DOS,REQUIRED"), csv);
     }
@@ -6011,9 +5971,7 @@ class ResultAnalysisServiceTest {
         assertTrue(feasibility.getText().contains(
                 "Runtime bridge: NOT exercised (blank known_hosts input)"),
                 feasibility.getText());
-        assertTrue(feasibility.getText().contains("SSH_IDENTITY_MISSING"),
-                feasibility.getText(),
-                "agent-key reliance is named as the compile-time blocker honestly");
+        assertTrue(feasibility.getText().contains("SSH_IDENTITY_MISSING"), feasibility.getText() + " | " + "agent-key reliance is named as the compile-time blocker honestly");
 
         AnalysisReport refused = ResultAnalysisService.analyze(
                 AnalysisKind.SSH_CONFIG_DRAFT, stubProject(this.tempDir),
@@ -6138,12 +6096,9 @@ class ResultAnalysisServiceTest {
         assertTrue(text.contains("temp-upload to <path>.qftmp"), text);
         assertTrue(text.contains("REFUSE-IF-EXISTS aborts before any byte moves"),
                 text);
-        assertTrue(text.contains("SSH_BULK_DOWNLOAD_UNAVAILABLE"), text,
-                "the frozen boundary is stated on every report");
-        assertTrue(text.contains("SSHFileTransfer.downloadVerifiedResult"), text,
-                "the verified-download runtime is surfaced on the boundary line");
-        assertTrue(text.contains("NOTHING transfers from this plan channel"), text,
-                "the new runtime does not loosen the plan channel's no-transfer rule");
+        assertTrue(text.contains("SSH_BULK_DOWNLOAD_UNAVAILABLE"), text + " | " + "the frozen boundary is stated on every report");
+        assertTrue(text.contains("SSHFileTransfer.downloadVerifiedResult"), text + " | " + "the verified-download runtime is surfaced on the boundary line");
+        assertTrue(text.contains("NOTHING transfers from this plan channel"), text + " | " + "the new runtime does not loosen the plan channel's no-transfer rule");
 
         AnalysisReport feasibility = ResultAnalysisService.analyze(
                 AnalysisKind.SFTP_TRANSFER_PLAN, stubProject(this.tempDir),
@@ -6228,8 +6183,7 @@ class ResultAnalysisServiceTest {
         assertTrue(text.contains("[DECK_TEMPLATE_OK] sweep point: "
                 + "'ecutwfc = 30.0,  ! cutoff' -> 'ecutwfc = QF_ARRAY_VALUE,  ! cutoff'"),
                 text);
-        assertTrue(text.contains("task 1 renders 'ecutwfc = 30.0"), text,
-                "task 1 rerenders the deck's own value exactly");
+        assertTrue(text.contains("task 1 renders 'ecutwfc = 30.0"), text + " | " + "task 1 rerenders the deck's own value exactly");
         assertTrue(text.contains("task 3 renders 'ecutwfc = 50.0,  ! cutoff'"), text);
         assertTrue(text.contains("literal-safe by construction"), text);
         String csv = String.join("\n", report.getCsvLines());
@@ -6251,8 +6205,7 @@ class ResultAnalysisServiceTest {
                 "a deck-grammar refusal is a finding; the sweep plan still stands");
         assertTrue(report.getText().contains("Refused as a FINDING [DECK_KEYWORD]"),
                 report.getText());
-        assertTrue(report.getText().contains("run the SAME deck 2 times"), report.getText(),
-                "the refusal explains why same-deck repetition is not a sweep");
+        assertTrue(report.getText().contains("run the SAME deck 2 times"), report.getText() + " | " + "the refusal explains why same-deck repetition is not a sweep");
         String csv = String.join("\n", report.getCsvLines());
         assertTrue(csv.contains("deck_template,refused,DECK_KEYWORD"), csv);
     }
@@ -6272,12 +6225,10 @@ class ResultAnalysisServiceTest {
         assertTrue(text.contains("[TASK_INTENT_OK] 3 intent(s)"), text);
         assertTrue(text.contains("\"task_index\":1,\"keyword\":\"ecutwfc\","
                 + "\"value_exact\":\"30.0\",\"directory\":\"si-cut-001\""), text);
-        assertTrue(text.contains("\"stage\":\"rendered-deck-only\"}"), text,
-                "the stage pin keeps intents from masquerading as run records");
+        assertTrue(text.contains("\"stage\":\"rendered-deck-only\"}"), text + " | " + "the stage pin keeps intents from masquerading as run records");
         // Task 1 re-renders the deck's own value, so its digest equals the deck's.
         String expectedSha = sha256Hex(deck);
-        assertTrue(text.contains("input_sha256\":\"" + expectedSha + "\""), text,
-                "the plan-side digest provably matches task 1's rendered bytes");
+        assertTrue(text.contains("input_sha256\":\"" + expectedSha + "\""), text + " | " + "the plan-side digest provably matches task 1's rendered bytes");
         assertTrue(text.contains("never directory-name trust alone"), text);
         String csv = String.join("\n", report.getCsvLines());
         assertTrue(csv.contains("task_intent,TASK_INTENT_OK,3 intents; first sha "
@@ -6293,9 +6244,7 @@ class ResultAnalysisServiceTest {
         assertTrue(report.isSuccess(), report.getText());
         String csv = String.join("\n", report.getCsvLines());
         assertTrue(csv.contains(
-                "task_intent,not_exercised,deck templating did not produce a validated template"),
-                csv,
-                "without a deck there is no intent - stated, never omitted silently");
+                "task_intent,not_exercised,deck templating did not produce a validated template"), csv + " | " + "without a deck there is no intent - stated, never omitted silently");
     }
 
     private static String sha256Hex(String text) {
@@ -6406,8 +6355,7 @@ class ResultAnalysisServiceTest {
         assertTrue(text.contains("Launch bridge (site 'bridge-lab'"), text);
         assertTrue(text.contains("# mpi launcher: mpiexec"), text);
         assertTrue(text.contains("counts: ntasks=4, cpus-per-task=48, nodes=2"), text);
-        assertTrue(text.contains("scheduler: pjm"), text,
-                "batch-134 canonical scheduler name renders - pjm first-class");
+        assertTrue(text.contains("scheduler: pjm"), text + " | " + "batch-134 canonical scheduler name renders - pjm first-class");
         assertTrue(text.contains("REQUIRED-EDIT: the argument SPELLING for 'mpiexec'"),
                 text);
         assertTrue(text.contains("launched = NO"), text);

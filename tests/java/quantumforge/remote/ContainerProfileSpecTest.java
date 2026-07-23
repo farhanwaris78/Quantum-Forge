@@ -31,8 +31,7 @@ class ContainerProfileSpecTest {
         assertTrue(block.contains("image   = qe/qe:7.3@" + DIGEST + "\n"), block);
         assertTrue(block.contains("binds = /scratch/farhan, /opt/share\n"), block);
         assertTrue(block.contains("host-MPI COMPATIBLE (declared by analyst - NOT "
-                + "verified"), block,
-                "the declaration is labeled analyst-owned, never claimed verified");
+                + "verified"), block + " | " + "the declaration is labeled analyst-owned, never claimed verified");
         assertTrue(block.contains("launched = NO"), block);
     }
 
@@ -91,8 +90,7 @@ class ContainerProfileSpecTest {
         String text = preview.getValue().orElseThrow();
         assertTrue(text.contains("REVIEW line only - not launched"), text);
         assertTrue(text.contains("REQUIRED-EDIT: prefix the image reference with YOUR"
-                + " pull source"), text,
-                "the digest-pinned name never silently gains a registry scheme");
+                + " pull source"), text + " | " + "the digest-pinned name never silently gains a registry scheme");
         assertTrue(text.contains("apptainer exec --bind /scratch,/opt/pseudo "
                 + "library/qe:7.3@sha256:0000000000000000000000000000000000000000000000000000000000000000 pw.x -i pw.in"), text);
         assertTrue(text.contains("the MPI runner stays OUTSIDE"), text);
@@ -105,8 +103,7 @@ class ContainerProfileSpecTest {
         assertTrue(inner.contains("lives INSIDE"), inner);
         assertTrue(inner.contains("singularity exec library/qe:7.3@sha256:0000000000000000000000000000000000000000000000000000000000000000"
                 + " <mpirun/srun + counts inside image> pw.x"), inner);
-        assertTrue(inner.contains("no --bind flag rendered"), inner,
-                "an empty bind list omits the flag and says why");
+        assertTrue(inner.contains("no --bind flag rendered"), inner + " | " + "an empty bind list omits the flag and says why");
     }
 
     @Test

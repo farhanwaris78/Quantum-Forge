@@ -27,11 +27,9 @@ class ArrayJobPlanTest {
                 "tokens echo VERBATIM - never re-typed or re-rounded");
         assertEquals("60.000000", plan.taskValue(3));
         String block = plan.render();
-        assertTrue(block.contains("slurm_array_line = #SBATCH --array=1-3"), block,
-                "review line counts 1..N like SLURM");
+        assertTrue(block.contains("slurm_array_line = #SBATCH --array=1-3"), block + " | " + "review line counts 1..N like SLURM");
         assertTrue(block.contains("task 2 = 40   (dir ecut-sweep/task_2)"), block);
-        assertTrue(block.contains("NOT guessed here"), block,
-                "pbs/pjm/sge array syntax is stated depth, not guessed");
+        assertTrue(block.contains("NOT guessed here"), block + " | " + "pbs/pjm/sge array syntax is stated depth, not guessed");
         assertThrows(IllegalArgumentException.class, () -> plan.taskDirectory(0),
                 "index 0 must throw - the mapping is 1-based");
         assertThrows(IllegalArgumentException.class, () -> plan.taskValue(4));
@@ -75,7 +73,6 @@ class ArrayJobPlanTest {
                 .getValue().orElseThrow();
         String block = plan.render();
         assertFalse(plan.hasSlurmArrayLine());
-        assertTrue(block.contains("(not incorporated"), block,
-                "opting out is printed, not silent");
+        assertTrue(block.contains("(not incorporated"), block + " | " + "opting out is printed, not silent");
     }
 }

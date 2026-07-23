@@ -49,14 +49,11 @@ class TurboLanczosInputPlannerTest {
         assertTrue(draft.contains("num_eign  = ..."), draft);
         assertTrue(draft.contains("ipol            = ..."), draft);
         assertTrue(draft.contains("charge_response  = ..."), draft);
-        assertTrue(draft.contains("LINEAR-RESPONSE (charge-susceptibility"), draft,
-                "the LR-vs-RT boundary is mandatory");
+        assertTrue(draft.contains("LINEAR-RESPONSE (charge-susceptibility"), draft + " | " + "the LR-vs-RT boundary is mandatory");
         assertTrue(draft.contains("NOT real-time propagation"), draft);
-        assertTrue(draft.contains("4 computes the three"), draft,
-                "ipol=4 full-tensor semantics documented");
+        assertTrue(draft.contains("4 computes the three"), draft + " | " + "ipol=4 full-tensor semantics documented");
         assertTrue(draft.contains("CONVERGED pw.x SCF save"), draft);
-        assertTrue(draft.contains("TDDFT_SPECTRUM"), draft,
-                "the draft names the existing spectrum parser kind");
+        assertTrue(draft.contains("TDDFT_SPECTRUM"), draft + " | " + "the draft names the existing spectrum parser kind");
         assertTrue(draft.contains("#64 depth"), draft);
     }
 }

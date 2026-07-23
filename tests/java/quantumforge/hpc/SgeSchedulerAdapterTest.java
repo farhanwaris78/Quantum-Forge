@@ -17,7 +17,7 @@ class SgeSchedulerAdapterTest {
                 .ntasks(4).cpusPerTask(2).partition("all.q").walltime("1:30:00")
                 .build();
         String script = adapter.generateScript("qejob", resources,
-                List.of(new String[] {"pw.x", "-in", "espresso.in"}));
+                List.<String[]>of(new String[] {"pw.x", "-in", "espresso.in"}));
         assertTrue(script.contains("#$ -N qejob"));
         assertTrue(script.contains("#$ -pe smp 8"));
         assertTrue(script.contains("#$ -q all.q"));

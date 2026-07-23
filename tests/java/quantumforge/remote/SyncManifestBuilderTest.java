@@ -24,8 +24,7 @@ class SyncManifestBuilderTest {
         assertTrue(block.contains("optional = *.dat\n"), block);
         assertTrue(block.contains("large_on_demand = wfc1.dat\n"), block);
         assertTrue(block.contains("excluded = *.core, tmp\n"), block);
-        assertTrue(block.contains("UNKNOWN until first fetch"), block,
-                "sizes/checksums are intent, not fabricated facts");
+        assertTrue(block.contains("UNKNOWN until first fetch"), block + " | " + "sizes/checksums are intent, not fabricated facts");
         assertTrue(block.contains("TOP-LEVEL"), block);
     }
 

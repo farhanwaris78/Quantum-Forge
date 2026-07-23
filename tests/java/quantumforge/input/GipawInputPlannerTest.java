@@ -46,8 +46,7 @@ class GipawInputPlannerTest {
         assertTrue(draft.contains("tmp_dir      = './'"), draft);
         assertTrue(draft.contains("q_gipaw      = ..."), draft);
         assertTrue(draft.contains("GIPAW-capable pseudopotentials"), draft);
-        assertTrue(draft.contains("NOT a chemical shift"), draft,
-                "the sigma-vs-shift honesty line is mandatory");
+        assertTrue(draft.contains("NOT a chemical shift"), draft + " | " + "the sigma-vs-shift honesty line is mandatory");
         assertTrue(draft.contains("sigma_ref"), draft);
     }
 }

@@ -44,11 +44,6 @@ class QEScratchStoragePolicyTest {
         public QEInput copy() {
             return null;
         }
-
-        @Override
-        public boolean isValid() {
-            return true;
-        }
     }
 
     @Test

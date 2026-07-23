@@ -18,7 +18,7 @@ class SlurmSchedulerAdapterTest {
                 .partition("compute").account("projA").walltime("02:00:00")
                 .build();
         String script = adapter.generateScript("myjob", resources,
-                List.of(new String[] {"pw.x", "-in", "espresso.in"}));
+                List.<String[]>of(new String[] {"pw.x", "-in", "espresso.in"}));
         assertTrue(script.startsWith("#!/usr/bin/env bash"));
         assertTrue(script.contains("#SBATCH --nodes=2"));
         assertTrue(script.contains("#SBATCH --ntasks=64"));

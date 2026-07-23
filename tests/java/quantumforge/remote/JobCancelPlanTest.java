@@ -26,14 +26,12 @@ class JobCancelPlanTest {
         assertTrue(text.contains("NOTHING has been cancelled"), text);
         assertTrue(text.contains("cancel_command   = scancel 4521_3"), text);
         assertTrue(text.contains("status_command   = squeue -j 4521_3 -h -o %T"), text);
-        assertTrue(text.contains("kill by process NAME"), text,
-                "the forbidden lines are stated explicitly");
+        assertTrue(text.contains("kill by process NAME"), text + " | " + "the forbidden lines are stated explicitly");
         assertTrue(text.contains("ONLY success signal"), text);
         assertTrue(text.contains("NEVER a successful cancellation"), text);
         assertTrue(text.contains("record CANCELLED"), text);
         assertTrue(text.contains("never carpet-FAILED"), text);
-        assertTrue(text.contains("holds no"), text,
-                "the grammar-owner line declares the no-drift architecture");
+        assertTrue(text.contains("holds no"), text + " | " + "the grammar-owner line declares the no-drift architecture");
     }
 
     @Test
@@ -95,8 +93,7 @@ class JobCancelPlanTest {
                 "sge", "job123", "job123").getCode());
         String refusal = JobCancelPlan.validate(
                 "pjm", "4521_3", "4521_3").getMessage();
-        assertTrue(refusal.contains("ADAPTER-OWNED"), refusal,
-                "the refusal names the single grammar owner");
+        assertTrue(refusal.contains("ADAPTER-OWNED"), refusal + " | " + "the refusal names the single grammar owner");
     }
 
     @Test

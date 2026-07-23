@@ -59,7 +59,7 @@ class GeometryMeasurerTest {
 
         measurer.setAtomA(a);
         measurer.setAtomB(b);
-        measurer.setC(c);
+        measurer.setAtomC(c);
         measurer.setCell(cell);
         assertTrue(measurer.calculate());
 
