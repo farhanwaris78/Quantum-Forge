@@ -10,6 +10,7 @@
 
 package quantumforge.builder.polymer;
 
+import quantumforge.atoms.model.Atom;
 import quantumforge.atoms.model.Cell;
 import quantumforge.atoms.model.exception.ZeroVolumCellException;
 
@@ -78,13 +79,13 @@ public class PolymerBuilder {
         for (int i = 0; i < this.chainLength; i++) {
             double x = i * bondLen * Math.sin(angle / 2.0);
             double y = i % 2 == 0 ? 0.0 : bondLen * Math.cos(angle / 2.0);
-            cell.addAtom("C", x, y, 0.0);
+            cell.addAtom(new Atom("C", x, y, 0.0));
 
             // Hydrogen atoms (simplified)
-            cell.addAtom("H", x + 0.5, y + 0.5, 0.5);
-            cell.addAtom("H", x - 0.5, y + 0.5, -0.5);
+            cell.addAtom(new Atom("H", x + 0.5, y + 0.5, 0.5));
+            cell.addAtom(new Atom("H", x - 0.5, y + 0.5, -0.5));
             if (i == 0 || i == this.chainLength - 1) {
-                cell.addAtom("H", x + (i == 0 ? -0.5 : 0.5), y, 0.0);
+                cell.addAtom(new Atom("H", x + (i == 0 ? -0.5 : 0.5), y, 0.0));
             }
         }
     }
@@ -96,13 +97,13 @@ public class PolymerBuilder {
         for (int i = 0; i < this.chainLength; i++) {
             double x = i * bondLen * Math.sin(angle / 2.0);
             double y = i % 2 == 0 ? 0.0 : bondLen * Math.cos(angle / 2.0);
-            cell.addAtom("C", x, y, 0.0);
+            cell.addAtom(new Atom("C", x, y, 0.0));
             // Methyl side group on alternating carbons
             if (i % 2 == 0) {
-                cell.addAtom("C", x + 0.5, y - 0.8, 0.5);
-                cell.addAtom("H", x + 1.0, y - 1.3, 0.5);
-                cell.addAtom("H", x + 0.3, y - 1.3, 1.0);
-                cell.addAtom("H", x + 0.3, y - 0.3, 1.0);
+                cell.addAtom(new Atom("C", x + 0.5, y - 0.8, 0.5));
+                cell.addAtom(new Atom("H", x + 1.0, y - 1.3, 0.5));
+                cell.addAtom(new Atom("H", x + 0.3, y - 1.3, 1.0));
+                cell.addAtom(new Atom("H", x + 0.3, y - 0.3, 1.0));
             }
         }
     }

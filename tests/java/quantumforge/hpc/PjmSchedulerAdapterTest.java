@@ -34,7 +34,7 @@ class PjmSchedulerAdapterTest {
         assertTrue(script.contains("'pw.x'"), script);
         // The stated omissions: nothing is invented for mpi placement, account
         // or memory - the header comment must say so instead.
-        assertFalse(script.contains("--mpi"), script);
+        assertFalse(script.contains("#PJM --mpi") || script.contains("#PJM -L \"--mpi"), script);
         assertFalse(script.contains("projA"), script);
         assertFalse(script.contains("4gb"), script);
         assertTrue(script.contains("no --mpi placement line"), script);

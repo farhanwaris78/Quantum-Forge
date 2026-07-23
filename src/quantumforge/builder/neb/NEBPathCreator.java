@@ -213,7 +213,7 @@ public final class NEBPathCreator {
                 if (atom == null) {
                     continue;
                 }
-                copy.addAtom(atom.getName(), atom.getX(), atom.getY(), atom.getZ());
+                copy.addAtom(new Atom(atom.getName(), atom.getX(), atom.getY(), atom.getZ()));
             }
         }
         return copy;

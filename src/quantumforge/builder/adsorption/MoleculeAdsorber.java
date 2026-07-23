@@ -63,31 +63,31 @@ public class MoleculeAdsorber {
 
         switch (type.toUpperCase()) {
             case "CO":
-                mol.addAtom("C", 0.0, 0.0, 0.0);
-                mol.addAtom("O", 0.0, 0.0, 1.128);
+                mol.addAtom(new Atom("C", 0.0, 0.0, 0.0));
+                mol.addAtom(new Atom("O", 0.0, 0.0, 1.128));
                 break;
             case "H2O":
                 double oh = 0.96;
                 double angle = 104.5 * Math.PI / 180.0;
-                mol.addAtom("O", 0.0, 0.0, 0.0);
-                mol.addAtom("H", oh, 0.0, 0.0);
-                mol.addAtom("H", oh * Math.cos(angle), oh * Math.sin(angle), 0.0);
+                mol.addAtom(new Atom("O", 0.0, 0.0, 0.0));
+                mol.addAtom(new Atom("H", oh, 0.0, 0.0));
+                mol.addAtom(new Atom("H", oh * Math.cos(angle), oh * Math.sin(angle), 0.0));
                 break;
             case "NH3":
                 double nh = 1.01;
                 double tetra = 109.5 * Math.PI / 180.0;
-                mol.addAtom("N", 0.0, 0.0, 0.0);
-                mol.addAtom("H", nh, 0.0, 0.0);
-                mol.addAtom("H", nh * Math.cos(tetra), nh * Math.sin(tetra), 0.0);
-                mol.addAtom("H", nh * Math.cos(tetra), -nh * Math.sin(tetra), 0.0);
+                mol.addAtom(new Atom("N", 0.0, 0.0, 0.0));
+                mol.addAtom(new Atom("H", nh, 0.0, 0.0));
+                mol.addAtom(new Atom("H", nh * Math.cos(tetra), nh * Math.sin(tetra), 0.0));
+                mol.addAtom(new Atom("H", nh * Math.cos(tetra), -nh * Math.sin(tetra), 0.0));
                 break;
             case "OH":
-                mol.addAtom("O", 0.0, 0.0, 0.0);
-                mol.addAtom("H", 0.0, 0.0, 0.97);
+                mol.addAtom(new Atom("O", 0.0, 0.0, 0.0));
+                mol.addAtom(new Atom("H", 0.0, 0.0, 0.97));
                 break;
             case "NO":
-                mol.addAtom("N", 0.0, 0.0, 0.0);
-                mol.addAtom("O", 0.0, 0.0, 1.15);
+                mol.addAtom(new Atom("N", 0.0, 0.0, 0.0));
+                mol.addAtom(new Atom("O", 0.0, 0.0, 1.15));
                 break;
         }
         return mol;
@@ -165,7 +165,7 @@ public class MoleculeAdsorber {
                     double x = this.xPos * lattice[0][0] + this.yPos * lattice[1][0] + (atom.getX() - cx);
                     double y = this.xPos * lattice[0][1] + this.yPos * lattice[1][1] + (atom.getY() - cy);
                     double z = molCenterZ + (atom.getZ() - cz);
-                    outputCell.addAtom(atom.getName(), x, y, z);
+                    outputCell.addAtom(new Atom(atom.getName(), x, y, z));
                 }
             }
         }
@@ -195,7 +195,7 @@ public class MoleculeAdsorber {
             if (atoms != null) {
                 for (Atom atom : atoms) {
                     if (atom != null && !atom.isSlaveAtom()) {
-                        copy.addAtom(atom.getName(), atom.getX(), atom.getY(), atom.getZ());
+                        copy.addAtom(new Atom(atom.getName(), atom.getX(), atom.getY(), atom.getZ()));
                     }
                 }
             }

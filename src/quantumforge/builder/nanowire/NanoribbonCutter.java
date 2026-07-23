@@ -29,7 +29,7 @@ public class NanoribbonCutter {
         
         for (int i = 0; i < width; i++) {
             for (Atom atom : sheet.listAtoms(true)) {
-                ribbon.addAtom(atom.getName(), atom.getX(), atom.getY() + i * lattice[1][1], atom.getZ());
+                ribbon.addAtom(new Atom(atom.getName(), atom.getX(), atom.getY() + i * lattice[1][1], atom.getZ()));
             }
         }
         

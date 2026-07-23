@@ -24,12 +24,16 @@ class ProjectConvergenceTest {
         assertTrue(lastEnergy > firstEnergy, "Energy must converge upwards as plane-wave basis set completes");
 
         // Verify strictly decreasing steps (exponential flattening)
-        double prevDiff = Double.MAX_VALUE;
+        // Cutoffs are not uniformly spaced (last step 50->60 is 10 Ry vs 5 Ry), so check per-Ry slope.
+        double prevSlope = Double.MAX_VALUE;
         for (int i = 1; i < data.points.size(); i++) {
             double diff = data.points.get(i).y - data.points.get(i - 1).y;
-            assertTrue(diff > 0, "Truncational energy corrections must remain positive");
-            assertTrue(diff < prevDiff, "Basis completion rate must decelerate exponentially");
-            prevDiff = diff;
+            double dx = data.points.get(i).x - data.points.get(i - 1).x;
+            assertTrue(diff > 0, "Truncational energy corrections must remain positive at i=" + i);
+            double slope = diff / dx;
+            assertTrue(slope > 0, "Slope must stay positive at i=" + i);
+            assertTrue(slope < prevSlope, "Basis completion rate per Ry must decelerate, slope=" + slope + " prev=" + prevSlope + " at i=" + i);
+            prevSlope = slope;
         }
     }
 

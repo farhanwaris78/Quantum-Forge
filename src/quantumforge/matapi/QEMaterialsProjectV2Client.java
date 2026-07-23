@@ -65,7 +65,7 @@ public final class QEMaterialsProjectV2Client {
                 double cy = s0 * this.lattice[0][1] + s1 * this.lattice[1][1] + s2 * this.lattice[2][1];
                 double cz = s0 * this.lattice[0][2] + s1 * this.lattice[1][2] + s2 * this.lattice[2][2];
 
-                cell.addAtom(this.elements[i], cx, cy, cz);
+                cell.addAtom(new quantumforge.atoms.model.Atom(this.elements[i], cx, cy, cz));
             }
             return cell;
         }
