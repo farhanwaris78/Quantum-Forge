@@ -15,11 +15,11 @@ import quantumforge.operation.OperationResult;
 
 class QEEsmAuditorTest {
 
-    private static Cell slabCell() {
+    private static Cell slabCell() throws Exception {
         double[][] lattice = {{10.0, 0.0, 0.0}, {0.0, 10.0, 0.0}, {0.0, 0.0, 30.0}};
         Cell cell = new Cell(lattice);
-        cell.addAtom("Cu", 0.5, 0.5, 0.4); // fractional z -> 12.0 Ang
-        cell.addAtom("Cu", 0.5, 0.5, 0.6); // fractional z -> 18.0 Ang
+        cell.addAtom(new quantumforge.atoms.model.Atom("Cu", 0.5, 0.5, 0.4)); // fractional z -> 12.0 Ang
+        cell.addAtom(new quantumforge.atoms.model.Atom("Cu", 0.5, 0.5, 0.6)); // fractional z -> 18.0 Ang
         return cell;
     }
 
@@ -84,7 +84,7 @@ class QEEsmAuditorTest {
     void skewedCellFlagsTheZOrientationGate() throws Exception {
         double[][] skewed = {{10.0, 0.0, 0.5}, {0.0, 10.0, 0.0}, {0.0, 0.0, 30.0}};
         Cell cell = new Cell(skewed);
-        cell.addAtom("Cu", 0.5, 0.5, 0.5);
+        cell.addAtom(new quantumforge.atoms.model.Atom("Cu", 0.5, 0.5, 0.5));
         OperationResult<EsmAudit> result = QEEsmAuditor.audit(input("'esm'", "'bc1'"), cell);
         assertTrue(result.isSuccess(), result.toString());
         assertFalse(result.getValue().orElseThrow().isZPerpendicular(),
