@@ -99,6 +99,9 @@ public final class QEFXThermoPwLiveDialog extends Dialog<Void> {
                 + " partial write rows are held back, never drawn as fake points.");
         getDialogPane().getButtonTypes().add(ButtonType.CLOSE);
 
+        this.timer = new Timeline(new KeyFrame(Duration.seconds(2.0), event -> pollLive()));
+        this.timer.setCycleCount(Timeline.INDEFINITE);
+
         Button chooseButton = new Button("Choose run directory ...");
         chooseButton.setOnAction(event -> chooseDirectory());
         Button pauseButton = new Button("Pause live");
@@ -158,8 +161,6 @@ public final class QEFXThermoPwLiveDialog extends Dialog<Void> {
         content.setPrefWidth(1080);
         getDialogPane().setContent(content);
 
-        this.timer = new Timeline(new KeyFrame(Duration.seconds(2.0), event -> pollLive()));
-        this.timer.setCycleCount(Timeline.INDEFINITE);
         renderLiveBadge();
         draw();
         setOnHidden(event -> this.timer.stop());
