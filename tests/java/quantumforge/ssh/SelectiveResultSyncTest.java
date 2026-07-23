@@ -41,7 +41,7 @@ class SelectiveResultSyncTest {
     }
 
     /** Minimal connected transport for unit tests. */
-    static final class FakeTransport implements SshTransport {
+    static class FakeTransport implements SshTransport {
         final Map<String, String> remote = new HashMap<>();
         boolean connected = true;
 
@@ -85,8 +85,9 @@ class SelectiveResultSyncTest {
         assertFalse(result.isSuccess());
         assertEquals("SYNC_INCOMPLETE", result.getCode());
         SelectiveResultSync.SyncReport report = result.getValue().orElseThrow(
-                "a partial sync must ATTACH its report - the caller needs the"
-                        + " whole truth, not a bare message");
+                () -> new AssertionError(
+                        "a partial sync must ATTACH its report - the caller needs the"
+                                + " whole truth, not a bare message"));
         assertEquals(List.of("have.log"), report.getDownloaded(),
                 "what DID download stays visible on the failure path");
         assertEquals(List.of("missing.req"), report.getMissingRequired());
@@ -127,7 +128,7 @@ class SelectiveResultSyncTest {
         assertFalse(result.isSuccess());
         assertEquals("SYNC_TRANSPORT", result.getCode());
         SelectiveResultSync.SyncReport report = result.getValue().orElseThrow(
-                "the partial report must be attached here too");
+                () -> new AssertionError("the partial report must be attached here too"));
         assertEquals(List.of("a.log"), report.getDownloaded());
         assertTrue(report.getMissingRequired().isEmpty(),
                 "c.log was never probed - a dead channel fabricates no absence"

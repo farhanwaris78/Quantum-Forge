@@ -75,7 +75,8 @@ public final class QEOptimadeClient {
         public Cell buildCell() throws ZeroVolumCellException {
             Cell cell = new Cell(this.lattice);
             for (int i = 0; i < this.species.length; i++) {
-                cell.addAtom(this.species[i], this.positions[i][0], this.positions[i][1], this.positions[i][2]);
+                cell.addAtom(new quantumforge.atoms.model.Atom(this.species[i],
+                        this.positions[i][0], this.positions[i][1], this.positions[i][2]));
             }
             return cell;
         }

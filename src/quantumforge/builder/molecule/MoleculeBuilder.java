@@ -93,16 +93,16 @@ public class MoleculeBuilder {
         double z = 0.0;
 
         for (int i = 0; i < nCarbons; i++) {
-            cell.addAtom("C", x, y, z);
+            cell.addAtom(new Atom("C", x, y, z));
             x += this.bondLength;
             // Add H atoms (simplified)
             if (i == 0 || i == nCarbons - 1) {
-                cell.addAtom("H", x - 0.5, y + 0.5, z);
-                cell.addAtom("H", x - 0.5, y - 0.5, z);
-                cell.addAtom("H", x, y, z + 0.5);
+                cell.addAtom(new Atom("H", x - 0.5, y + 0.5, z));
+                cell.addAtom(new Atom("H", x - 0.5, y - 0.5, z));
+                cell.addAtom(new Atom("H", x, y, z + 0.5));
             } else {
-                cell.addAtom("H", x - 0.5, y + 0.5, z);
-                cell.addAtom("H", x - 0.5, y - 0.5, z);
+                cell.addAtom(new Atom("H", x - 0.5, y + 0.5, z));
+                cell.addAtom(new Atom("H", x - 0.5, y - 0.5, z));
             }
         }
 
@@ -125,11 +125,11 @@ public class MoleculeBuilder {
             double angle = i * angleStep;
             double x = radius * Math.cos(angle);
             double y = radius * Math.sin(angle);
-            cell.addAtom("C", x, y, 0.0);
+            cell.addAtom(new Atom("C", x, y, 0.0));
             // Add H atom outward
             double hx = 1.5 * radius * Math.cos(angle);
             double hy = 1.5 * radius * Math.sin(angle);
-            cell.addAtom("H", hx, hy, 0.0);
+            cell.addAtom(new Atom("H", hx, hy, 0.0));
         }
 
         return cell;
@@ -147,9 +147,9 @@ public class MoleculeBuilder {
         double ohBond = 0.96; // O-H bond length in Angstrom
         double angle = 104.5 * Math.PI / 180.0;
 
-        cell.addAtom("O", 0.0, 0.0, 0.0);
-        cell.addAtom("H", ohBond, 0.0, 0.0);
-        cell.addAtom("H", ohBond * Math.cos(angle), ohBond * Math.sin(angle), 0.0);
+        cell.addAtom(new Atom("O", 0.0, 0.0, 0.0));
+        cell.addAtom(new Atom("H", ohBond, 0.0, 0.0));
+        cell.addAtom(new Atom("H", ohBond * Math.cos(angle), ohBond * Math.sin(angle), 0.0));
 
         return cell;
     }

@@ -131,14 +131,14 @@ public final class QEPointDefectBuilder {
         // Populate preserved base atoms
         for (int i = 0; i < atoms.length; i++) {
             if (!deleted[i] && !atoms[i].isSlaveAtom()) {
-                defectCell.addAtom(species[i], atoms[i].getX(), atoms[i].getY(), atoms[i].getZ());
+                defectCell.addAtom(new Atom(species[i], atoms[i].getX(), atoms[i].getY(), atoms[i].getZ()));
             }
         }
 
         // Populate interstitials
         for (DefectRecord record : this.defects) {
             if (record.type == DefectType.INTERSTITIAL) {
-                defectCell.addAtom(record.newElement, record.coordinates[0], record.coordinates[1], record.coordinates[2]);
+                defectCell.addAtom(new Atom(record.newElement, record.coordinates[0], record.coordinates[1], record.coordinates[2]));
             }
         }
 

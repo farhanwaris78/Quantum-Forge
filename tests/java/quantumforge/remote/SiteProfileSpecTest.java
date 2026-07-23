@@ -32,8 +32,7 @@ class SiteProfileSpecTest {
         assertTrue(block.contains("account = phys2026\n"), block);
         assertTrue(block.contains("scratch_dir = /scratch/farhan\n"), block);
         assertTrue(block.contains("max_nodes = 256\n"), block);
-        assertTrue(block.contains("modules = qe/7.3,mpi/openmpi\n"), block,
-                "the modules value stays whitespace-free by construction");
+        assertTrue(block.contains("modules = qe/7.3,mpi/openmpi\n"), block + " | " + "the modules value stays whitespace-free by construction");
     }
 
     @Test
@@ -50,8 +49,7 @@ class SiteProfileSpecTest {
                 + "normalized away at validation"), block);
         assertTrue(block.contains("# modules = (none declared"), block);
         assertFalse(block.contains("default_partition = main"), block);
-        assertFalse(block.contains("\ndefault_partition = "), block,
-                "an omitted partition must not materialize as a key");
+        assertFalse(block.contains("\ndefault_partition = "), block + " | " + "an omitted partition must not materialize as a key");
     }
 
     @Test

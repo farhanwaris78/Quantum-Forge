@@ -118,7 +118,7 @@ public final class WorkspaceLightIndex {
                 } else {
                     scan.otherFiles++;
                 }
-            } catch (IOException | RuntimeException ex) {
+            } catch (Exception ex) {
                 scan.parseErrors++;
                 scan.entries.add(new WorkspaceEntry(name, "INPUT", "-", -1, "-",
                         "unparsed: " + abbreviate(ex.getMessage())));

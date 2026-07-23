@@ -25,7 +25,7 @@ class GeometryMeasurerTest {
     }
 
     @Test
-    void testMinimumImageDistanceWithCubicCellIsCorrect() {
+    void testMinimumImageDistanceWithCubicCellIsCorrect() throws Exception {
         GeometryMeasurer measurer = new GeometryMeasurer();
         Cell cell = new Cell(Matrix3D.unit(10.0)); // 10x10x10 cubic cell
         
@@ -46,7 +46,7 @@ class GeometryMeasurerTest {
     }
 
     @Test
-    void testMinimumImageAngleWithCubicCellIsCorrect() {
+    void testMinimumImageAngleWithCubicCellIsCorrect() throws Exception {
         GeometryMeasurer measurer = new GeometryMeasurer();
         Cell cell = new Cell(Matrix3D.unit(10.0)); // 10x10x10 cubic cell
 
@@ -59,7 +59,7 @@ class GeometryMeasurerTest {
 
         measurer.setAtomA(a);
         measurer.setAtomB(b);
-        measurer.setC(c);
+        measurer.setAtomC(c);
         measurer.setCell(cell);
         assertTrue(measurer.calculate());
 

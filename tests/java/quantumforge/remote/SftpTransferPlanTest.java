@@ -44,12 +44,10 @@ class SftpTransferPlanTest {
         assertTrue(render.contains("local_sha256    = "
                 + "4e866172d93737f62a50d277835dde013b32ea03401805d9896425fe78598152"), render);
         assertTrue(render.contains("remote_path     = /home/farhan/qe/deck.cube\n"), render);
-        assertTrue(render.contains("overwrite       = REFUSE-IF-EXISTS\n"), render,
-                "default posture is an explicit no-clobber statement");
+        assertTrue(render.contains("overwrite       = REFUSE-IF-EXISTS\n"), render + " | " + "default posture is an explicit no-clobber statement");
         assertTrue(render.contains("verify_after    = sha256 MUST match local_sha256 (mandatory)\n"),
                 render);
-        assertTrue(render.contains("transfer_status = NOT STARTED - planning slice only\n"), render,
-                "the plan can never masquerade as a completed transfer");
+        assertTrue(render.contains("transfer_status = NOT STARTED - planning slice only\n"), render + " | " + "the plan can never masquerade as a completed transfer");
     }
 
     @Test

@@ -24,13 +24,11 @@ class SlurmScriptBuilderTest {
         assertTrue(script.contains("#SBATCH --job-name=qe-scf\n"), script);
         assertTrue(script.contains("#SBATCH --nodes=2\n"), script);
         assertTrue(script.contains("#SBATCH --ntasks=64\n"), script);
-        assertTrue(script.contains("#SBATCH --time=01:30:00\n"), script,
-                "loose '1:30:00' normalizes to strict zero-padded HH:MM:SS");
+        assertTrue(script.contains("#SBATCH --time=01:30:00\n"), script + " | " + "loose '1:30:00' normalizes to strict zero-padded HH:MM:SS");
         assertTrue(script.contains("#SBATCH --partition=main\n"), script);
         assertTrue(script.contains("module load qe/7.3\n"), script);
         assertTrue(script.contains("module load mpi/openmpi\n"), script);
-        assertTrue(script.contains("\nsrun pw.x -in scf.in > scf.out\n"), script,
-                "the payload is exactly the analyst-reviewed line - verbatim");
+        assertTrue(script.contains("\nsrun pw.x -in scf.in > scf.out\n"), script + " | " + "the payload is exactly the analyst-reviewed line - verbatim");
     }
 
     @Test
@@ -41,8 +39,7 @@ class SlurmScriptBuilderTest {
         String script = result.getValue().orElseThrow().render();
         assertTrue(script.contains("# --partition intentionally omitted"), script);
         assertTrue(script.contains("# no modules declared"), script);
-        assertFalse(script.contains("#SBATCH --partition"), script,
-                "an omitted partition must not materialize as a directive");
+        assertFalse(script.contains("#SBATCH --partition"), script + " | " + "an omitted partition must not materialize as a directive");
         assertFalse(script.contains("module load"), script);
     }
 

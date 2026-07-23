@@ -10,6 +10,7 @@ import java.io.StringReader;
 import java.util.ArrayList;
 import java.util.List;
 
+import quantumforge.atoms.model.Atom;
 import quantumforge.atoms.model.Cell;
 import quantumforge.atoms.model.exception.ZeroVolumCellException;
 import quantumforge.com.math.Matrix3D;
@@ -112,7 +113,7 @@ public final class QESdfParser {
             double tx = (a.getX() - cx) + centerOffset;
             double ty = (a.getY() - cy) + centerOffset;
             double tz = (a.getZ() - cz) + centerOffset;
-            cell.addAtom(a.getElement(), tx, ty, tz);
+            cell.addAtom(new quantumforge.atoms.model.Atom(a.getElement(), tx, ty, tz));
         }
 
         return cell;

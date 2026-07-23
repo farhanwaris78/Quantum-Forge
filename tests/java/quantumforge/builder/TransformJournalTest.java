@@ -99,7 +99,7 @@ class TransformJournalTest {
         assertFalse(seq.isSuccess());
         assertEquals("JOURNAL_SEQ", seq.getCode());
 
-        String noHeader = TransformJournal.parse("1|a|b|-|-\n");
+        OperationResult<JournalSummary> noHeader = TransformJournal.parse("1|a|b|-|-\n");
         assertFalse(noHeader.isSuccess());
         assertEquals("JOURNAL_SYNTAX", noHeader.getCode(), "header is mandatory");
 

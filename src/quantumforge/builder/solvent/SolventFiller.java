@@ -175,7 +175,7 @@ public class SolventFiller {
                             double sx = pos[0] + (solvent.getX() - cx);
                             double sy = pos[1] + (solvent.getY() - cy);
                             double sz = pos[2] + (solvent.getZ() - cz);
-                            outputCell.addAtom(solvent.getName(), sx, sy, sz);
+                            outputCell.addAtom(new Atom(solvent.getName(), sx, sy, sz));
                         }
                         placed++;
                     }
@@ -232,7 +232,7 @@ public class SolventFiller {
             if (atoms != null) {
                 for (Atom atom : atoms) {
                     if (atom != null && !atom.isSlaveAtom()) {
-                        copy.addAtom(atom.getName(), atom.getX(), atom.getY(), atom.getZ());
+                        copy.addAtom(new Atom(atom.getName(), atom.getX(), atom.getY(), atom.getZ()));
                     }
                 }
             }

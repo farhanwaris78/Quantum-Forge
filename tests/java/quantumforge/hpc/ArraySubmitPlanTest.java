@@ -40,11 +40,11 @@ class ArraySubmitPlanTest {
         assertTrue(block.contains("# shape: SINGLE ARRAY SUBMISSION (scheduler 'slurm' "
                 + "OWNS array semantics)"), block);
         assertTrue(block.contains("the 'slurm' adapter's own parseJobId on THAT command's "
-                + "stdout"), block, "the parse lane names its single owner");
+                + "stdout"), block + " | " + "the parse lane names its single owner");
         assertTrue(block.contains("$SLURM_ARRAY_TASK_ID selects tasks.jsonl line N "
                 + "(1-based, exact)"), block);
         assertTrue(block.contains("#   [1] the staged script still carries its exit-2 "
-                + "guard"), block, "the REQUIRED checklist is on every block");
+                + "guard"), block + " | " + "the REQUIRED checklist is on every block");
         assertTrue(block.lines().allMatch(line -> line.startsWith("#")),
                 "every review line is a comment - the block can never execute");
         assertFalse(plan.isLoopCapped());

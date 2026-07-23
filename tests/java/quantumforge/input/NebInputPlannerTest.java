@@ -40,8 +40,7 @@ class NebInputPlannerTest {
         assertTrue(checklist.contains("image 2 = intermediate"), checklist);
         assertTrue(checklist.contains("image 6 = intermediate"), checklist);
         assertTrue(checklist.contains("image 7 = LAST end point (fixed)"), checklist);
-        assertFalse(checklist.contains("image 8 ="), checklist,
-                "the checklist ends exactly at num_of_images");
+        assertFalse(checklist.contains("image 8 ="), checklist + " | " + "the checklist ends exactly at num_of_images");
     }
 
     @Test

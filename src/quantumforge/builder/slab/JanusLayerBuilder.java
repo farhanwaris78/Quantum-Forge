@@ -32,7 +32,7 @@ public class JanusLayerBuilder {
                 } else if (atom.getZ() < zCenter - 0.1) {
                     name = bottomElement;
                 }
-                janusCell.addAtom(name, atom.getX(), atom.getY(), atom.getZ());
+                janusCell.addAtom(new Atom(name, atom.getX(), atom.getY(), atom.getZ()));
             }
         } catch (Exception e) {
             e.printStackTrace();

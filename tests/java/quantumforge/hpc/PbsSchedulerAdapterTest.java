@@ -18,7 +18,7 @@ class PbsSchedulerAdapterTest {
                 .partition("batch").account("grp").walltime("01:30:00")
                 .build();
         String script = adapter.generateScript("job1", resources,
-                List.of(new String[] {"pw.x", "-in", "espresso.in"}));
+                List.<String[]>of(new String[] {"pw.x", "-in", "espresso.in"}));
         assertTrue(script.contains("#PBS -N job1"));
         assertTrue(script.contains("#PBS -q batch"));
         assertTrue(script.contains("mpiprocs=8"));

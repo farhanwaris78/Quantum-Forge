@@ -22,7 +22,7 @@ class PjmSchedulerAdapterTest {
                 .nodes(2).ntasks(8).cpusPerTask(4).walltime("01:30")
                 .partition("small").account("projA").memory("4gb").build();
         String script = adapter.generateScript("qe run", resources,
-                List.of(new String[] {"mpirun", "pw.x", "-i", "pw.in"}));
+                List.<String[]>of(new String[] {"mpirun", "pw.x", "-i", "pw.in"}));
         assertTrue(script.startsWith("#!/usr/bin/env bash"), script);
         assertTrue(script.contains("#PJM -N qe_run"), script);
         assertTrue(script.contains("#PJM -L \"rscgrp=small\""), script);
@@ -34,7 +34,7 @@ class PjmSchedulerAdapterTest {
         assertTrue(script.contains("'pw.x'"), script);
         // The stated omissions: nothing is invented for mpi placement, account
         // or memory - the header comment must say so instead.
-        assertFalse(script.contains("--mpi"), script);
+        assertFalse(script.contains("#PJM --mpi") || script.contains("#PJM -L \"--mpi"), script);
         assertFalse(script.contains("projA"), script);
         assertFalse(script.contains("4gb"), script);
         assertTrue(script.contains("no --mpi placement line"), script);
@@ -78,8 +78,7 @@ class PjmSchedulerAdapterTest {
                 "the PBS-style .server suffix is not PJM grammar");
         IllegalArgumentException array = assertThrows(IllegalArgumentException.class,
                 () -> adapter.cancelCommand("4521_3"));
-        assertTrue(array.getMessage().contains("id_index"), array.getMessage(),
-                "the refusal names exactly whose grammar array syntax is");
+        assertTrue(array.getMessage().contains("id_index"), array.getMessage() + " | " + "the refusal names exactly whose grammar array syntax is");
     }
 
     @Test

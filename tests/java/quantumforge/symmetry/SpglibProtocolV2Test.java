@@ -53,7 +53,7 @@ class SpglibProtocolV2Test {
 
         OperationResult<StandardizedCell> result = SpglibService.parseStandardized(response, 1.0e-5, "primitive");
         assertTrue(result.isSuccess());
-        StandardizedCell cell = result.getResult();
+        StandardizedCell cell = result.getValue().orElseThrow();
         assertNotNull(cell);
         assertEquals("primitive", cell.getKind());
         assertEquals(227, cell.getSpaceGroupNumber());
@@ -80,7 +80,7 @@ class SpglibProtocolV2Test {
 
         OperationResult<SeekPathResult> result = SpglibService.parseSeekPath(response, 1.0e-5);
         assertTrue(result.isSuccess());
-        SeekPathResult seekPath = result.getResult();
+        SeekPathResult seekPath = result.getValue().orElseThrow();
         assertNotNull(seekPath);
         assertEquals(227, seekPath.getSpaceGroupNumber());
         assertEquals("Fd-3m", seekPath.getSpaceGroupInternational());
