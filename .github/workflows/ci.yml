@@ -32,7 +32,9 @@ jobs:
           scripts/compile_check.py
           scripts/fixture_harness.py
       - name: Build, test, and generate SBOM
-        run: mvn -B -ntp clean verify 2>&1 | tee "$RUNNER_TEMP/maven-build.log"
+        run: |
+          mvn -B -ntp clean verify 2>&1 | tee "$RUNNER_TEMP/maven-build.log"
+          exit ${PIPESTATUS[0]}
       - name: Surface Maven errors as annotations
         if: always()
         run: |
