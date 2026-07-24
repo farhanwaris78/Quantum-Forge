@@ -34,7 +34,7 @@ import quantumforge.input.validation.ValidationSeverity;
 public final class MlModelManifest {
 
     /** Documentation anchor given to findings. */
-    public static final String DOCS = "docs/FUTURE_ROADMAP.md (items 136-140)";
+    public static final String DOCS = "docs/ROADMAP.md (items 136-140)";
 
     private static final Pattern SHA256 = Pattern.compile("[0-9a-fA-F]{64}");
     private static final double CUTOFF_WARNING_ANGSTROM = 10.0;

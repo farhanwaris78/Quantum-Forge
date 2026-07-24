@@ -38,7 +38,7 @@ public final class SiteProfileValidator {
 
     /** Documentation anchors given to findings. */
     public static final String DOCS_ROADMAP =
-            "docs/FUTURE_ROADMAP.md (items 94 and 103)";
+            "docs/ROADMAP.md (items 94 and 103)";
     public static final String DOCS_EXAMPLE =
             "packaging/sites/example-slurm.yaml";
 

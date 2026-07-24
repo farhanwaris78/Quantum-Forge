@@ -35,7 +35,7 @@ Copy-Item "packaging\windows\Update-QuantumForge.ps1" "$Bundle\Update-QuantumFor
 Copy-Item "packaging\windows\Uninstall-QuantumForge.ps1" "$Bundle\Uninstall-QuantumForge.ps1"
 Copy-Item "LICENSE", "README.md" "$Bundle\"
 @("docs\INSTALLATION.md", "docs\RELEASE_AND_SECURITY.md", "docs\SCIENTIFIC_SOFTWARE_GUIDE.md",
-  "docs\CODE_AUDIT.md", "docs\FUTURE_ROADMAP.md",
+  "docs\CODE_AUDIT.md", "docs\ROADMAP.md",
   "docs\TUTORIAL_INSTALL.md") |
     ForEach-Object {
         if (Test-Path $_) { Copy-Item $_ "$Bundle\docs\" }

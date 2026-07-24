@@ -4,12 +4,14 @@
 
 A release is built on each target operating system because JavaFX native libraries and Oracle/OpenJDK `jpackage` output are platform-specific. Oracle's jpackage guide explicitly requires building packages on the target platform: <https://docs.oracle.com/en/java/javase/17/jpackage/packaging-overview.html>.
 
-Expected release assets include:
+Expected auto-release assets include:
 
-- portable archives for Linux x64/arm64, Windows x64, and macOS x64/arm64;
-- self-contained `.deb`, Arch `.pkg.tar.zst`, Windows `.msi`, and macOS `.dmg` where the runner/toolchain supports them;
+- Linux x64 portable `.tar.gz` and native `.deb`;
+- Windows x64 portable `.zip` and native `.msi`;
+- macOS x64 portable `.tar.gz`, native `.dmg`, and native `.pkg`;
+- `quantumforge.jar`;
+- `quantumforge-sbom.json` (CycloneDX);
 - `SHA256SUMS`;
-- `quantumforge-sbom.cdx.json` (CycloneDX);
 - release notes describing tested scope, known scientific limitations, and code-signing status.
 
 ## What “safe” means here
