@@ -160,7 +160,7 @@ public class SlabModelBuilder {
                             if (!duplicate) {
                                 addedCoords.add(new double[]{cx, cy, cz});
                                 addedElements.add(oldAtom.getName());
-                                slabCell.addAtom(oldAtom.getName(), cx, cy, cz);
+                                slabCell.addAtom(new Atom(oldAtom.getName(), cx, cy, cz));
                             }
                         }
                     }

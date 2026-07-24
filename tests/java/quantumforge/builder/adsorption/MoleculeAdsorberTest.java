@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.junit.jupiter.api.Test;
+import quantumforge.atoms.model.Atom;
 import quantumforge.atoms.model.Cell;
 import quantumforge.com.math.Matrix3D;
 
@@ -14,7 +15,7 @@ class MoleculeAdsorberTest {
     @Test
     void testAdsorbMoleculeNonDestructivelyWithCollisionChecks() throws Exception {
         Cell slab = new Cell(Matrix3D.unit(10.0)); // 10x10x10 cubic cell
-        slab.addAtom("Pt", 5.0, 5.0, 2.0);        // Platinum surface atom at z=2.0
+        slab.addAtom(new Atom("Pt", 5.0, 5.0, 2.0));        // Platinum surface atom at z=2.0
 
         Cell co = MoleculeAdsorber.createMolecule("CO");
         assertNotNull(co);

@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.junit.jupiter.api.Test;
+import quantumforge.atoms.model.Atom;
 import quantumforge.atoms.model.Cell;
 import quantumforge.com.math.Matrix3D;
 
@@ -15,7 +16,7 @@ class QEPointDefectBuilderTest {
     void testDefectBuilderCreatesVacancyAndSubstitution() throws Exception {
         Cell cell = new Cell(Matrix3D.unit(5.0)); // 5x5x5 cell
         cell.addAtom("Si", 0.0, 0.0, 0.0);       // atom index 0
-        cell.addAtom("Si", 1.25, 1.25, 1.25);   // atom index 1
+        cell.addAtom(new Atom("Si", 1.25, 1.25, 1.25));   // atom index 1
 
         QEPointDefectBuilder builder = new QEPointDefectBuilder(cell);
 
@@ -37,7 +38,7 @@ class QEPointDefectBuilderTest {
     }
 
     @Test
-    void testImageSeparationDistanceCalculation() {
+    void testImageSeparationDistanceCalculation() throws Exception {
         // Cubic unit cell size = 8.0 Angstroms
         Cell cell1 = new Cell(Matrix3D.unit(8.0));
         QEPointDefectBuilder builder1 = new QEPointDefectBuilder(cell1);

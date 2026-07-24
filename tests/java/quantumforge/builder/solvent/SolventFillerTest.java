@@ -15,7 +15,7 @@ class SolventFillerTest {
     void testSolventFillerPacksRigidWaterMoleculesNonDestructively() throws Exception {
         // Solute cell: 10x10x10 Angstrom cubic cell with 1 central solute atom
         Cell solute = new Cell(Matrix3D.unit(10.0));
-        solute.addAtom("Pt", 5.0, 5.0, 5.0);
+        solute.addAtom(new Atom("Pt", 5.0, 5.0, 5.0));
 
         SolventFiller filler = new SolventFiller(solute);
         filler.setSolventType(SolventFiller.SOLVENT_WATER);

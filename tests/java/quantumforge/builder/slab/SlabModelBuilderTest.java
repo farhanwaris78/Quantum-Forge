@@ -15,7 +15,7 @@ class SlabModelBuilderTest {
     void testSlabBuilderCreatesCorrectLatticeAndAtoms() throws Exception {
         Cell bulk = new Cell(Matrix3D.unit(5.0)); // 5x5x5 simple cubic cell
         bulk.addAtom("Si", 0.0, 0.0, 0.0);
-        bulk.addAtom("Si", 2.5, 2.5, 2.5);
+        bulk.addAtom(new Atom("Si", 2.5, 2.5, 2.5));
 
         SlabModelBuilder builder = new SlabModelBuilder(bulk);
         builder.setMillerIndices(1, 1, 0); // Cut along (110) plane

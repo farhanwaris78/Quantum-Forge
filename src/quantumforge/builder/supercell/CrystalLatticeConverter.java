@@ -91,7 +91,7 @@ public class CrystalLatticeConverter {
             }
 
             double[] cart = Matrix3D.mult(fracPrim, primLattice);
-            primCell.addAtom(atom.getName(), cart[0], cart[1], cart[2]);
+            primCell.addAtom(new Atom(atom.getName(), cart[0], cart[1], cart[2]));
         }
 
         return primCell;

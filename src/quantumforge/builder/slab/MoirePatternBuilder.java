@@ -184,7 +184,7 @@ public class MoirePatternBuilder {
                     }
 
                     if (!duplicate) {
-                        output.addAtom(atom.getName(), cx, cy, cz);
+                        output.addAtom(new Atom(atom.getName(), cx, cy, cz));
                     }
                 }
             }

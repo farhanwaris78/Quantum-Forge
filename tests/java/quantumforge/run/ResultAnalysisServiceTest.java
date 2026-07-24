@@ -544,7 +544,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void testMagneticOrderClassificationAndMissingCell() {
+    void testMagneticOrderClassificationAndMissingCell() throws Exception {
         Cell cell = new Cell(quantumforge.com.math.Matrix3D.unit(10.0));
         cell.addAtom("Fe", 0.0, 0.0, 0.0);
         cell.addAtom("Fe", 0.5, 0.5, 0.5);
@@ -850,7 +850,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void testSymmetryKpathValidationAndCellRequirement() {
+    void testSymmetryKpathValidationAndCellRequirement() throws Exception {
         Cell cell = new Cell(quantumforge.com.math.Matrix3D.unit(5.0));
         cell.addAtom("Si", 0.0, 0.0, 0.0);
         cell.addAtom("Si", 0.25, 0.25, 0.25);
@@ -1035,7 +1035,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void testKmeshQualityForAutomaticGammaAndMissing() {
+    void testKmeshQualityForAutomaticGammaAndMissing() throws Exception {
         Cell cell = new Cell(quantumforge.com.math.Matrix3D.unit(10.0));
         cell.addAtom("Si", 0.0, 0.0, 0.0);
 
@@ -1068,7 +1068,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void testDefectPreviewVacancySubstitutionAndValidation() {
+    void testDefectPreviewVacancySubstitutionAndValidation() throws Exception {
         Cell cell = new Cell(quantumforge.com.math.Matrix3D.unit(10.0));
         cell.addAtom("Si", 0.0, 0.0, 0.0);
         cell.addAtom("Si", 0.25, 0.25, 0.25);
@@ -1256,10 +1256,10 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void testAdsorptionPreviewCollisionResolutionAndValidation() {
+    void testAdsorptionPreviewCollisionResolutionAndValidation() throws Exception {
         // Mirror the proven MoleculeAdsorberTest setup exactly.
         Cell slab = new Cell(quantumforge.com.math.Matrix3D.unit(10.0));
-        slab.addAtom("Pt", 5.0, 5.0, 2.0);
+        slab.addAtom(new Atom("Pt", 5.0, 5.0, 2.0));
 
         AnalysisReport belowMinimum = ResultAnalysisService.analyze(AnalysisKind.ADSORPTION_PREVIEW,
                 stubProject(this.tempDir, slab),
@@ -1440,7 +1440,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void testExxGuidanceKindValidationPaths() {
+    void testExxGuidanceKindValidationPaths() throws Exception {
         Cell cell = new Cell(quantumforge.com.math.Matrix3D.unit(10.0));
         cell.addAtom("Si", 0.0, 0.0, 0.0);
 
@@ -1483,7 +1483,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void testBzGeometryKindOnKnownCells() {
+    void testBzGeometryKindOnKnownCells() throws Exception {
         Cell cubic = new Cell(quantumforge.com.math.Matrix3D.unit(10.0));
         cubic.addAtom("Si", 0.1, 0.2, 0.3);
         AnalysisReport report = ResultAnalysisService.analyze(AnalysisKind.BZ_GEOMETRY,
@@ -1790,7 +1790,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void testConstraintsPreviewKindExactFlagsAndValidation() {
+    void testConstraintsPreviewKindExactFlagsAndValidation() throws Exception {
         Cell cell = new Cell(quantumforge.com.math.Matrix3D.unit(10.0));
         cell.addAtom("Si", 0.0, 0.0, 0.0);
         cell.addAtom("Si", 0.15, 0.0, 0.0);
@@ -2310,7 +2310,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void testCellExtXyzExportKindDocumentAndRefusals() {
+    void testCellExtXyzExportKindDocumentAndRefusals() throws Exception {
         Cell cell = new Cell(quantumforge.com.math.Matrix3D.unit(10.0));
         cell.addAtom("Si", 0.0, 0.0, 0.0);
         cell.addAtom("Si", 0.15, 0.0, 0.0);
@@ -2587,7 +2587,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void testSupercellPreviewKindExactTransformAndRefusals() {
+    void testSupercellPreviewKindExactTransformAndRefusals() throws Exception {
         Cell cell = new Cell(quantumforge.com.math.Matrix3D.unit(10.0));
         cell.addAtom("Si", 0.0, 0.0, 0.0);
         cell.addAtom("Si", 0.15, 0.0, 0.0);
@@ -2643,7 +2643,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void testHubbardHpDraftKindContextGateAndDraft() {
+    void testHubbardHpDraftKindContextGateAndDraft() throws Exception {
         QESCFInput input = new QESCFInput();
         input.getNamelist(QEInput.NAMELIST_CONTROL)
                 .setValue(QEValueBase.getInstance("prefix", "'nio'"));
@@ -2957,7 +2957,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void testEsmSlabCheckKindVerdictsAndGeometryGate() {
+    void testEsmSlabCheckKindVerdictsAndGeometryGate() throws Exception {
         double[][] lattice = {{10.0, 0.0, 0.0}, {0.0, 10.0, 0.0}, {0.0, 0.0, 30.0}};
         Cell cell = new Cell(lattice);
         cell.addAtom("Cu", 0.5, 0.5, 0.4);
@@ -3021,7 +3021,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void testMoireTwistPreviewKindExactMathAndRefusals() {
+    void testMoireTwistPreviewKindExactMathAndRefusals() throws Exception {
         double[][] graphite = {{2.46, 0.0, 0.0}, {0.0, 2.46, 0.0}, {0.0, 0.0, 10.0}};
         Cell cell = new Cell(graphite);
         AnalysisReport report = ResultAnalysisService.analyze(
@@ -3185,7 +3185,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void testCpInputDraftKindInvalidPatternAndGuardedDraft() {
+    void testCpInputDraftKindInvalidPatternAndGuardedDraft() throws Exception {
         Cell cell = new Cell(quantumforge.com.math.Matrix3D.unit(10.0));
         cell.addAtom("Ni", 0.0, 0.0, 0.0);
         QESCFInput input = new QESCFInput();
@@ -3233,7 +3233,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void testW90WinDraftKindMeshEchoAndRefusals() {
+    void testW90WinDraftKindMeshEchoAndRefusals() throws Exception {
         Cell cell = new Cell(quantumforge.com.math.Matrix3D.unit(5.43));
         cell.addAtom("Si", 0.0, 0.0, 0.0);
         QESCFInput input = new QESCFInput();
@@ -3340,7 +3340,7 @@ class ResultAnalysisServiceTest {
 
 
     @Test
-    void testQeVersionCheckKindAuditVerdictsAndRefusals() {
+    void testQeVersionCheckKindAuditVerdictsAndRefusals() throws Exception {
         Cell cell = new Cell(quantumforge.com.math.Matrix3D.unit(10.0));
         cell.addAtom("Si", 0.0, 0.0, 0.0);
         QESCFInput input = new QESCFInput();
@@ -3417,7 +3417,7 @@ class ResultAnalysisServiceTest {
 
 
     @Test
-    void testMpiPoolsAdvisorKindExactAuditAndRefusals() {
+    void testMpiPoolsAdvisorKindExactAuditAndRefusals() throws Exception {
         Cell cell = new Cell(quantumforge.com.math.Matrix3D.unit(10.0));
         cell.addAtom("Si", 0.0, 0.0, 0.0);
         QESCFInput input = new QESCFInput();
@@ -3590,7 +3590,7 @@ class ResultAnalysisServiceTest {
 
 
     @Test
-    void testXspectraDraftKindContextAndGuard() {
+    void testXspectraDraftKindContextAndGuard() throws Exception {
         Cell cell = new Cell(quantumforge.com.math.Matrix3D.unit(10.0));
         cell.addAtom("Fe", 0.0, 0.0, 0.0);
         QESCFInput input = new QESCFInput();
@@ -3634,7 +3634,7 @@ class ResultAnalysisServiceTest {
 
 
     @Test
-    void testGipawDraftKindContextAndGuards() {
+    void testGipawDraftKindContextAndGuards() throws Exception {
         Cell cell = new Cell(quantumforge.com.math.Matrix3D.unit(10.0));
         cell.addAtom("C", 0.0, 0.0, 0.0);
         QESCFInput input = new QESCFInput();
@@ -3676,7 +3676,7 @@ class ResultAnalysisServiceTest {
 
 
     @Test
-    void testSlabMillerPreviewKindGeometryAndGate() {
+    void testSlabMillerPreviewKindGeometryAndGate() throws Exception {
         Cell cubic = new Cell(quantumforge.com.math.Matrix3D.unit(5.43));
         cubic.addAtom("Si", 0.0, 0.0, 0.0);
 
@@ -3872,7 +3872,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void testTddfptDraftKindContextAndGuards() {
+    void testTddfptDraftKindContextAndGuards() throws Exception {
         Cell cell = new Cell(quantumforge.com.math.Matrix3D.unit(10.0));
         cell.addAtom("C", 0.0, 0.0, 0.0);
         QESCFInput input = new QESCFInput();

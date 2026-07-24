@@ -64,7 +64,7 @@ public class MoleculeBuilder {
      */
     public boolean addAtom(String element, double x, double y, double z) {
         if (this.cell != null) {
-            return this.cell.addAtom(element, x, y, z);
+            return this.cell.addAtom(new Atom(element, x, y, z));
         }
         return false;
     }

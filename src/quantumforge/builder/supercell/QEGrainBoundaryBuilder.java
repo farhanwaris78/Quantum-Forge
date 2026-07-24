@@ -134,14 +134,14 @@ public final class QEGrainBoundaryBuilder {
         // 3. Populate final stable grain boundary cell
         for (int i = 0; i < grain1Coords.size(); i++) {
             double[] g1 = grain1Coords.get(i);
-            gbCell.addAtom(grain1Names.get(i), g1[0], g1[1], g1[2]);
+            gbCell.addAtom(new Atom(grain1Names.get(i), g1[0], g1[1], g1[2]));
         }
 
         int removedCount = 0;
         for (int i = 0; i < grain2Coords.size(); i++) {
             if (!deleteGrain2[i]) {
                 double[] g2 = grain2Coords.get(i);
-                gbCell.addAtom(grain2Names.get(i), g2[0], g2[1], g2[2]);
+                gbCell.addAtom(new Atom(grain2Names.get(i), g2[0], g2[1], g2[2]));
             } else {
                 removedCount++;
             }

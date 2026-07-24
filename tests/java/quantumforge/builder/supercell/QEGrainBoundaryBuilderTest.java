@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.junit.jupiter.api.Test;
+import quantumforge.atoms.model.Atom;
 import quantumforge.atoms.model.Cell;
 import quantumforge.com.math.Matrix3D;
 
@@ -15,7 +16,7 @@ class QEGrainBoundaryBuilderTest {
         // Cubic unit cell (size = 6.0)
         Cell cell = new Cell(Matrix3D.unit(6.0));
         cell.addAtom("Fe", 0.0, 0.0, 0.0); // Atom 1 (at interface z=0)
-        cell.addAtom("Fe", 3.0, 3.0, 3.0); // Atom 2 (bulk core)
+        cell.addAtom(new Atom("Fe", 3.0, 3.0, 3.0)); // Atom 2 (bulk core)
 
         // Sigma 5 Grain boundary (twist angle = 36.87 degrees)
         QEGrainBoundaryBuilder builder = new QEGrainBoundaryBuilder(
