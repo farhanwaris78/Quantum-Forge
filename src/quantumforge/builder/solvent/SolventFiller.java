@@ -51,7 +51,7 @@ public class SolventFiller {
     }
 
     public void setSolventType(int type) { this.solventType = type; }
-    public void setDensity(double density) { this.density = Math.max(0.1, density); }
+    public void setDensity(double density) { this.density = Math.max(0.0, density); }
     public void setMargin(double margin) { this.margin = Math.max(1.0, margin); }
 
     public int getMoleculesPlacedCount() { return this.moleculesPlacedCount; }
