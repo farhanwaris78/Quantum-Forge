@@ -8,6 +8,7 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
+import java.net.URI;
 import java.net.URL;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
@@ -88,7 +89,7 @@ public final class QEMaterialsProjectV2Client {
         String encodedFormula = URLEncoder.encode(formula.trim(), StandardCharsets.UTF_8);
         String urlString = API_BASE_URL + "?formula=" + encodedFormula + "&_fields=material_id,structure";
 
-        HttpURLConnection conn = (HttpURLConnection) new URL(urlString).openConnection();
+        HttpURLConnection conn = (HttpURLConnection) URI.create(urlString).toURL().openConnection();
         conn.setRequestMethod("GET");
         conn.setConnectTimeout(10000);
         conn.setReadTimeout(10000);

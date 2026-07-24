@@ -8,6 +8,7 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
+import java.net.URI;
 import java.net.URL;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
@@ -172,7 +173,7 @@ public final class QEOptimadeClient {
     }
 
     private static String fetchUrlString(String urlStr) throws IOException {
-        HttpURLConnection conn = (HttpURLConnection) new URL(urlStr).openConnection();
+        HttpURLConnection conn = (HttpURLConnection) URI.create(urlStr).toURL().openConnection();
         conn.setRequestMethod("GET");
         conn.setConnectTimeout(10000);
         conn.setReadTimeout(10000);
