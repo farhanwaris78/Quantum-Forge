@@ -122,7 +122,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void testBandsAnalysisProducesCsvAndHonestFermiFallback() throws IOException {
+    void testBandsAnalysisProducesCsvAndHonestFermiFallback() throws Exception {
         File bands = write("si-bands.dat.gnu",
                 "0.0000  -5.0000\n0.1000  -4.9000\n0.2000  -4.8000\n"
                 + "\n"
@@ -140,7 +140,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void testBandsExplicitFermiShiftsEnergies() throws IOException {
+    void testBandsExplicitFermiShiftsEnergies() throws Exception {
         File bands = write("fe.dat.gnu", "0.0 10.0\n0.1 11.0\n\n0.0 12.0\n0.1 13.0\n");
         AnalysisReport report = ResultAnalysisService.analyze(AnalysisKind.BANDS_DATA,
                 new ProjectProperty(), this.tempDir.toFile(), "fe", "fe.log", bands,
@@ -161,7 +161,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void testAllenDynesTcFromSyntheticAlpha2f() throws IOException {
+    void testAllenDynesTcFromSyntheticAlpha2f() throws Exception {
         StringBuilder alpha2f = new StringBuilder("# w(cm-1) alpha2F\n");
         for (int i = 1; i <= 100; i++) {
             alpha2f.append(String.format(java.util.Locale.ROOT, "%d.0 %.6f%n", i, 0.02 * i / 100.0));
@@ -181,7 +181,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void testPhono3pyKappaAnalysis() throws IOException {
+    void testPhono3pyKappaAnalysis() throws Exception {
         File kappa = write("kappa-m111.hdf5.txt",
                 "  Temp (K)     kappa_xx     kappa_yy     kappa_zz\n"
                 + "   300.00       30.0000      30.0000      30.0000\n"
@@ -198,7 +198,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void testWannier90SpreadReport() throws IOException {
+    void testWannier90SpreadReport() throws Exception {
         File wout = write("si.wout",
                 " CYCLE      1  Spreads: (  5.00000 ) Total:    5.00000\n"
                 + " CYCLE      2  Spreads: (  2.50000 ) Total:    2.50000\n"
@@ -212,7 +212,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void testXanesPeakReport() throws IOException {
+    void testXanesPeakReport() throws Exception {
         File xanes = write("c_k.xanes.dat",
                 "280.0 0.10\n285.0 0.50\n290.0 1.20\n295.0 0.40\n");
         AnalysisReport report = ResultAnalysisService.analyze(AnalysisKind.XANES,
@@ -253,7 +253,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void testDiscoveryPatterns() {
+    void testDiscoveryPatterns() throws Exception {
         try {
             write("bands_run.dat.gnu", "0 0\n");
             write("alpha2f.dat", "1 2\n");
@@ -304,7 +304,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void testRunManifestHistoryRendersTable() throws IOException {
+    void testRunManifestHistoryRendersTable() throws Exception {
         AnalysisReport missing = ResultAnalysisService.analyze(AnalysisKind.RUN_MANIFEST,
                 stubProject(this.tempDir), new AnalysisParameters());
         assertFalse(missing.isSuccess(), "No manifest exists before any run");
@@ -326,7 +326,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void testProjectBoundDelegationForFileKinds() throws IOException {
+    void testProjectBoundDelegationForFileKinds() throws Exception {
         File bands = write("si.dat.gnu", "0.0 1.0\n0.1 1.1\n");
         AnalysisReport report = ResultAnalysisService.analyze(AnalysisKind.BANDS_DATA,
                 stubProject(this.tempDir), new AnalysisParameters().withFermiEv(0.5));
@@ -403,7 +403,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void testHullStabilityFromCsv() throws IOException {
+    void testHullStabilityFromCsv() throws Exception {
         File csv = write("phases.csv",
                 "formula,fraction_B,formation_energy_eV_per_atom\n"
                 + "AB2_meta,0.6667,-0.05\n"
@@ -425,7 +425,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void testProjectLogIsPreferredForLogAnalyses() throws IOException {
+    void testProjectLogIsPreferredForLogAnalyses() throws Exception {
         File log = write("run.log",
                 "     total magnetization       =     2.0000 Bohr mag/cell\n"
                 + "     absolute magnetization    =     2.5000 Bohr mag/cell\n");
@@ -437,7 +437,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void testTcCsvRoundingIsLocaleStable() throws IOException {
+    void testTcCsvRoundingIsLocaleStable() throws Exception {
         File file = write("pb.a2f", "10.0 0.01\n20.0 0.02\n30.0 0.01\n");
         AnalysisReport report = ResultAnalysisService.analyze(AnalysisKind.ELIASHBERG_TC,
                 new ProjectProperty(), this.tempDir.toFile(), "pb", "pb.log", file,
@@ -450,7 +450,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void testWorkFunctionFromUniformPlateauPotential() throws IOException {
+    void testWorkFunctionFromUniformPlateauPotential() throws Exception {
         // 20-sample grid: flat 4.0 eV left vacuum, a monotonically sloped slab
         // region (never a plateau), and a flat 4.5 eV right vacuum.
         StringBuilder content = new StringBuilder("# z(Ang) V(eV)\n");
@@ -477,7 +477,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void testWorkFunctionRejectsNonUniformGridAndPlateauLessPotential() throws IOException {
+    void testWorkFunctionRejectsNonUniformGridAndPlateauLessPotential() throws Exception {
         File nonUniform = write("si-tavg-nonuniform.dat",
                 "0.0 4.0\n0.5 4.0\n1.5 4.0\n2.0 4.0\n3.0 4.0\n4.0 8.0\n5.0 8.0\n6.0 8.0\n");
         AnalysisReport badGrid = ResultAnalysisService.analyze(AnalysisKind.WORK_FUNCTION,
@@ -499,7 +499,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void testCpTrajectoryFromCpLog() throws IOException {
+    void testCpTrajectoryFromCpLog() throws Exception {
         File log = write("si-cp.out",
                 "     nfi=     10, ekinc=   0.00012, ekinh=   0.01245, etot=  -12.78452\n"
                 + "     nfi=     20, ekinc=   0.00015, ekinh=   0.01423, etot=  -12.78455\n"
@@ -524,7 +524,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void testCubeInspectionStatisticsAndTruncation() throws IOException {
+    void testCubeInspectionStatisticsAndTruncation() throws Exception {
         File cube = write("rho.cube",
                 "comment\ncomment\n1 0 0 0\n2 1 0 0\n1 0 1 0\n1 0 0 1\n1 0 0 0 0\n1.0 3.0\n");
         AnalysisReport report = ResultAnalysisService.analyze(AnalysisKind.CUBE_INSPECT,
@@ -564,7 +564,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void testCitationsDetectWorkflowArtifacts() throws IOException {
+    void testCitationsDetectWorkflowArtifacts() throws Exception {
         write("si.wout", "... wannier90 disentanglement output ...\n");
         write("matdyn.freq.gp", "0.0 100.0 120.0\n");
         AnalysisReport report = ResultAnalysisService.analyze(AnalysisKind.CITATIONS,
@@ -609,7 +609,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void testScfConvergenceFromLogTail() throws IOException {
+    void testScfConvergenceFromLogTail() throws Exception {
         File log = write("si-scf.out",
                 "     iteration #  1     ecut=    25.00 Ry     beta= 0.70\n"
                 + "     total energy              =     -15.84012345 Ry\n"
@@ -632,7 +632,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void testScfConvergenceFailureStates() throws IOException {
+    void testScfConvergenceFailureStates() throws Exception {
         File notConverged = write("si-nc.out",
                 "     total energy              =     -15.84012345 Ry\n"
                 + "     total energy              =     -15.83012345 Ry\n"
@@ -652,7 +652,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void testTimingProfileFromPwLog() throws IOException {
+    void testTimingProfileFromPwLog() throws Exception {
         File log = write("si-timing.out",
                 "     Parallel version (MPI), running on     8 processors\n"
                 + "     Estimated max_memory     =   120.50 MB\n"
@@ -678,7 +678,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void testSmearingSafetyVerdicts() throws IOException {
+    void testSmearingSafetyVerdicts() throws Exception {
         File log = write("cu-smearing.out",
                 "     total energy              =   -12.703512 Ry\n"
                 + "     smearing contrib. (-TS)   =    -0.004500 Ry\n"
@@ -714,7 +714,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void testPhononDosThermodynamicsFromTwoColumnGrid() throws IOException {
+    void testPhononDosThermodynamicsFromTwoColumnGrid() throws Exception {
         File dos = write("si-phdos.dat", "0.0 0.0\n100.0 1.0\n200.0 1.0\n300.0 0.0\n");
         AnalysisReport report = ResultAnalysisService.analyze(AnalysisKind.PHONON_DOS_THERMO,
                 new ProjectProperty(), this.tempDir.toFile(), "si", "si.log", dos,
@@ -729,7 +729,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void testPhononDosValidationFailures() throws IOException {
+    void testPhononDosValidationFailures() throws Exception {
         File nonIncreasing = write("bad-phdos.dat", "100.0 1.0\n50.0 1.0\n300.0 0.0\n");
         AnalysisReport gridFail = ResultAnalysisService.analyze(AnalysisKind.PHONON_DOS_THERMO,
                 new ProjectProperty(), this.tempDir.toFile(), "si", "si.log", nonIncreasing,
@@ -745,7 +745,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void testElasticStabilityFromThermoPwMatrix() throws IOException {
+    void testElasticStabilityFromThermoPwMatrix() throws Exception {
         File stable = write("elastic.out",
                 "  Elastic Constant Matrix (kbar)\n"
                 + "  5000 1000 1000    0    0    0\n"
@@ -787,7 +787,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void testLammpsThermoTrajectoryAndCsv() throws IOException {
+    void testLammpsThermoTrajectoryAndCsv() throws Exception {
         File log = write("log.lammps",
                 "Memory usage per processor = 2.45 Mbytes\n"
                 + "Step Temp Press PotEng KinEng TotEng\n"
@@ -814,7 +814,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void testGeometryConvergenceHonestyWithoutStoredSteps() throws IOException {
+    void testGeometryConvergenceHonestyWithoutStoredSteps() throws Exception {
         Files.copy(Path.of("tests/fixtures/qe/relax_converged.log"),
                 this.tempDir.resolve("espresso.log"));
         AnalysisReport report = ResultAnalysisService.analyze(AnalysisKind.GEOMETRY_CONVERGENCE,
@@ -873,7 +873,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void testXmlSummaryFromDataFileSchema() throws IOException {
+    void testXmlSummaryFromDataFileSchema() throws Exception {
         Files.copy(Path.of("tests/fixtures/qe/data-file-schema.xml"),
                 this.tempDir.resolve("data-file-schema.xml"));
         File xml = this.tempDir.resolve("data-file-schema.xml").toFile();
@@ -897,7 +897,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void testElasticModuliFromIsotropicMatrix() throws IOException {
+    void testElasticModuliFromIsotropicMatrix() throws Exception {
         File elastic = write("elastic-moduli.out",
                 "  Elastic Constant Matrix (kbar)\n"
                 + "  6000 2000 2000    0    0    0\n"
@@ -935,7 +935,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void testVasprunInspectionAndIncompleteRefusal() throws IOException {
+    void testVasprunInspectionAndIncompleteRefusal() throws Exception {
         File vasprun = write("vasprun.xml",
                 "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
                 + "<modeling>\n  <calculation>\n    <scstep>\n      <energy>\n"
@@ -972,7 +972,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void testCastepLogInspection() throws IOException {
+    void testCastepLogInspection() throws Exception {
         File castep = write("si.castep",
                 "     -------------------------------------------------------------------------\n"
                 + "     Final energy, E             =  -1234.567890 eV\n"
@@ -996,7 +996,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void testInputDiffAgainstReferenceFile() throws IOException {
+    void testInputDiffAgainstReferenceFile() throws Exception {
         QESCFInput base = new QESCFInput();
         QENamelist baseSystem = base.getNamelist(QEInput.NAMELIST_SYSTEM);
         baseSystem.setValue(QEValueBase.getInstance("ecutwfc", "30.0"));
@@ -1108,7 +1108,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void testConvergenceReviewFindsPlateauFromEvidence() throws IOException {
+    void testConvergenceReviewFindsPlateauFromEvidence() throws Exception {
         // E(ecut) series: deltas 0.1, 0.02, 0.004, 0.001 Ry -> with 2 atoms and
         // tol 0.001 Ry/atom, first qualifying following-change is |0.004|/2 = 0.002? No:
         // step 3->4 = 0.004/2 = 0.002 > 0.001; step 4->5 = 0.001/2 = 0.0005 <= 0.001,
@@ -1184,7 +1184,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void testPhononModesAuditAndRejection() throws IOException {
+    void testPhononModesAuditAndRejection() throws Exception {
         File dynmat = write("dynmat.out",
                 "     omega(  1) =       0.394099 [THz] =      13.143245 [cm-1]\n"
                 + "     (  0.707107  0.000000  0.000000  0.000000  0.000000  0.000000 )\n"
@@ -1223,7 +1223,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void testVoltageProfileFromHullCsv() throws IOException {
+    void testVoltageProfileFromHullCsv() throws Exception {
         File csv = write("battery.csv",
                 "formula,fraction_B,formation_energy_eV_per_atom\n"
                 + "A,0.0,0.0\n"
@@ -1300,7 +1300,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void testProvenanceAttachedByFileDispatch() throws IOException {
+    void testProvenanceAttachedByFileDispatch() throws Exception {
         File csv = write("hull-prov.csv",
                 "formula,fraction_B,formation_energy_eV_per_atom\n"
                 + "A,0.0,0.0\nB,1.0,0.0\nAB,0.5,-0.25\n");
@@ -1359,7 +1359,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void testSiteProfileCheckKind() throws IOException {
+    void testSiteProfileCheckKind() throws Exception {
         File clean = write("cluster.yaml",
                 "id: test-cluster\nscheduler: slurm\nstaging_root: /scratch/qf\n"
                         + "scratch_root: /scratch/qf\nmpi_launcher: srun\nmodule: qe/7.5\n");
@@ -1505,7 +1505,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void testBandGapKindHonestDirectness() throws IOException {
+    void testBandGapKindHonestDirectness() throws Exception {
         File gapped = write("gapped-pw.out",
                 "     the Fermi energy is      6.5400 ev\n"
                 + "     highest occupied, lowest unoccupied level (ev):   -2.0000     1.5000\n");
@@ -1537,7 +1537,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void testDosIntegrationKindValidatedTrapezoid() throws IOException {
+    void testDosIntegrationKindValidatedTrapezoid() throws Exception {
         File pdos = write("espresso.pdos_atm#1(Si)_wfc#2(p).dat",
                 "# E (eV)   ldos(E)   pdos(E)\n"
                 + "  0.0    0.0   0.0\n"
@@ -1569,7 +1569,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void testElasticDirectionalIsotropicCollapse() throws IOException {
+    void testElasticDirectionalIsotropicCollapse() throws Exception {
         File elastic = write("elastic-directional.out",
                 "  Elastic Constant Matrix (kbar)\n"
                 + "  6000 2000 2000    0    0    0\n"
@@ -1628,7 +1628,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void testRoCrateKindHashesKnownArtifacts() throws IOException {
+    void testRoCrateKindHashesKnownArtifacts() throws Exception {
         write("espresso.in", "hello-in\n");
         write("espresso.log", "hello\n");
         AnalysisReport report = ResultAnalysisService.analyze(AnalysisKind.RO_CRATE,
@@ -1728,7 +1728,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void testEffectiveMassKindExactParabolicFit() throws IOException {
+    void testEffectiveMassKindExactParabolicFit() throws Exception {
         // 27-point grid h=0.05 bohr^-1 with E = kx^2 + 2 ky^2 + 4 kz^2 (Ry):
         // inverse Hessian diag(1/2, 1/4, 1/8), masses m*/m_e = (0.25, 0.50, 1.00).
         StringBuilder fixture = new StringBuilder();
@@ -1897,7 +1897,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void testTrajectoryIndexKindStreamingAndFailClosed() throws IOException {
+    void testTrajectoryIndexKindStreamingAndFailClosed() throws Exception {
         String frame = "2\ncomment\nSi 0.0 0.0 0.0\nSi 1.0 1.0 1.0\n";
         File traj = write("md-traj.xyz", frame + frame + frame);
         AnalysisReport report = ResultAnalysisService.analyze(AnalysisKind.TRAJECTORY_INDEX,
@@ -1935,7 +1935,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void testMlpDatasetCheckKindSchemaAndLeakReview() throws IOException {
+    void testMlpDatasetCheckKindSchemaAndLeakReview() throws Exception {
         String frameA = "2\nLattice=\"10 0 0 0 10 0 0 0 10\" "
                 + "Properties=species:S:1:pos:R:3 energy=-15.5 pbc=\"T T T\"\n"
                 + "Si 0 0 0\nSi 1.35 1.35 1.35\n";
@@ -1981,7 +1981,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void testSeriesCompareKindExactMetricsAndHonesty() throws IOException {
+    void testSeriesCompareKindExactMetricsAndHonesty() throws Exception {
         File series = write("a-vs-b-series.csv",
                 "param,E_Ry_A,E_Ry_B\n"
                 + "30,-5.0,-4.5\n"
@@ -2013,7 +2013,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void testTensorEigenKindExactEigenvaluesAndRefusals() throws IOException {
+    void testTensorEigenKindExactEigenvaluesAndRefusals() throws Exception {
         File tensor = write("dielectric-tensor.dat",
                 "2.0 0.0 0.0\n0.0 5.0 0.0\n0.0 0.0 8.0\n");
         AnalysisReport report = ResultAnalysisService.analyze(AnalysisKind.TENSOR_EIGEN,
@@ -2335,7 +2335,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void testRamanIrSpectrumKindSelfCheckAndRefusals() throws IOException {
+    void testRamanIrSpectrumKindSelfCheckAndRefusals() throws Exception {
         File modes = write("dynmat.spectra.out",
                 "      mode   1   freq    120.45 cm-1   IR intensity    0.5000"
                         + "   Raman activity    1.2412\n"
@@ -2406,7 +2406,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void testTrajectoryWindowScanKindSampledStatsAndRefusals() throws IOException {
+    void testTrajectoryWindowScanKindSampledStatsAndRefusals() throws Exception {
         File traj = write("scan.xyz",
                 "2\nframe 1\nSi 0.0 0.0 0.0\nSi 1.0 0.0 0.0\n"
                 + "2\nframe 2\nSi 0.0 1.0 0.0\nSi 2.0 1.0 0.0\n"
@@ -2457,7 +2457,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void testTensorDirectionalKindEigenBasisAndGrid() throws IOException {
+    void testTensorDirectionalKindEigenBasisAndGrid() throws Exception {
         File diag = write("diag-tensor.dat", "2 0 0\n0 5 0\n0 0 8\n");
         AnalysisReport report = ResultAnalysisService.analyze(
                 AnalysisKind.TENSOR_DIRECTIONAL, new ProjectProperty(),
@@ -2504,7 +2504,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void testDensityDifferenceKindGateAndStats() throws IOException {
+    void testDensityDifferenceKindGateAndStats() throws Exception {
         java.util.function.BiFunction<String, String, Path> cube = (directory, values) -> {
             try {
                 Path dir = Files.createDirectories(this.tempDir.resolve(directory));
@@ -2689,7 +2689,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void testTimingResourceKindTableAndRefusals() throws IOException {
+    void testTimingResourceKindTableAndRefusals() throws Exception {
         File log = write("timing.log",
                 "some noisy output\n"
                 + "     init_run     :      1.24s CPU      1.30s WALL (        1 calls)\n"
@@ -2723,7 +2723,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void testWorkspaceSearchKindCatalogueAndRefusals() throws IOException {
+    void testWorkspaceSearchKindCatalogueAndRefusals() throws Exception {
         Files.writeString(this.tempDir.resolve("si.in"),
                 "&CONTROL\n   calculation = 'scf'\n/\n"
                 + "&SYSTEM\n   ibrav = 2, nat = 2, ntyp = 1, ecutwfc = 30.0\n/\n"
@@ -2785,7 +2785,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void testPoscarReviewKindParsesAndRefuses() throws IOException {
+    void testPoscarReviewKindParsesAndRefuses() throws Exception {
         File poscar = write("POSCAR_quartz",
                 "SiO2 quartz cell\n"
                 + "1.0\n"
@@ -2840,7 +2840,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void testElasticElateDraftKindStableGatedAndRefusals() throws IOException {
+    void testElasticElateDraftKindStableGatedAndRefusals() throws Exception {
         String cubic = "  Elastic Constant Matrix (kbar)\n"
                 + "  5000 1000 1000    0    0    0\n"
                 + "  1000 5000 1000    0    0    0\n"
@@ -2898,7 +2898,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void testSpinCubeMagnetizationKindMomentAndRefusals() throws IOException {
+    void testSpinCubeMagnetizationKindMomentAndRefusals() throws Exception {
         String header = "comment\\ncomment\\n1 0 0 0\\n2 2 0 0\\n1 0 2 0\\n1 0 0 2\\n"
                 + "1 0 0 0 0\\n";
         Path pair = Files.createDirectories(this.tempDir.resolve("spin-ok"));
@@ -3078,7 +3078,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void testPdbReviewKindHonestCompositionAndRefusals() throws IOException {
+    void testPdbReviewKindHonestCompositionAndRefusals() throws Exception {
         File pdb = write("ala.pdb",
                 "HEADER    small alanine example\n"
                 + "CRYST1   30.000   40.000   50.000  90.00  90.00  90.00\n"
@@ -3126,7 +3126,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void testLammpsDataReviewKindStyleGateAndRefusals() throws IOException {
+    void testLammpsDataReviewKindStyleGateAndRefusals() throws Exception {
         File charge = write("charge.data",
                 "silica charge example\n"
                 + "4 atoms\n"
@@ -3530,7 +3530,7 @@ class ResultAnalysisServiceTest {
 
 
     @Test
-    void testLogErrorDiagnosisKindMatchesAndHonestEmpty() throws IOException {
+    void testLogErrorDiagnosisKindMatchesAndHonestEmpty() throws Exception {
         File log = write("pw.log",
                 "Program PWSCF v.7.2 starts ...\n"
                 + "     io routine, version 7.2\n"
@@ -3725,7 +3725,7 @@ class ResultAnalysisServiceTest {
 
 
     @Test
-    void testCifReviewKindSubsetMetricsAndRefusals() throws IOException {
+    void testCifReviewKindSubsetMetricsAndRefusals() throws Exception {
         File rutile = write("rutile.cif",
                 "data_rutile_TiO2\n"
                 + "_cell_length_a 4.593\n"
@@ -3787,7 +3787,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void testMolSdfReviewKindSubsetMetricsAndRefusals() throws IOException {
+    void testMolSdfReviewKindSubsetMetricsAndRefusals() throws Exception {
         File methane = write("methane.mol",
                 "methane test\n"
                 + "  QuantumForge\n"
@@ -3924,7 +3924,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void testMlDatasetBaselineKindFitAndRefusals() throws IOException {
+    void testMlDatasetBaselineKindFitAndRefusals() throws Exception {
         File exact = write("dataset.extxyz",
                 "2\n"
                 + "Properties=species:S:1:pos:R:3 energy=-3.0\n"
@@ -4002,7 +4002,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void testSeriesRefAlignKindExplicitShiftAndRefusals() throws IOException {
+    void testSeriesRefAlignKindExplicitShiftAndRefusals() throws Exception {
         File csv = write("two-series.align.csv",
                 "parameter,e1,e2\n"
                 + "0.0,-10.0,-5.0\n"
@@ -4052,7 +4052,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void testBandsFermiReviewKindShiftStatsAndRefusals() throws IOException {
+    void testBandsFermiReviewKindShiftStatsAndRefusals() throws Exception {
         File bands = write("si.bands.dat.gnu",
                 "0.0 -10.0\n0.5 -9.0\n1.0 -8.0\n"
                 + "\n"
@@ -4094,7 +4094,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void testBandGapBandsKindVerdictsAndRefusals() throws IOException {
+    void testBandGapBandsKindVerdictsAndRefusals() throws Exception {
         File bands = write("gap.bands.dat.gnu",
                 "0.0 -10.0\n0.5 -9.0\n1.0 -9.5\n"
                 + "\n"
@@ -4148,7 +4148,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void testProvenanceJournalReviewKindVerifyAndTamper() throws IOException {
+    void testProvenanceJournalReviewKindVerifyAndTamper() throws Exception {
         File journal = write("structure.qfj",
                 "# qf-journal v1\n"
                 + "1|cod:9011998|supercell|2.0,0.0,0.0,0.0,2.0,0.0,0.0,0.0,2.0"
@@ -4278,7 +4278,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void testOccupationLevelsReviewKindProvenanceAndHonesty() throws IOException {
+    void testOccupationLevelsReviewKindProvenanceAndHonesty() throws Exception {
         File log = write("scf.out",
                 "Program PWSCF v.7.2 starts...\n"
                 + "     intermediate text\n"
@@ -4421,7 +4421,7 @@ class ResultAnalysisServiceTest {
 
 
     @Test
-    void sftpTransferPlanPinsTheIntegrityTargetAndStaysHonest() throws IOException {
+    void sftpTransferPlanPinsTheIntegrityTargetAndStaysHonest() throws Exception {
         Files.writeString(this.tempDir.resolve("deck.cube"), "cube payload bytes 123");
         AnalysisReport report = ResultAnalysisService.analyze(
                 AnalysisKind.SFTP_TRANSFER_PLAN, stubProject(this.tempDir),
@@ -4452,7 +4452,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void sftpTransferPlanFailClosedPaths() throws IOException {
+    void sftpTransferPlanFailClosedPaths() throws Exception {
         Files.writeString(this.tempDir.resolve("deck.cube"), "cube payload bytes 123");
         AnalysisReport escape = ResultAnalysisService.analyze(
                 AnalysisKind.SFTP_TRANSFER_PLAN, stubProject(this.tempDir),
@@ -4494,7 +4494,7 @@ class ResultAnalysisServiceTest {
 
 
     @Test
-    void optimadeResponseParseRendersFileClaimsAndHonesty() throws IOException {
+    void optimadeResponseParseRendersFileClaimsAndHonesty() throws Exception {
         File artifact = write("optimade_structures.json",
                 "{\"meta\": {\"data_returned\": 2, \"provider\": {\"name\": \"Materials Cloud\"}},"
                 + "\"data\": ["
@@ -4528,7 +4528,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void optimadeResponseParseFailsClosedOnBadArtifacts() throws IOException {
+    void optimadeResponseParseFailsClosedOnBadArtifacts() throws Exception {
         File truncated = write("optimade_structures.json",
                 "{\"data\": [ {\"id\": \"x\"}, ");
         AnalysisReport tReport = ResultAnalysisService.analyze(
@@ -4558,7 +4558,7 @@ class ResultAnalysisServiceTest {
 
 
     @Test
-    void mpSummaryParseRendersUnitsAndSentinels() throws IOException {
+    void mpSummaryParseRendersUnitsAndSentinels() throws Exception {
         File artifact = write("mp_summary.json",
                 "{\"data\": ["
                 + " {\"material_id\": \"mp-149\", \"formula_pretty\": \"Si\","
@@ -4593,7 +4593,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void mpSummaryParseFailsClosedOnBadArtifacts() throws IOException {
+    void mpSummaryParseFailsClosedOnBadArtifacts() throws Exception {
         File truncated = write("mp_summary.json",
                 "{\"data\": [ {\"material_id\": \"mp-1\"}, ");
         AnalysisReport tReport = ResultAnalysisService.analyze(
@@ -4709,7 +4709,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void kmeshConvergencePlanFailClosedPaths() throws IOException {
+    void kmeshConvergencePlanFailClosedPaths() throws Exception {
         Cell cubic = new Cell(quantumforge.com.math.Matrix3D.unit(5.43));
         AnalysisReport coarsening = ResultAnalysisService.analyze(
                 AnalysisKind.KMESH_CONVERGENCE_PLAN,
@@ -5306,7 +5306,7 @@ class ResultAnalysisServiceTest {
 
 
     @Test
-    void phononGridPlanVerdictsAgainstTheLiveDeck() throws IOException {
+    void phononGridPlanVerdictsAgainstTheLiveDeck() throws Exception {
         Cell cubic = new Cell(quantumforge.com.math.Matrix3D.unit(5.43));
         QESCFInput automatic = new QESCFInput();
         QEKPoints points = automatic.getCard(QEKPoints.class);
@@ -5335,7 +5335,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void phononGridPlanUnverifiableBannerAndRefusals() throws IOException {
+    void phononGridPlanUnverifiableBannerAndRefusals() throws Exception {
         Cell cubic = new Cell(quantumforge.com.math.Matrix3D.unit(5.43));
         QESCFInput gamma = new QESCFInput();  // no automatic k-grid set
         AnalysisReport report = ResultAnalysisService.analyze(
@@ -5366,7 +5366,7 @@ class ResultAnalysisServiceTest {
 
 
     @Test
-    void checkpointResubmitAdviceIsTypedAndNeverWrites() throws IOException {
+    void checkpointResubmitAdviceIsTypedAndNeverWrites() throws Exception {
         Path dir = this.tempDir.resolve("qe-job");
         Files.createDirectories(dir);
         Files.writeString(dir.resolve("espresso.log"),
@@ -5398,7 +5398,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void checkpointResubmitAdviceGatesUnknownAndScf() throws IOException {
+    void checkpointResubmitAdviceGatesUnknownAndScf() throws Exception {
         Path dir = this.tempDir.resolve("qe-blind");
         Files.createDirectories(dir);
         // No .save and no logs at all: nothing is established.
@@ -5441,7 +5441,7 @@ class ResultAnalysisServiceTest {
 
 
     @Test
-    void jobQueueAuditNamesWhatTheLoaderTolerates() {
+    void jobQueueAuditNamesWhatTheLoaderTolerates() throws Exception {
         File queue = write("job-queue.jsonl",
                 "# QuantumForge job queue\n\n"
                         + "not json at all\n"
@@ -5473,7 +5473,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void jobQueueAuditDuplicatesAndMissingFile() {
+    void jobQueueAuditDuplicatesAndMissingFile() throws Exception {
         File queue = write("job-queue.jsonl",
                 "{\"jobId\":\"dup\",\"scheduler\":\"pbs\",\"state\":\"PENDING\","
                         + "\"history\":[{\"state\":\"STAGED\",\"at\":\"2026-07-20T01:00:00Z\",\"note\":\"\"},"
@@ -5499,7 +5499,7 @@ class ResultAnalysisServiceTest {
 
 
     @Test
-    void workflowExportAuditMatchesAndJudgesTheArtifact() {
+    void workflowExportAuditMatchesAndJudgesTheArtifact() throws Exception {
         // Artifact written by the SCF DAG while the stub project IS scf-mode.
         Path dir = this.tempDir.resolve("wf-sync");
         try {
@@ -5527,7 +5527,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void workflowExportAuditNamesDivergenceAndRefusesCleanly() throws IOException {
+    void workflowExportAuditNamesDivergenceAndRefusesCleanly() throws Exception {
         // Artifact is a PHONON export; the stub stays in its default SCF mode.
         Path dir = this.tempDir.resolve("wf-stale");
         Files.createDirectories(dir);
@@ -5563,7 +5563,7 @@ class ResultAnalysisServiceTest {
 
 
     @Test
-    void nebPathAuditMeasuresDuplicatesAndSpacingRules() {
+    void nebPathAuditMeasuresDuplicatesAndSpacingRules() throws Exception {
         File path = write("neb_ladder.path",
                 "1\ninterp image 1\nH 0.0 0.0 0.0\n"
                         + "1\ninterp image 2 - DUPLICATE of 1\nH 0.0 0.0 0.0\n"
@@ -5587,7 +5587,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void nebPathAuditRefusesClosedOnGrammar() {
+    void nebPathAuditRefusesClosedOnGrammar() throws Exception {
         File single = write("neb_single.path", "1\nsole image\nH 0 0 0\n");
         AnalysisReport refused = ResultAnalysisService.analyze(AnalysisKind.NEB_PATH_AUDIT,
                 new ProjectProperty(), this.tempDir.toFile(), "espresso", "espresso.log",
@@ -5614,7 +5614,7 @@ class ResultAnalysisServiceTest {
 
 
     @Test
-    void finalGeometryApplyRefusesWithoutConvergedTrail() {
+    void finalGeometryApplyRefusesWithoutConvergedTrail() throws Exception {
         AnalysisReport report = ResultAnalysisService.analyze(
                 AnalysisKind.FINAL_GEOMETRY_APPLY, stubProject(this.tempDir),
                 new AnalysisParameters());
@@ -5625,7 +5625,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void finalGeometryApplyCommitsThroughTheKind() throws IOException {
+    void finalGeometryApplyCommitsThroughTheKind() throws Exception {
         quantumforge.input.QESCFInput deck = new quantumforge.input.QESCFInput();
         quantumforge.input.card.QEAtomicPositions positions =
                 deck.getCard(quantumforge.input.card.QEAtomicPositions.class);
@@ -6080,7 +6080,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void sftpPlanSurfacesTheRuntimeBridgeTrail() throws IOException {
+    void sftpPlanSurfacesTheRuntimeBridgeTrail() throws Exception {
         Files.writeString(this.tempDir.resolve("espresso.log"), "log\n");
         AnalysisReport compiled = ResultAnalysisService.analyze(
                 AnalysisKind.SFTP_TRANSFER_PLAN, stubProject(this.tempDir),
@@ -6170,7 +6170,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void arraySweepPlanTemplatesTheProjectDeckWhenPresent() throws IOException {
+    void arraySweepPlanTemplatesTheProjectDeckWhenPresent() throws Exception {
         String deck = "&SYSTEM\n    ibrav = 2\n    ecutwfc = 30.0,  ! cutoff\n/\n"
                 + "ATOMIC_SPECIES\nSi 28.0855 Si.UPF\n";
         java.nio.file.Files.writeString(this.tempDir.resolve("espresso.in"), deck);
@@ -6194,7 +6194,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void arraySweepPlanDeckRefusalIsAFindingNotAPlanFailure() throws IOException {
+    void arraySweepPlanDeckRefusalIsAFindingNotAPlanFailure() throws Exception {
         String deck = "&SYSTEM\n    celldm(1) = 10.2\n/\n";  // no ecutwfc anywhere
         java.nio.file.Files.writeString(this.tempDir.resolve("espresso.in"), deck);
         AnalysisReport report = ResultAnalysisService.analyze(AnalysisKind.ARRAY_SWEEP_PLAN,
@@ -6211,7 +6211,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void arraySweepPlanRendersPerTaskRunIntents() throws IOException {
+    void arraySweepPlanRendersPerTaskRunIntents() throws Exception {
         String deck = "&SYSTEM\n    ecutwfc = 30.0,  ! cutoff\n/\n"
                 + "ATOMIC_SPECIES\nSi 28.0855 Si.UPF\n";
         java.nio.file.Files.writeString(this.tempDir.resolve("espresso.in"), deck);
@@ -6338,7 +6338,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void containerProfileDraftRendersTheLaunchBridgeViaTheSiteOwner() throws IOException {
+    void containerProfileDraftRendersTheLaunchBridgeViaTheSiteOwner() throws Exception {
         java.nio.file.Path siteFile = this.tempDir.resolve("bridge-site.yaml");
         Files.writeString(siteFile, "id: bridge-lab\nscheduler: pjm\n"
                 + "mpi_launcher: mpiexec\nntasks: 4\ncpus_per_task: 48\nnodes: 2\n"
@@ -6378,7 +6378,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void containerProfileDraftBridgeRefusalsAreFindingsNotVerdicts() throws IOException {
+    void containerProfileDraftBridgeRefusalsAreFindingsNotVerdicts() throws Exception {
         AnalysisReport missing = ResultAnalysisService.analyze(
                 AnalysisKind.CONTAINER_PROFILE_DRAFT, stubProject(this.tempDir),
                 new AnalysisParameters()
@@ -6412,7 +6412,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void testThermoPwRunSummaryRendersCensusAndVerbatimEos() throws IOException {
+    void testThermoPwRunSummaryRendersCensusAndVerbatimEos() throws Exception {
         // [upstream] thermo_pw example09 thermo_control excerpt + example05
         // si.mur_lc.out EOS block values (verbatim, commit b73edd6d).
         Files.createDirectories(this.tempDir.resolve("run/energy_files"));
@@ -6449,7 +6449,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void testThermoPwRunSummaryEmptyDirectoryFailsHonestly() throws IOException {
+    void testThermoPwRunSummaryEmptyDirectoryFailsHonestly() throws Exception {
         Files.createDirectories(this.tempDir.resolve("lonely"));
         File lonely = write("lonely/note.out", "not a thermo run at all\n");
         AnalysisReport report = ResultAnalysisService.analyze(
