@@ -114,7 +114,7 @@ public final class CslSigmaMath {
                             + ", got (" + rawM + ", " + rawN + ").",
                     null);
         }
-        int axisG = Math.toIntExact(gcd(gcd(Math.abs(rawU), Math.abs(rawV)), Math.abs(rawW)));
+        int axisG = Math.toIntExact(gcdAxis(rawU, rawV, rawW));
         int u = rawU / axisG;
         int v = rawV / axisG;
         int w = rawW / axisG;
@@ -153,6 +153,29 @@ public final class CslSigmaMath {
         return OperationResult.success("CSL_OK", "CSL rotation computed.",
                 new CslRotation(u, v, w, axisG, m, n, pairG, nn, sigmaRaw, sigma,
                         halvings, cosNum, cosDen, angleDeg));
+    }
+
+    private static long gcdAxis(int u, int v, int w) {
+        long g = gcdAllowZero(Math.abs((long) u), Math.abs((long) v));
+        g = gcdAllowZero(g, Math.abs((long) w));
+        return Math.max(1L, g);
+    }
+
+    private static long gcdAllowZero(long a, long b) {
+        long x = Math.abs(a);
+        long y = Math.abs(b);
+        if (x == 0L) {
+            return y;
+        }
+        if (y == 0L) {
+            return x;
+        }
+        while (y != 0L) {
+            long t = x % y;
+            x = y;
+            y = t;
+        }
+        return x;
     }
 
     private static long gcd(long a, long b) {

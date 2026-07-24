@@ -303,6 +303,10 @@ public final class CifStructureReader {
                 coordLoop = false;
                 symopLoop = false;
                 if (tokens.size() < 2) {
+                    if (raw + 1 < lines.length && lines[raw + 1].startsWith(";")) {
+                        scalars.putIfAbsent(lowered, "");
+                        continue;
+                    }
                     return OperationResult.failed("CIF_SYNTAX",
                             "Tag " + first + " at line " + lineNo + " has no value.",
                             null);

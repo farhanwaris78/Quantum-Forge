@@ -96,7 +96,7 @@ public final class MethodsTextBuilder {
                                           List<String> missing) {
         QEValue calculation = namelistValue(input, QEInput.NAMELIST_CONTROL, "calculation");
         if (calculation != null && !calculation.getCharacterValue().isBlank()) {
-            text.append("- Calculation type: `").append(calculation.getCharacterValue())
+            text.append("- Calculation type: `").append(stripQuotes(calculation.getCharacterValue()))
                     .append("` (pw.x `calculation` keyword).\n");
         } else {
             missing.add("calculation type (&CONTROL: calculation)");
@@ -187,10 +187,10 @@ public final class MethodsTextBuilder {
         QEValue smearing = namelistValue(input, QEInput.NAMELIST_SYSTEM, "smearing");
         if (occupations != null) {
             StringBuilder line = new StringBuilder();
-            line.append("- Occupations: `").append(occupations.getCharacterValue())
+            line.append("- Occupations: `").append(stripQuotes(occupations.getCharacterValue()))
                     .append("`");
             if (smearing != null) {
-                line.append(" (smearing `").append(smearing.getCharacterValue()).append("`");
+                line.append(" (smearing `").append(stripQuotes(smearing.getCharacterValue())).append("`");
                 if (degauss != null) {
                     line.append(String.format(Locale.ROOT, ", degauss %.5f Ry",
                             degauss.getRealValue()));
@@ -234,6 +234,19 @@ public final class MethodsTextBuilder {
         }
         text.append("- Cell composition: ").append(formula.toString().trim())
                 .append(" (").append(atoms.length).append(" atoms in the simulation cell).\n");
+    }
+
+    private static String stripQuotes(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        if (trimmed.length() >= 2
+                && ((trimmed.startsWith("'") && trimmed.endsWith("'"))
+                        || (trimmed.startsWith("\"") && trimmed.endsWith("\"")))) {
+            return trimmed.substring(1, trimmed.length() - 1);
+        }
+        return trimmed;
     }
 
     /** Reads and unwraps a namelist value; null when absent. */

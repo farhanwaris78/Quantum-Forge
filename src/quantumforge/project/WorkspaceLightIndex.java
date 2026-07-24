@@ -183,10 +183,14 @@ public final class WorkspaceLightIndex {
             return null;
         }
         java.util.regex.Matcher matcher = java.util.regex.Pattern
-                .compile("(?im)^\s*calculation\s*=\s*([^,\s!]+)")
+                .compile("(?im)^\s*calculation\s*=\s*(?:\'([^\']*)\'|\"([^\"]*)\"|([^,\s!]+))")
                 .matcher(text);
         if (matcher.find()) {
-            return stripQuotes(matcher.group(1).trim());
+            for (int i = 1; i <= 3; i++) {
+                if (matcher.group(i) != null) {
+                    return stripQuotes(matcher.group(i).trim());
+                }
+            }
         }
         return null;
     }
