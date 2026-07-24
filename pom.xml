@@ -110,7 +110,7 @@
                         <id>make-sbom</id>
                         <phase>verify</phase>
                         <goals>
-                            <goal>makeAggregateBom</goal>
+                            <goal>makeBom</goal>
                         </goals>
                         <configuration>
                             <outputFormat>json</outputFormat>
