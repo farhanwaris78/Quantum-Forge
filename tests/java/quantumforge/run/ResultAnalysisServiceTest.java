@@ -581,7 +581,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void testBerryPolarizationFromProjectLog() throws IOException {
+    void testBerryPolarizationFromProjectLog() throws Exception {
         File log = new File(this.tempDir.toFile(), "espresso.log");
         try (FileWriter writer = new FileWriter(log)) {
             writer.write("     Ionic Polarization    =    1.54212 electrons * bohr\n");
@@ -1399,7 +1399,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void testMlModelCheckKindAndDomainGate() throws IOException {
+    void testMlModelCheckKindAndDomainGate() throws Exception {
         File manifest = write("model-manifest.txt",
                 "name: MACE-test\nversion: 1.0\nlicense: MIT\ncitation: ref\n"
                         + "cutoff_angstrom: 6.0\nspecies: Si, O\n"
@@ -1597,7 +1597,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void testMethodsTextKindTranscribesAndNeverFabricates() throws IOException {
+    void testMethodsTextKindTranscribesAndNeverFabricates() throws Exception {
         QESCFInput input = new QESCFInput();
         input.updateInputData("&CONTROL\n  calculation = 'relax'\n/\n"
                 + "&SYSTEM\n  ibrav = 0, nat = 1, ntyp = 1, ecutwfc = 30.0\n/\n"
@@ -1845,7 +1845,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void testPhonopyDataReviewKindRoundTripAndCaveats() throws IOException {
+    void testPhonopyDataReviewKindRoundTripAndCaveats() throws Exception {
         QEPhonopyForceSetsWriter writer = new QEPhonopyForceSetsWriter();
         writer.addRecord(1, new double[] {0.01, 0.0, 0.0},
                 new double[][] {{0.1, 0.0, 0.0}, {-0.1, 0.0, 0.0}});
@@ -2075,7 +2075,7 @@ class ResultAnalysisServiceTest {
     }
 
     @Test
-    void testPhononModeFramesKindSynthesisAndFailClosed() throws IOException {
+    void testPhononModeFramesKindSynthesisAndFailClosed() throws Exception {
         String dynmat =
                 "     Diagonalizing the dynamical matrix\n"
                 + "     q = (    0.000000000   0.000000000   0.000000000 )\n"
@@ -4688,7 +4688,7 @@ class ResultAnalysisServiceTest {
 
 
     @Test
-    void kmeshConvergencePlanPricesEveryRungAgainstTheLiveCell() throws IOException {
+    void kmeshConvergencePlanPricesEveryRungAgainstTheLiveCell() throws Exception {
         Cell cubic = new Cell(quantumforge.com.math.Matrix3D.unit(5.43));
         AnalysisReport report = ResultAnalysisService.analyze(
                 AnalysisKind.KMESH_CONVERGENCE_PLAN,
