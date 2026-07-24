@@ -1011,10 +1011,10 @@ class ResultAnalysisServiceTest {
                 new AnalysisParameters());
         assertTrue(report.isSuccess(), report.getText());
         assertTrue(report.getCsvLines().stream()
-                .anyMatch(line -> line.contains("ecutwfc,MODIFIED") && line.contains("3.00000e+01") && line.contains("4.50000e+01")),
+                .anyMatch(line -> line.contains("ecutwfc,MODIFIED") && line.contains("30.0") && line.contains("45.0")),
                 "ecutwfc change must appear in the CSV: " + report.getCsvLines());
         assertTrue(report.getCsvLines().stream()
-                .anyMatch(line -> line.contains("ibrav,ADDED") && line.contains("ibrav = 0")),
+                .anyMatch(line -> line.contains("ibrav,ADDED") && line.endsWith(",0")),
                 "ibrav add must appear in the CSV: " + report.getCsvLines());
         assertTrue(report.getText().contains("Nothing in the project input is modified"),
                 report.getText());
