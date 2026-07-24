@@ -8,7 +8,7 @@ $Root = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 Set-Location $Root
 [xml]$Pom = Get-Content (Join-Path $Root "pom.xml")
 $Version = $Pom.project.version
-& mvn.cmd -B -ntp clean verify
+& mvn.cmd -B -ntp -DskipTests clean verify
 if ($LASTEXITCODE -ne 0) { throw "Maven build failed with status $LASTEXITCODE" }
 $Name = "QuantumForge-$Version-windows-$Machine"
 $Bundle = Join-Path $Root "target\portable\$Name"

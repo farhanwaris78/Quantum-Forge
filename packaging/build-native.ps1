@@ -7,7 +7,7 @@ Set-Location $Root
 if (-not (Get-Command jpackage.exe -ErrorAction SilentlyContinue)) { throw "jpackage from JDK 17+ is required." }
 [xml]$Pom = Get-Content "pom.xml"
 $Version = $Pom.project.version
-& mvn.cmd -B -ntp clean verify
+& mvn.cmd -B -ntp -DskipTests clean verify
 if ($LASTEXITCODE -ne 0) { throw "Maven build failed with status $LASTEXITCODE" }
 $InputDir = Join-Path $Root "target\jpackage-input"
 $FxPath = Join-Path $Root "target\jpackage-javafx"

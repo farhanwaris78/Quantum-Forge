@@ -1,11 +1,12 @@
-# QuantumForge v2.0.3 release notes
+# QuantumForge v2.0.4 release notes
 
 ## Highlights
 
 - Consolidates all roadmap planning into one maintained file: `docs/ROADMAP.md`.
 - Removes the older scattered roadmap files from the repository after merging their contents into the consolidated roadmap.
-- Keeps the runtime version declarations aligned at `2.0.3` through the auto-release version bump.
+- Keeps the runtime version declarations aligned at `2.0.4` through the auto-release version bump.
 - Publishes portable and native installer assets from the auto-release workflow.
+- Keeps release packaging deterministic by running the full test suite in CI, then building release packages with tests skipped on each packaging OS.
 
 ## Release assets
 
@@ -41,3 +42,7 @@ The following roadmap files were merged into `docs/ROADMAP.md` and removed:
 ## Compatibility notes
 
 No scientific engine behavior changes are intended in this release. The release is documentation and release-packaging focused, with the consolidated roadmap becoming the single planning reference.
+
+## Maintainer note
+
+The earlier `v2.0.3` tag was produced by a failed auto-release attempt before Windows/macOS assets were published. `v2.0.4` is the asset-complete release target.
