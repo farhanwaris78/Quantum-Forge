@@ -17,6 +17,7 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.net.URI;
 import java.net.URL;
 import java.net.URLConnection;
 
@@ -273,7 +274,12 @@ public class QEFXDownloadDialog extends Dialog<File> {
             throw new IOException("downloadDir is empty.");
         }
 
-        URL url = new URL(this.downloadURL);
+        URL url;
+        try {
+            url = URI.create(this.downloadURL).toURL();
+        } catch (Exception e) {
+            throw new IOException("invalid download URL: " + this.downloadURL, e);
+        }
         URLConnection urlConnection = url.openConnection();
         if (urlConnection == null) {
             throw new IOException("urlConnection is null.");

@@ -15,6 +15,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.Reader;
+import java.net.URI;
 import java.net.URL;
 import java.net.URLConnection;
 
@@ -46,7 +47,7 @@ public class MaterialCIF extends MaterialData {
         MaterialCIF matCif = null;
 
         try {
-            URL url = new URL(MaterialsAPI.MATERIALS_API_URL + matID + MATERIALS_API_CIF);
+            URL url = URI.create(MaterialsAPI.MATERIALS_API_URL + matID + MATERIALS_API_CIF).toURL();
             URLConnection urlConnection = url.openConnection();
             if (urlConnection == null) {
                 throw new IOException("urlConnection is null.");

@@ -13,6 +13,7 @@ package quantumforge.matapi;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
+import java.net.URI;
 import java.net.URL;
 import java.net.URLEncoder;
 import java.util.ArrayList;
@@ -47,7 +48,7 @@ public class PubChemAPI {
             String encodedQuery = URLEncoder.encode(query, "UTF-8");
             String urlStr = PUBCHEM_BASE_URL + "/compound/name/" + encodedQuery + "/cids/JSON";
 
-            HttpURLConnection conn = (HttpURLConnection) new URL(urlStr).openConnection();
+            HttpURLConnection conn = (HttpURLConnection) URI.create(urlStr).toURL().openConnection();
             conn.setRequestMethod("GET");
             conn.setConnectTimeout(CONNECTION_TIMEOUT);
             conn.setReadTimeout(CONNECTION_TIMEOUT);
@@ -93,7 +94,7 @@ public class PubChemAPI {
             String urlStr = PUBCHEM_BASE_URL + "/compound/cid/" + cid + "/property/" +
                 "MolecularFormula,MolecularWeight,CanonicalSMILES,IUPACName,Charge/JSON";
 
-            HttpURLConnection conn = (HttpURLConnection) new URL(urlStr).openConnection();
+            HttpURLConnection conn = (HttpURLConnection) URI.create(urlStr).toURL().openConnection();
             conn.setRequestMethod("GET");
             conn.setConnectTimeout(CONNECTION_TIMEOUT);
             conn.setReadTimeout(CONNECTION_TIMEOUT);
@@ -156,7 +157,7 @@ public class PubChemAPI {
         try {
             String urlStr = PUBCHEM_SDF_URL + "/cid/" + cid + "/SDF";
 
-            HttpURLConnection conn = (HttpURLConnection) new URL(urlStr).openConnection();
+            HttpURLConnection conn = (HttpURLConnection) URI.create(urlStr).toURL().openConnection();
             conn.setRequestMethod("GET");
             conn.setConnectTimeout(CONNECTION_TIMEOUT);
             conn.setReadTimeout(CONNECTION_TIMEOUT);

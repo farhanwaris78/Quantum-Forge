@@ -15,6 +15,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.Reader;
+import java.net.URI;
 import java.net.URL;
 import java.net.URLConnection;
 import java.util.List;
@@ -47,7 +48,7 @@ public class MaterialIDs {
         MaterialIDs matIDs = null;
 
         try {
-            URL url = new URL(MaterialsAPI.MATERIALS_API_URL + formula + MATERIALS_API_MIDS);
+            URL url = URI.create(MaterialsAPI.MATERIALS_API_URL + formula + MATERIALS_API_MIDS).toURL();
             URLConnection urlConnection = url.openConnection();
             if (urlConnection == null) {
                 throw new IOException("urlConnection is null.");
