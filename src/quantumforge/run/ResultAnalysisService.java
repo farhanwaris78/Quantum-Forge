@@ -5225,8 +5225,17 @@ public final class ResultAnalysisService {
         } catch (IOException ex) {
             return failure(label, "Reading the reference input failed: " + ex.getMessage());
         }
-        if (!Pattern.compile("(?im)^\s*&(?:CONTROL|SYSTEM|ELECTRONS|IONS|CELL|FCP|RISM|WANNIER|WANNIER_AC|PRESS_AI)\b")
-                .matcher(referenceText).find()) {
+        String normalizedReference = referenceText.toUpperCase(Locale.ROOT);
+        if (!(normalizedReference.contains("&CONTROL")
+                || normalizedReference.contains("&SYSTEM")
+                || normalizedReference.contains("&ELECTRONS")
+                || normalizedReference.contains("&IONS")
+                || normalizedReference.contains("&CELL")
+                || normalizedReference.contains("&FCP")
+                || normalizedReference.contains("&RISM")
+                || normalizedReference.contains("&WANNIER")
+                || normalizedReference.contains("&WANNIER_AC")
+                || normalizedReference.contains("&PRESS_AI"))) {
             return failure(label, "The reference file parsed to an empty input: no pw.x-family "
                     + "namelist values were recognized in " + file.getName() + ".");
         }
