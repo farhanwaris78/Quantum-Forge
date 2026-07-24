@@ -71,7 +71,7 @@ class QEResourceEstimatorTest {
 
         MockQEInput input = new MockQEInput();
         QENamelist system = input.getNamelist(QEInput.NAMELIST_SYSTEM);
-        system.setValue(QEValueBase.getInstance("ecutwfc", "40.0"));
+        system.setValue(QEValueBase.getInstance("ecutwfc", "10000.0"));
 
         Estimation est1 = QEResourceEstimator.estimate(cell1, input);
         Estimation est2 = QEResourceEstimator.estimate(cell2, input);
@@ -79,6 +79,7 @@ class QEResourceEstimatorTest {
         assertNotNull(est1);
         assertNotNull(est2);
 
+        // Use a deliberately large cutoff to keep both estimates above the reporting floor;
         // cubic scaling: (4^3) = 64x core-hours difference expected!
         double ratio = est2.getEstimatedCoreHours() / est1.getEstimatedCoreHours();
         assertEquals(64.0, ratio, 1.0);

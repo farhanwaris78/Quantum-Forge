@@ -14,6 +14,7 @@ import java.util.Set;
 import quantumforge.input.QEInput;
 import quantumforge.input.QESCFInput;
 import quantumforge.input.card.QEAtomicSpecies;
+import quantumforge.input.card.QEAtomicPositions;
 import quantumforge.input.namelist.QENamelist;
 import quantumforge.input.namelist.QEValue;
 import quantumforge.operation.OperationResult;
@@ -154,6 +155,12 @@ public final class WorkspaceLightIndex {
             }
         }
         int atoms = input.getAtoms() == null ? 0 : input.getAtoms().size();
+        if (atoms == 0) {
+            QEAtomicPositions positions = (QEAtomicPositions) input.getCard(QEAtomicPositions.CARD_NAME);
+            if (positions != null) {
+                atoms = positions.numPositions();
+            }
+        }
         String calculation = "-";
         QENamelist control = input.getNamelist(QEInput.NAMELIST_CONTROL);
         if (control != null) {
