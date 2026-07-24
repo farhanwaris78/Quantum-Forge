@@ -19,7 +19,7 @@ class SolventFillerTest {
 
         SolventFiller filler = new SolventFiller(solute);
         filler.setSolventType(SolventFiller.SOLVENT_WATER);
-        filler.setDensity(0.003); // one-molecule smoke density for a 10 A box
+        filler.setDensity(0.000003); // one-molecule smoke density for a 10 A box
         filler.setMargin(2.0);  // 2.0 A solute margin
 
         Cell solvated = filler.fill();
