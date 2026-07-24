@@ -150,6 +150,10 @@ public final class MethodsTextBuilder {
                             : "off-\u0393"));
             return;
         }
+        if (kpoints.numKPoints() <= 0) {
+            missing.add("Brillouin-zone sampling (K_POINTS)");
+            return;
+        }
         text.append("- Brillouin-zone sampling: explicit list of ")
                 .append(kpoints.numKPoints()).append(" k points (see input file).\n");
     }

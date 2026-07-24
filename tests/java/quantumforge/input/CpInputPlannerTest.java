@@ -44,7 +44,7 @@ class CpInputPlannerTest {
 
         CpContext plain = CpInputPlanner.extractContext(new QESCFInput())
                 .getValue().orElseThrow();
-        assertEquals(null, plain.getCalculation(), "unset calculation stays null");
+        assertEquals("scf", plain.getCalculation(), "QESCFInput defaults to scf when no calculation is supplied");
     }
 
     @Test

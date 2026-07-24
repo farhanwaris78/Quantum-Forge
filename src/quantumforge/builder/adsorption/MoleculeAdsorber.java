@@ -122,7 +122,7 @@ public class MoleculeAdsorber {
         Cell outputCell = copyCell(this.slabCell);
 
         // Place molecule atoms on surface
-        Atom[] molAtoms = this.molecule.listAtoms(false);
+        Atom[] molAtoms = this.molecule.listAtoms(true);
         Atom[] slabAtoms = this.slabCell.listAtoms(true);
 
         // Calculate molecular center offset

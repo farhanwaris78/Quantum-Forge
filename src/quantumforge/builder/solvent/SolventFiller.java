@@ -89,7 +89,7 @@ public class SolventFiller {
         Cell outputCell = copyCell(this.soluteCell);
 
         Atom[] soluteAtoms = this.soluteCell.listAtoms(true);
-        Atom[] solventAtoms = solventMol.listAtoms(false);
+        Atom[] solventAtoms = solventMol.listAtoms(true);
         if (solventAtoms == null || solventAtoms.length == 0) {
             return outputCell;
         }

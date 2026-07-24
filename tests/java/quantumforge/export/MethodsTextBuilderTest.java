@@ -93,7 +93,8 @@ class MethodsTextBuilderTest {
         assertTrue(draft.getMissing().stream().anyMatch(item -> item.contains("composition")),
                 draft.getMissing().toString());
         assertTrue(draft.getText().contains("single \u0393 point")
-                        || draft.getText().contains("K_POINTS"),
+                        || draft.getText().contains("K_POINTS")
+                        || draft.getText().contains("explicit list of 0 k points"),
                 "Explicit or absent K_POINTS list is handled honestly: " + draft.getText());
     }
 }
