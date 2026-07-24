@@ -18,8 +18,8 @@ jobs:
       matrix:
         java: ['17', '21']
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: ${{ matrix.java }}
@@ -32,20 +32,42 @@ jobs:
           scripts/compile_check.py
           scripts/fixture_harness.py
       - name: Build, test, and generate SBOM
-        run: |
-          mvn -B -ntp clean verify 2>&1 | tee "$RUNNER_TEMP/maven-build.log"
-          exit ${PIPESTATUS[0]}
-      - name: Surface Maven errors as annotations
-        if: always()
-        run: |
-          grep -E '^\[ERROR\]' "$RUNNER_TEMP/maven-build.log" | head -n 50 \
-            | sed 's/\r$//; s/^/::error::/' || true
+        run: mvn -B -ntp clean verify
       - name: Upload test reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: test-reports-java-${{ matrix.java }}
           path: |
             target/surefire-reports/
             target/quantumforge-sbom.json
           if-no-files-found: warn
+
+  portable-smoke:
+    name: Portable install/update command smoke
+    runs-on: ubuntu-24.04
+    needs: test
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+      - name: Build Linux portable archive
+        run: packaging/build-portable.sh linux x64
+      - name: Test CLI and unprivileged install/uninstall
+        run: |
+          VERSION="$(sed -n 's:.*<version>\([^<]*\)</version>.*:\1:p' pom.xml | head -1)"
+          BUNDLE="$PWD/target/portable/QuantumForge-$VERSION-linux-x64"
+          "$BUNDLE/bin/quantumforge" --version
+          HOME="$RUNNER_TEMP/qf-home" "$BUNDLE/install.sh" --yes
+          HOME="$RUNNER_TEMP/qf-home" "$RUNNER_TEMP/qf-home/.local/bin/quantumforge" --doctor
+          HOME="$RUNNER_TEMP/qf-home" "$RUNNER_TEMP/qf-home/.local/bin/quantumforge" --uninstall --yes
+          test ! -e "$RUNNER_TEMP/qf-home/.local/share/quantumforge"
+      - name: Upload portable smoke archive
+        uses: actions/upload-artifact@v5
+        with:
+          name: quantumforge-linux-x64-portable
+          path: target/release/*.tar.gz
+          if-no-files-found: error
