@@ -159,7 +159,17 @@ public final class QEInputDiffPreview {
     }
 
     private static String valueString(QEValue value) {
-        return value == null ? "" : value.getCharacterValue();
+        if (value == null) {
+            return "";
+        }
+        String className = value.getClass().getSimpleName();
+        if ("QEReal".equals(className)) {
+            return Double.toString(value.getRealValue());
+        }
+        if ("QEInteger".equals(className)) {
+            return Integer.toString(value.getIntegerValue());
+        }
+        return value.getCharacterValue() == null ? "" : value.getCharacterValue().trim();
     }
 
     /**
