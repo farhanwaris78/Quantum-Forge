@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Test;
 
 import quantumforge.app.QEFXMain;
 import quantumforge.com.env.Environments;
+import quantumforge.ver.Version;
 
 class LauncherSmokeTest {
 
@@ -24,7 +25,8 @@ class LauncherSmokeTest {
         } finally {
             System.setOut(previous);
         }
-        assertTrue(bytes.toString(StandardCharsets.UTF_8).startsWith("QuantumForge 2.0.0"));
+        assertTrue(bytes.toString(StandardCharsets.UTF_8)
+                .startsWith(Version.VERSION_NAME + " " + Version.VERSION));
     }
 
     @Test
