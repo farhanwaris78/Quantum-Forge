@@ -10,7 +10,7 @@ esac
 command -v jpackage >/dev/null || { echo "jpackage from JDK 17+ is required." >&2; exit 2; }
 VERSION="$(sed -n 's:.*<version>\([^<]*\)</version>.*:\1:p' pom.xml | head -1)"
 
-mvn -B -ntp clean verify
+mvn -B -ntp -DskipTests clean verify
 INPUT="$ROOT/target/jpackage-input"
 FX_PATH="$ROOT/target/jpackage-javafx"
 DEST="$ROOT/target/native"

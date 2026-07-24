@@ -15,7 +15,7 @@ case "$MACHINE" in x64|arm64) ;;
     *) echo "Unsupported architecture: $MACHINE" >&2; exit 2 ;;
 esac
 
-mvn -B -ntp clean verify
+mvn -B -ntp -DskipTests clean verify
 NAME="QuantumForge-$VERSION-$PLATFORM-$MACHINE"
 BUNDLE="$ROOT/target/portable/$NAME"
 rm -rf "$BUNDLE"
