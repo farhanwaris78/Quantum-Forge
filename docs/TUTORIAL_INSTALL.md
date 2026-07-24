@@ -525,4 +525,4 @@ atomic writes, schema version metadata, and last-known-good `.bak` copies.
 - [SCIENTIFIC_SOFTWARE_GUIDE.md](SCIENTIFIC_SOFTWARE_GUIDE.md) — QE / phonopy / etc. setup
 - [RELEASE_AND_SECURITY.md](RELEASE_AND_SECURITY.md) — signing, SBOM, integrity
 - [CODE_AUDIT.md](CODE_AUDIT.md) — scientific honesty audit
-- [FUTURE_ROADMAP.md](FUTURE_ROADMAP.md) — prioritized implementation plan
+- [ROADMAP.md](ROADMAP.md) — prioritized implementation plan

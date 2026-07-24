@@ -1,4 +1,20 @@
-# Future roadmap: what to add, how to implement it, and why it matters
+# QuantumForge consolidated roadmap
+This document is the single roadmap source for QuantumForge. It consolidates the previously separate roadmap files so project planning, completed batches, and long-range research ideas live in one maintained place.
+Previously separate files merged here and removed from the repository:
+- `docs/FUTURE_ROADMAP.md`
+- `docs/QE_INTEGRATION_ROADMAP.md`
+- `ROADMAP_EXTENDED.md`
+- `ROADMAP_MEGA.md`
+- `ROADMAP_V3.md`
+
+## Contents
+- Prioritized implementation roadmap and batch status
+- Quantum ESPRESSO integration roadmap
+- Advanced feature catalog: 2026-2030
+- Extended future roadmap mega list
+- Next-decade roadmap: 2026-2035
+
+## Prioritized implementation roadmap and batch status
 
 This roadmap is ordered by scientific value and dependency. “Effective” means reducing wrong calculations, researcher time, or irreproducibility—not increasing the number of menu entries. Every feature must ship with engine-version documentation, unit/reference tests, and at least one independently validated material.
 
@@ -1430,7 +1446,7 @@ The **one-hundred-and-fiftieth** batch is the QE-integration ground truth: the p
 
 | # | Status after batch 150 | What landed |
 |---:|---|---|
-| 22 | **Completeness landed (mined window 7.2-7.6)** | **`QENamelistSchema` + generated `QESchemaData` (572 mined entries: PW 459 / PH 80 / HP 33), `QESchemaAudit` pair core, `QESchemaValidator` QEInput adapter, `scripts/qe_schema_miner.py`, `docs/QE_INTEGRATION_ROADMAP.md`.** The miner walks each version's `.def` grammar recursively (namelist/group/vargroup/dimension; `opt -val` plus bare literals; the 7.6 `default -kind expr` modifiers), then mines the `NAMELIST` membership and - critically - the `SELECT CASE` blocks with a HARD/SOFT classification taken from what QE really does: an unknown value that reaches a DEFAULT arm calling `errore()` is a REJECTION (`SCHEMA_VALUE_REJECTED`); values QE silently remaps or tolerates are WARN-layer advisories (`SCHEMA_VALUE_UNDOCUMENTED`), never verdicts. Version drift is pinned per literal with 5-bit masks: `diagonalization='direct'` exists at 7.6 only, `'minimal'` joins at 7.3, the PPCG/ParO aliases arrive at 7.5+, `diago_ppcg_maxiter` leaves after 7.4 (the batch-149 hand-pin that previously claimed otherwise was corrected by the miner), `hubbard_alpha` stays an ARRAY across the whole window, `conv_thr`'s default notation drifts at exactly 7.6, `symmetry_with_labels`/`use_spinflip` are 7.4+, ph `skip_upperfan` ends at 7.4 while `skip_upper` is 7.5+. REQUIRED keys are mined too (`ibrav`, `nat`, `ntyp`, `ecutwfc`; conditional `gcscf_mu`/`fcp_mu`/`nsolv` only when their namelist exists; PH `ahc_nbnd`; HP none) and case-exactness is pinned: pw.x lowercases ONLY specific switches, so `calculation='SCF'` stays REJECTED exactly like the Fortran. The generated table carries a sha256 provenance header of every mined source blob (facts only - the GPL sources are never re-shipped). The QEInput adapter (`QESchemaValidator`) feeds the exact 8-key namelist surface (CONTROL..BANDS) and states its reach limits in the class docs; ph.x/hp.x decks audit through the same pair core with their own Kind; version blanks default to the newest 7.6 with the window named; bad versions refuse IAE/NPE loudly. GUI: `ViewerActions.actionValidateInput` layers the schema audit onto structural validation, `Analyze > QE version keyword audit` explains the mined window in its prompt, and `docs/QE_INTEGRATION_ROADMAP.md` is the mandated full-integration map (ground-truth links, hard/soft doctrine, R1-R6 backlog: CARD grammar layer, qexsd/XML variants, ph/hp typed planners, thermo_pw &INPUT_THERMO mining, GUI version picker). |
+| 22 | **Completeness landed (mined window 7.2-7.6)** | **`QENamelistSchema` + generated `QESchemaData` (572 mined entries: PW 459 / PH 80 / HP 33), `QESchemaAudit` pair core, `QESchemaValidator` QEInput adapter, `scripts/qe_schema_miner.py`, `docs/ROADMAP.md`.** The miner walks each version's `.def` grammar recursively (namelist/group/vargroup/dimension; `opt -val` plus bare literals; the 7.6 `default -kind expr` modifiers), then mines the `NAMELIST` membership and - critically - the `SELECT CASE` blocks with a HARD/SOFT classification taken from what QE really does: an unknown value that reaches a DEFAULT arm calling `errore()` is a REJECTION (`SCHEMA_VALUE_REJECTED`); values QE silently remaps or tolerates are WARN-layer advisories (`SCHEMA_VALUE_UNDOCUMENTED`), never verdicts. Version drift is pinned per literal with 5-bit masks: `diagonalization='direct'` exists at 7.6 only, `'minimal'` joins at 7.3, the PPCG/ParO aliases arrive at 7.5+, `diago_ppcg_maxiter` leaves after 7.4 (the batch-149 hand-pin that previously claimed otherwise was corrected by the miner), `hubbard_alpha` stays an ARRAY across the whole window, `conv_thr`'s default notation drifts at exactly 7.6, `symmetry_with_labels`/`use_spinflip` are 7.4+, ph `skip_upperfan` ends at 7.4 while `skip_upper` is 7.5+. REQUIRED keys are mined too (`ibrav`, `nat`, `ntyp`, `ecutwfc`; conditional `gcscf_mu`/`fcp_mu`/`nsolv` only when their namelist exists; PH `ahc_nbnd`; HP none) and case-exactness is pinned: pw.x lowercases ONLY specific switches, so `calculation='SCF'` stays REJECTED exactly like the Fortran. The generated table carries a sha256 provenance header of every mined source blob (facts only - the GPL sources are never re-shipped). The QEInput adapter (`QESchemaValidator`) feeds the exact 8-key namelist surface (CONTROL..BANDS) and states its reach limits in the class docs; ph.x/hp.x decks audit through the same pair core with their own Kind; version blanks default to the newest 7.6 with the window named; bad versions refuse IAE/NPE loudly. GUI: `ViewerActions.actionValidateInput` layers the schema audit onto structural validation, `Analyze > QE version keyword audit` explains the mined window in its prompt, and `docs/ROADMAP.md` is the mandated full-integration map (ground-truth links, hard/soft doctrine, R1-R6 backlog: CARD grammar layer, qexsd/XML variants, ph/hp typed planners, thermo_pw &INPUT_THERMO mining, GUI version picker). |
 | 1/36 | **Verified** | 13 schema pins (`QENamelistSchemaTest`: census counts per kind/version, mask decoding, versionRange/addedIn/lastPresentIn, case pins, empty-ground-truth honesty) + 16 audit pins (`QESchemaAuditTest`: HARD rejection vs SOFT advisory split, wrong-namelist, not-in-version drift codes, quoted literals, required-conditionality, unknown-keys reported-never-judged) + 7 adapter pins (`QESchemaValidatorTest`: adapter output equals the pair core verbatim across five decks, uppercase SCF case pin, blank/v_bad/null guards) - all EXECUTED under the real-javac harness against the REAL `QENamelist`/`QEValue` classes (the QEInput holder is a documented harness-only structural stub because the real one is JavaFX-coupled; the full linkage compiles in CI). Dead duplicate `QENamelistSchemaData.java` (an unreferenced table from an earlier pass) was removed by the whole-code review. Static/structural checks (897 sources, 234 tests), compile-check (1131) and 9 log fixtures pass; 150 test classes, 530 tests, 0 failures on the rebuilt harness. |
 
 
@@ -1577,3 +1593,273 @@ The **one-hundred-and-seventy-third** batch takes the input side of roadmap **#1
 | preset workbench backend | **NEW `VaspIncarPresets`** | Six review-copy bundles (SCF, RELAX, MD, DOS_BANDS, HSE06_BANDS, DFTPLUSU) assembled ONLY from tier-1 entries - every value a pinned option or documented unit, every recommendation a '#' comment quoting its wiki fact. ENCUT is NEVER generated (commented burden line quoting the 'strongly recommend(s) ... always manually' advice; the POTCAR-ENMAX default is honored, not read). Crash-class pins are mandatory content: MD carries POTIM + NSW with both verbatim crash texts; HSE06 carries GGA=PE + HFSCREEN=0.2 + AEXX=0.25 + ALGO=Damped with the Fast-trap quote and the hybrid 'regular mesh must always be provided' quote (NO line-mode companion - honest note instead of a fake explicit list); DFT+U carries LDAUTYPE=2, per-species LDAUL/LDAUU/LDAUJ rows marked 'EXAMPLE VALUE', LMAXMIX=4. Staged recipes emit stage-2+ statements as COMMENTED recipes (template = valid stage-1 INCAR; my own audit caught the duplicate-ISMEAR WARNING an unstaged bundle would bake in and the design was re-pinned honestly). Companion meshes ride the KPOINTS factories (Gamma SCF/DOS meshes, fcc G-X-W-G bandPath at 40 points/segment) with the KSPACING alternative noted. |
 | analysis wiring | **`ResultAnalysisService` kind VASP_INPUT_AUDIT + VASPExtension workbench rebuild** | matches(): INCAR/incar.*/incar_* and KPOINTS*/KPOINTS_OPT (POTCAR NEVER routed). analyzeVaspInputAudit: INCAR-family -> deck census + per-issue severity/code/docs-url text + 'vasp-incar-audit,severity,code,message' CSV + ERROR/WARNING verdict (success = 0 ERRORs), bounded read 1 MiB; KPOINTS-family -> mode census + verbatim notes + 'vasp-kpoints,field,value' CSV (512 KiB bound), honesty boundary text states energies/actual k-vectors belong to VASP + the POSCAR, nothing executed. VASPExtension.getEditorGUI() rebuilt as a pure review workbench: preset combo -> editable INCAR preview, Audit button running VaspIncarDeckAudit on the CURRENT text (preset or pasted), findings list with severity [code] message + docs URLs, deck census line, KPOINTS companion pane from the canonical writer, copy-to-clipboard buttons; honesty banner 'writes nothing, never executes VASP'; getResultGUI() points at the production vasprun.xml inspection lane and runs nothing; isAvailable() stays FALSE (validated grammar tooling, not an end-to-end VASP workflow - same bar as every extension in the manager). |
 | 45/45 | **Verified** | **45/45 EXECUTED under the real-javac harness** across 5 new classes: `VaspIncarSchemaTest` 7 (53-tag census, verbatim defaults/options incl. ISMEAR -15..0/>0 + ICHARG + LDAUTYPE 1|2|4, tier ladder AEXX vs ELPH_KSPACING vs FOOBAR vs null, normalization, wikiUrl/WIKI_WINDOW, seven-column honesty sweep), `VaspIncarDeckTest` 9 (semicolon line sharing + per-statement line stamps incl. the caught ';' pendingLine defect, #-and-! comments, backslash join + blank-after quote, curly groups + unclosed note, quoted multiline + unterminated note, duplicates census-first(), expandArray MAGMOM/D-exponent/malformed/zero-count/int-integral pins incl. the documented typing contract expandArray=doubles/intArrayValue=ints, bare-text counting + physical-line census incl. the trailing-phantom defect, bounds battery), `VaspIncarDeckAuditTest` 13 (tier-1 type/option/array batteries incl. ISMEAR '>0' formal correctness + ICHARG=10, unknown-tag WARNING 'silently ignored' + tier-2 INFO + docs URL, duplicate census 'lines 1, 3' + no-duplicate-semantics quote, backslash-blank code + bare-text note + unterminated ERROR + parse-refusal code, LHFCALC-Fast quote + Damped clean, NPAR/NCORE precedence quote, LDIPOL/IDIPOL ERROR, ICHARG=11 vs LMAXMIX 4, LDAU/LMAXMIX INFO, MD POTIM/NSW crash quotes + complete-MD clean, HFSCREEN family both ways, METAGGA/LASPH both ways, tetra-Gamma INFO, ENCUT/ISTART/NUPDOWN absence advisories + pinned clean, clean-scf no-ERROR/no-WARNING + LREAL alias), `VaspKpointsDeckTest` 9 (Gamma mesh + optional shift + subdivisions refusal, MP notes, generalized 7-line + commensurability quote + short-file refusal, unknown-selector reciprocal fallback + BOTH caution sentences, line-mode wiki template 40/segment 6 vertices blank-tolerant + both verbatim warnings + endpoints remark + odd-vertex/cartesian/per-segment refusals, explicit count-exact + weights note + tetra 'Tetrahedra'-word round-trip + 1-based corner bounds + weights-normalized quote + non-renormalize quote, bounds battery, all-factory round-trips + fmt pins), `VaspIncarPresetsTest` 7 (6 keys labels/texts + ENCUT never generated + unknown-key IAEs, EVERY preset audits with ZERO ERRORs AND ZERO WARNINGs under the batch's own audit, MD crash pins present, HSE06 recipe values + line-mode prohibition quote, DFT+U block + EXAMPLE markers, companion meshes grammar-citizen round-trips + hybrids get NO line-mode companion + the fcc path shape, SCF parse sanity). Test-debug honesty: 6 in-batch defects found and fixed by actually executing the tests - 2 parser bugs (';' pendingLine, trailing-phantom line census), 2 KPOINTS grammar bugs (tetra first-character marker, undocumented 'a' coercion), 1 visibility bug (fmt for the service census), 1 preset-design warning (duplicate ISMEAR across unstaged stages -> staged-comment design). Full harness: **188 classes / 816 tests / 0 failures** (was 183/771 = exactly +5 classes / +45 tests). Full-tree javac attribution: 944 -> 945 sources; the 6 new backend files + ResultAnalysisService = **0 errors**; VASPExtension 64 in-tree errors ALL pure JavaFX cascades (unique symbols enumerated: Button/ClipboardContent/ComboBox/Font/HBox/Insets/Label/ListView/Node/Separator/TextArea/TitledPane/VBox + Clipboard/Priority variables + Dialog cascade; an isolated compile with the backend on the classpath proves the in-tree 'package VaspIncarPresets does not exist' line is a whole-tree javac attribution artifact - ZERO genuine project symbols). Gates: compile_check **1215 files passed** (incl. the batch-173 pin block; the gate caught one real structural defect itself - javafx.layout Priority colliding with quantumforge.hpc.Priority, now explicitly imported), static_checks **945 source / 270 test passed**, fixture harness **9 passed**, all new files LF, brand scan clean on src/tests/scripts. Environment honesty: the sandbox wiped /tmp mid-batch (harness rebuilt via scripts/harness/setup_harness.sh; git branch tip fb400d5 restored by fetch + mixed-reset per the recovery doctrine - no work lost, verified against origin). Remaining scope honestly open: #111's POSCAR grammar beyond the existing read-only VASPReader, OUTCAR parsing, any VASP execution/bundling (licensed - never), tier-2 index pages 2..4 of the tag catalogue, a VASP studio dialog mirroring the BoltzTraP2 one (a next-batch chunk), and flipping the extension's availability after end-to-end workflow validation. |
+
+## Quantum ESPRESSO integration roadmap
+
+Status: updated after **batch 150** (2026-07-21). This document is the
+standing plan for making QuantumForge a faithful front end for Quantum
+ESPRESSO: every fact the product states about QE is either mined from QE's
+own ground-truth sources or named as the analyst's own judgment. Nothing in
+the product fabricates QE knowledge.
+
+---
+
+## 1. Ground-truth sources (studied in depth)
+
+The integration was built from QE's own materials, and only those:
+
+| # | Source | What it contributes to QuantumForge |
+|---|--------|-------------------------------------|
+| 1 | `github.com/QEF/q-e` (tags `qe-7.2` … `qe-7.6`, sha256-fingerprinted per mined byte) | `INPUT_{PW,PH,HP}.def` grammars, `NAMELIST` declarations, `SELECT CASE` accepted-value switches, REQUIRED flags, per-version drift facts |
+| 2 | `gitlab.com/QEF/q-e` (mirror) | release-mirror of the same tagged trees (used to cross-check tag identity) |
+| 3 | `pranabdas.github.io/espresso` | workflow study: scf → bands → dos → ph → hp chains mirrored by QEInputPlanner/PhononDraft/HubbardDraft dialogs |
+| 4 | `quantum-espresso.org/Doc/INPUT_PW.html` | pw.x keyword docs: generated by QE *from* `INPUT_PW.def`, hence the schema at `QENamelistSchema.INPUT_PW_URL` |
+| 5 | `quantum-espresso.org/Doc/INPUT_PH.html` | ph.x docs page (linked as `INPUT_PH_URL`) |
+| 6 | `quantum-espresso.org/Doc/INPUT_HP.html` | hp.x docs page (linked as `INPUT_HP_URL`) |
+| 7 | `quantum-espresso.org/documentation/input-data-description/` | per-version entry point analysts are pointed at for docs *outside* the mined window |
+
+Licensing hygiene: QE is GPL. **No QE file, grammar file, or documentation
+prose is vendored into this repository.** The mined schema stores metadata
+*facts* (names, namelist membership, types, defaults, REQUIRED flags, the
+literal value sets each program's own switch accepts, per-version presence);
+the text analysts read lives at QE's own URLs. The generation header of
+`QESchemaData.java` carries the sha256 of every ground-truth byte mined.
+
+## 2. Architecture (what is integrated where)
+
+```
+QE ground truth (tags 7.2..7.6, sha256-pinned, not vendored)
+        │  python3 scripts/qe_schema_miner.py --qe-src <dir>
+        ▼
+QESchemaData.java            (GENERATED, 572 entries: PW 459 / PH 80 / HP 33)
+        │  loaded once
+        ▼
+QENamelistSchema             (API: Kind, Type, Entry, hard/soft value sets,
+                             per-version masks, version ranges, docs URLs)
+        ├── QESchemaAudit      (pure core: raw pairs → typed ValidationIssue)
+        │   │   codes: SCHEMA_UNKNOWN_KEYWORD (WARN, reported-never-judged),
+        │   │   SCHEMA_WRONG_NAMELIST / SCHEMA_NOT_IN_VERSION /
+        │   │   SCHEMA_VALUE_REJECTED (ERROR, mirrors binary stops),
+        │   │   SCHEMA_VALUE_UNDOCUMENTED (WARN, silent-remap side),
+        │   │   SCHEMA_TYPE_MISMATCH (ERROR, Fortran literal grammar),
+        │   │   SCHEMA_REQUIRED_MISSING (WARN, only when its namelist is used)
+        │   └── QESchemaValidator (thin QEInput adapter; pw.x kind)
+        ├── QEKeywordHelp      (curated ~40-keyword readable baseline)
+        ├── QEVersionRuleCatalog (curated 7.2-7.5 snapshot, pre-#22 baseline)
+        └── GUI surfaces
+            analysis "QE version keyword audit": curated snapshot PLUS the
+              full mined schema audit, with the requested-minor-version filter
+            analysis "Offline keyword reference": curated table with mined
+              schema fallback before failing closed
+            menu "Validate QE input": structural QEInputValidator layered
+              with the mined-schema audit (newest grammar, window stated)
+```
+
+Hard vs soft value doctrine (verified per tag, per switch):
+
+* **HARD** — a `SELECT CASE` whose DEFAULT arm calls `errore()`: the binary
+  stops. These produce `SCHEMA_VALUE_REJECTED` (ERROR), judged **per
+  version** because the accepted sets drift:
+  `calculation`, `occupations`/`smearing` (from `set_occupations.f90`),
+  `diagonalization`, `ion_dynamics`, `cell_dynamics`, `restart_mode`,
+  `mixing_mode`, `ion/cell_temperature`, `constrained_magnetization`,
+  `assume_isolated`, `efield_phase`, `nspin`, ph.x `diagonalization`.
+  Real drift example: `diagonalization='direct'` is legal from 7.6 only;
+  the `PPCG`/`ParO` uppercase arms exist at 7.5 **and** 7.6 but not ≤ 7.4.
+* **SOFT** — a DEFAULT that silently remaps (or a DEFAULT-free pass-through):
+  `disk_io`, `verbosity` (pw and ph), `pot/wfc_extrapolation`, ph.x
+  `electron_phonon`. These never justify an ERROR; they produce the advisory
+  `SCHEMA_VALUE_UNDOCUMENTED`.
+* Switches whose arms are ranges or expressions are dropped from mining and
+  the gap is stated in the generated header (never filled by guesswork).
+
+## 3. Verification status (batch 150, all real `javac` + executed tests)
+
+* `QENamelistSchemaTest` — 13 pins: entry counts, per-version keyword counts,
+  hard-set drift per tag, soft-vs-hard separation, REQUIRED bits incl. the
+  conditional-FCP/RISM nuance, drifted defaults incl. the `-kind expr`
+  modifier QE 7.6 added to its grammar, index-suffix behaviour.
+* `QESchemaAuditTest` — 16 pins: every severity mirrors what the binary
+  actually does; REQUIRED binds only to namelists in use; the
+  `diagonalization='direct'`@7.2-vs-7.6 two-sided version pin.
+* `QESchemaValidatorTest` — 7 pins: adapter ↔ core parity (same codes), case-
+  exactness through the adapter, unsupported-version refusal, and the null/
+  empty-input no-fabrication contract. The adapter's `QEInput` linkage is
+  JavaFX-tangled, so in the lightweight harness it is exercised against a
+  faithful structural stub (real `QENamelist` underneath); in full CI it
+  compiles against the real classes.
+
+Verified ground-truth facts that surprised prior hand-curated notes (kept
+because the tests would have caught a regeneration): `hubbard_alpha` survives
+all five tags (scalar → array), `PPCG`/`ParO` exist at 7.5 **and** 7.6,
+`conv_thr`'s default notation drifts at 7.6, `mixing_drum` is absent from
+7.2–7.6 entirely.
+
+## 4. Regeneration recipe (bringing QE 7.7+, or re-auditing the window)
+
+1. Fetch the tag(s) into a scratch checkout of QEF/q-e
+   (network: github.com only during sandbox work).
+2. Per version directory assemble: `PW/Doc/INPUT_PW.def`,
+   `PHonon/Doc/INPUT_PH.def`, `HP/Doc/INPUT_HP.def`,
+   `Modules/input_parameters.f90`, `PW/src/input.f90` → `pw_input.f90`,
+   `PW/src/set_occupations.f90`, `PHonon/PH/phq_readin.f90`,
+   `HP/src/hp_readin.f90`.
+3. Add the version label to `VERSIONS` in `scripts/qe_schema_miner.py`.
+4. `python3 scripts/qe_schema_miner.py --qe-src /tmp/qe_versions`
+   → rewrites `src/quantumforge/input/schema/QESchemaData.java` in place,
+   with fresh sha256 provenance and a fresh drift report (`--dump` shows it).
+5. Re-run the tests: count pins and window-drift pins are *supposed* to move
+   when the window moves — update them from the `--dump` report, and let the
+   drift discoveries (like `diagonalization='direct'`@7.6) become new pins.
+6. Re-run the three repository gates (`static_checks`, `compile_check`,
+   log-fixture harness) then the offline javac/JUnit harness; commit only
+   when both are green.
+
+## 5. What remains (explicit backlog, ordered)
+
+| Slice | Content | Depends on |
+|---|---|---|
+| ~~R1~~ **DONE (batch 155)** | `QEInput.listExtraNamelistKeys()`/`listAllNamelistKeys()` landed (FCP/RISM/WANNIER/WANNIER_AC/PRESS_AI — 117 mined keywords now reachable); the adapter audits registered model namelists through the 13-key list AND unmatched decks from the RENDERED deck text via `QESchemaValidator.validateDeckText` (bounded 4M chars, grammar-consistent reuse of `QEInputReader`+`QENamelist`, never a parallel parser); the render/write path keeps its eight-slot shape (structure pinned by test) | QEInput API change |
+| ~~R2~~ **DONE (batch 155)** | "Validate QE input" now opens a user-pinned version `ChoiceDialog` (7.2–7.6, newest pre-selected, cancel = nothing runs) and feeds exactly that label into `QESchemaValidator.validate(input, version)` + the R1 deck-text audit; the report footer names the pinned window and the extension-deck issue count | R1 |
+| ~~R3~~ **DONE (batch 154)** | ph.x/hp.x deck planners typed against `Kind.PH`/`Kind.HP` landed: `PhInputPlanner` (new), `QEHubbardPlanner` version-typed overload, the shared `QEDeckKeywordCatalog` prompt surface (fail-closed `QES_VERSION`, per-version HARD accepted values verbatim), `PH_/HP_KEYWORD_WINDOW` refusals at the mined boundaries, typed `auditStaticEmissions()` self-audits, and the GUI slice: the phonon edit dialog (`QEFXPhonon`) gained the version picker + typed keyword-window browser — it now prompts only keywords present in the tagged window | schema API (done) |
+| ~~R4~~ **DONE (batch 157)** | pw.x CARD grammar mined from `Modules/read_cards.f90` at tags qe-7.2..qe-7.6 (sha256-fingerprinted): **18 dispatch arms** verbatim (prog gates, DIPOLE/ESR removed-fatal arms, ignored-warning split by prog — K_POINTS warns under CP, KSOUT under PW), **9 option grammars** with HUBBARD sanity traps in exact IF-arm order (substring matches() makes order decisive — `-ATOMIC` precedes `ATOMIC`, so `PSEUDO-ATOMIC` aborts), ELSE-arm dispositions read off the arms (ATOMIC_POSITIONS/HUBBARD/SOLVENTS FATAL with bare-name branches, K_POINTS silent-tpiba, CELL_PARAMETERS deprecated-'none', REF_CELL_PARAMETERS silent-'alat', content-only cards IGNORED), K_POINTS automatic-mesh constraints (`invalid offsets: must be 0 or 1`; `invalid values for nk1, nk2, nk3`) — every literal verified stable 0x1F across the window. `QECardSchema` + binary-mirrored `QECardAudit` (chain-order `firstChainMatch`; unknown cards = WARNING-with-'ignored'-consequence, never fabricated errors; content lines never misflagged) + the manual-select-only `QE_CARD_AUDIT` analysis kind | QEInputValidator (content rules stay there) |
+| ~~R5~~ **DONE (batch 158)** | `QEDeckDialect` sniffer now borders the two input surfaces: pw.x accepts classic namelist+card decks AND the qexsd/-xml XML surface, and every mined grammar (namelist schema, extension decks, thermo_control, read_cards) is a CLASSIC-grammar law holding for `*.in` decks only. Detection is conservative and bounded (first 4096 chars: `<?xml` declaration or a QE-family element root — classic decks never open with either, so zero false positives); `QESchemaValidator.validateDeckText`, `QECardAudit` and `QEThermoPwDeckAudit` each answer an XML document with exactly ONE `DECK_XML_DIALECT` WARNING that names the declining audit and states NO grammar checks ran — adjudicating XML against the classic grammar would fabricate findings | — |
+| ~~R6~~ **DONE (batches 156+158)** | **Slice 1 (156)**: thermo_pw `&INPUT_THERMO` mined from the project's own Fortran ground truth (`thermo_readin.f90` NAMELIST declaration + procedural defaults + verbatim consistency errore lines; `initialize_thermo_work.f90` part-1 dispatch → the HARD `what` set; keywords with code-group labels + commit/sha256 provenance), binary-mirrored audit severities, auto-GUI-listed `THERMO_PW_DECK_AUDIT` kind routing `thermo_control` files. **Slice 2 (158)**: the promised version window LANDED — tags 2.0.0..2.1.1 + the fingerprinted master form a 7-bit presence mask per keyword (234-union; 202 stable 0x7F, 3 gruneisen additions 0x70 at 2.1.0+, 27 master-only 0x40 incl. `ltau_from_file`, 2 tag-only 0x3F removed before master), per what value (22 stable + 8 magnetic master-only) and per consistency fact (31; the GPU-bound many_k rule 0x0F, the nproc=npool one 0x7F, the two gruneisen rules 0x70); defaults/types keep the NEWEST reading with per-tag drift verbatim (`old_ec`: `.TRUE.`/LOGICAL at 2.0.0, `0`/INTEGER since 2.0.1). The audit gained the version-pinned `auditDeckText(text, version)` (absent-at-release keywords/what = the same fatal READ/dispatch path, ERROR; the two gruneisen cross-rules + the silent poly_degree overwrite, mask-guarded 2.1.0+), and the analysis report + class docs now state the window (never QE-paired — no source statement pairs the two version lines) | — |
+| ~~R7~~ **DONE (batch 159)** | the follow-up mandate: every input keyword of the 24 auxiliary-program INPUT_* docs (INPUT_bgw2pw .. INPUT_ALL_CURRENTS, incl. INPUT_XSPECTRA / INPUT_SPECTRA_CORRECTION / INPUT_SPECTRA_MANIPULATION published without .html) with full backend + analysis-surface integration — mined per tag qe-7.2..qe-7.6 from the 21 INPUT_*.def machine grammars PLUS the XSpectra-family namelist declarations from compilable source (INPUT_XSPECTRA/PLOT/PSEUDOS/CUT_OCC from read_input_and_bcast.f90; INPUT_MANIP from spectra_correction.f90, shared by spectra_correction.x and spectra_manipulation.x per their own docs; def-less keyword types honestly UNKNOWN). 667 keyword rows with the same 5-bit presence masks; real drift pinned (oscdft print_debug 0x03 -> debug_print 0x1C at 7.4, oscdft_type 0x18 at 7.5, ld1 def sha moves at 7.6); REQUIRED flags from def status{}; the spectra_correction option guard mined verbatim as a HARD stop-set (cut_occ_states / add_L2_L3 / convolution; blank option fails all three guard compares and STOPS with 'Option not recognized' — a stop, not an errore). `QEAuxSchema` + `QEAuxDeckAudit` (severity mirrors: unknown/wrong-namelist/version-absent/STOP-set = ERROR; REQUIRED/type-shape/ undocumented-option = advisory WARNING, doc layer explicitly SOFT; decks read through the production QEInputReader grammar; conservative detectProgram + candidatePrograms; batch-158 XML dialect boundary wired) + the manual-select-only QE_AUX_DECK_AUDIT kind (ambiguous signatures name their alternatives, never guess). Frontend: rides the results-dialog manual-select routing like QE_CARD_AUDIT; per-program deck-builder GUI forms landed in **batch 160** (QEAuxDeckPlanner + the version-windowed QEFXAuxDeckDialog + viewer menu wiring) | — |
+
+All seven slices (R1–R7) are **closed** as of batch 159: R1–R2 (batch 155),
+R3 (batch 154), R4 (batch 157), R5 + R6 slice 2 (batch 158), R6 slice 1
+(batch 156), and the 24 auxiliary-program grammars R7 (batch 159). Every
+slice landed with executed tests under the tracked headless harness (latest
+full run: 161 classes / 620 tests / 0 failures) before the roadmaps were
+updated, per project rules. The R7 frontend follow-up (version-windowed deck-builder dialog, 24 programs)
+landed in batch 160 (latest full run: 162 classes / 629 tests / 0 failures).
+The three non-grammar standing items named here have since all closed:
+the tensor-surface data layer + viewer panel (batch 161), the BoltzTraP2
+transport chart slices (batch 162), and the packaging / `quantumforge`
+command / installers refresh - now execution-proven end to end by
+packaging/tests/smoke-portable.sh (batch 163, 72/72 PASS in full mode;
+latest full harness run remains 165 classes / 648 tests / 0 failures).
+
+## Advanced feature catalog: 2026-2030
+
+## 1. Quantum Information & Qubits (Advanced)
+1. **Defect Genome Browser**: Automated search for spin-active defects in wide-bandgap semiconductors (SiC, h-BN, Diamond).
+2. **Path to T1/T2 Calculation**: Full integration with the Lindblad master equation solver for spin qubits.
+3. **Spin-Strain Coupling**: Calculate how much a qubit's frequency shifts under local lattice deformation.
+4. **All-Optical Initialization Wizard**: Set up excited state calculations for optical spin-polarization pathways.
+
+## 2. Twistronics & Correlated Systems
+5. **Dynamic Moiré Potentials**: Map the effect of interlayer sliding on the local density of states (LDOS).
+6. **Hubbard U Auto-Solver**: Full implementation of the `hp.x` module with an interactive "convergence-to-U" plot.
+7. **Excitonic Insulator Finder**: Search for spontaneous electron-hole condensation in mismatched 2D bilayers.
+8. **Superconducting Gap Plotter**: 2D/3D visualizer for the anisotropic superconducting gap $\Delta(k)$.
+
+## 3. High-Throughput & Energy
+9. **Materials Project 3.0 Bridge**: Direct integration with the upcoming graph-neural-network-based Materials API.
+10. **Battery Lifetime Estimator**: Link MD results to continuum models for capacity fade and SEI layer growth.
+11. **CO2 Reduction Catalyst Hub**: Pre-populated with adsorption energies for the most common transition metal surfaces.
+12. **Thermal Conductivity Tensor**: Link to `ShengBTE` or `Phono3py` for lattice thermal transport.
+
+## 4. Advanced Visualization (The "Holoview")
+13. **Vibration Soundbox**: Play the sound of a phonon mode (frequency mapped to the audible range).
+14. **Bond-Order isosurfaces**: Visualize the "strength" of bonds instead of just electron density.
+15. **Spin Texture Mapping**: 3D arrows on the Fermi surface showing the spin-momentum locking (Rashba/Dresselhaus).
+16. **Dynamic ARPES Simulation**: Real-time visualization of how ARPES spectra change under strain.
+
+## 5. AI & Generative Design
+17. **DFT-LLM Agent**: A built-in chat window that can "explain" the causes of a failed calculation and suggest the exact QE keywords to fix it.
+18. **Chemical Substitution Explorer**: Use a GAN to suggest which atoms can be substituted into your crystal without breaking stability.
+19. **Active Learning Trajectory Generator**: MD that only runs DFT when it enters a new region of configuration space.
+20. **Zero-Shot Energy Prediction**: Integrate a local GNN model for instant energy estimation before running any DFT.
+
+## 6. Software & Infrastructure
+21. **Containerized Compute Nodes**: Launch QE jobs in temporary Docker/Singularity containers for perfect reproducibility.
+22. **Interactive Jupyter Lab**: Embedded Jupyter notebook that shares the same memory space as the GUI for instant Python analysis.
+23. **Calculation Providance (AiiDA)**: Automatic tracking of every calculation step in a directed acyclic graph (DAG).
+24. **Multi-Code Sync**: Prepare a system in QE and instantly see the equivalent VASP or CP2K input in a side-by-side window.
+
+... and 40+ more features covering Muon Spin Rotation, X-ray Absorption, and Non-equilibrium Green's Functions (NEGF).
+
+## Extended future roadmap mega list
+
+## 1. Advanced Structural Manipulations
+1.  **Disordered Alloy Generator**: Use Special Quasi-random Structures (SQS) to simulate high-entropy alloys or disordered 2D materials.
+2.  **Point Defect Database**: Direct integration with a local database of defect formation energies for any uploaded cell.
+3.  **Twist-Gradient Modeler**: Tools to create 2D sheets with varying twist angles across the same layer to study domain walls.
+4.  **Grain Boundary Wizard**: Automatically stitch two differently oriented crystals with minimal strain.
+5.  **Amorphous Builder**: Generate random disordered networks (e.g., a-Si, a-C) using liquid-quench MD protocols.
+
+## 2. Theoretical Physics & Topology (Nature Physics Focus)
+6.  **Weyl Semi-metal Finder**: Automated search for Weyl nodes and Fermi arcs in the reciprocal space.
+7.  **Z2 Topological Invariant 3D Map**: A 3D volumetric visualizer for parity-based topological indicators.
+8.  **Wannier-based Berry Curvature**: GUI to plot Berry curvature in real-time as you move through the Brillouin Zone.
+9.  **Orbital Magnetization**: Tools to calculate the orbital contribution to magnetism in SOC systems.
+10. **Many-Body Perturbation Theory (GW/BSE)**: Link to the `Yambo` or `BerkeleyGW` code for high-accuracy band gaps.
+
+## 3. High-Performance Catalysis (Cell Reports Focus)
+11. **Automatic Adsorption Site Search**: AI-powered tool that suggests the most favorable sites for molecule placement on a surface.
+12. **Transition State (TS) Guessing**: Use GNNs to guess the TS structure before starting a NEB calculation.
+13. **Electrified Double Layer (EDL) Modeler**: Add explicit solvent and bias-induced counter-ions at the surface.
+14. **Reaction Energy Network**: Generate a graph showing the energy pathway of a multi-step reaction (e.g., CO2 -> CH4).
+15. **Grand Canonical Potential Maps**: Show the stability of adsorbates as a function of the electrode potential.
+
+## 4. Optical & Excited States
+16. **Absorption Spectrum with Excitons**: Link band gaps to the Bethe-Salpeter Equation for realistic optical spectra.
+17. **Non-linear Optical (NLO) coefficients**: Automate calculations for Second Harmonic Generation (SHG) in 2D materials.
+18. **Time-Resolved ARPES (tr-ARPES)**: Simulate how the band structure looks 100fs after a laser pulse.
+19. **Electron-Phonon Scattering Matrix**: Visualize which phonon modes are responsible for carrier relaxation.
+
+## 5. Machine Learning & Data Hub
+20. **Self-Correcting DFT Loop**: The AI detects if an SCF is diverging and automatically switches to "Safe Mode" (lower mixing, different diago).
+21. **Zero-Shot Formation Energy**: Predict if a crystal can exist before ever opening Quantum ESPRESSO.
+22. **Materials Project 2026 Sync**: Bi-directional sync with your MP user profile to store and retrieve your own high-throughput results.
+23. **Trajectory Feature Importance**: ML tool that identifies which atoms moved the most during an MD "event" (e.g., reaction).
+
+## 6. Visualization & Human-Computer Interface
+24. **Holographic 3D Crystal Viewer**: Support for AR devices (Vision Pro/Quest) to walk through your material.
+25. **Atomic Force Arrows**: 3D arrows in the viewer showing the live force vector on each atom during optimization.
+26. **Bonding-Nature Slider**: Toggle between Electron Density, ELF, and Bond-Order visualization with a single slider.
+27. **Phonon-Mode "Heatmap"**: Map which atoms move the most in a specific vibrational frequency.
+
+## 7. Platform & Interoperability
+28. **One-Click Paper Export**: Export all plots, tables, and crystal parameters directly into a formatted LaTeX or Word document.
+29. **Python API (ForgePy)**: A library to script QuantumForge workflows from within a Jupyter Notebook.
+30. **Blockchain Verification**: Stamp your discovery on a ledger to prove IP date without a public publication.
+
+... and 30+ more features covering Superconductivity, Muon Spin Rotation, and Neutron Scattering cross-sections.
+
+## Next-decade roadmap: 2026-2035
+
+## I. Topological & Quantum Materials (High Impact)
+1.  **Axion Insulator Hub**: Interface for calculating topological magneto-electric effects and axion coupling.
+2.  **Majorana Zero-Mode Tracker**: Search for topological superconductivity in 1D/2D heterostructures.
+3.  **Flat-Band Engineering**: Automated design of "Magic-Angle" twisted van der Waals structures for any pair of 2D materials.
+4.  **Berry Curvature Dipole Mapper**: Predict non-linear Hall effects in non-centrosymmetric materials.
+5.  **Orbital Hall Effect Tool**: Calculate torque efficiency for spin-orbit-torque (SOT) applications.
+
+## II. Ultrafast & Non-Equilibrium Physics
+6.  **Floquet Engineering Wizard**: Simulate how the band structure changes under continuous-wave laser driving.
+7.  **Phonon-Polariton Simulator**: Predict the dispersion of coupled light-lattice modes in 2D slabs.
+8.  **Hot Carrier Cooling Tracker**: Link electron-phonon scattering to the time-resolved cooling rates of electrons.
+9.  **Two-Temperature Model (TTM)**: Couple DFT energy scales to macroscopic heat transfer in thin films.
+
+## III. Sustainable Energy & Green Chemistry
+10. **Single-Atom Catalyst (SAC) Hub**: Workflow for designing defects in Graphene/N-doped sheets for CO2 reduction.
+11. **Anion-Redox Battery Tracker**: Predict extra capacity in Li-rich cathodes from oxygen-state changes.
+12. **Hydrogen Evolution Reaction (HER) Volcano Plotter**: Aggregate data from multiple runs to find the "peak" catalyst.
+13. **Solid-State Electrolyte (SSE) Diffusivity**: Automated Nernst-Einstein conductivity calculation from MD trajectories.
+
+## IV. AI-Centric Materials Science
+14. **GNN-Initial Guess**: Use a Graph Neural Network to guess the initial electron density, potentially reducing SCF time by 70%.
+15. **On-the-Fly Error Diagnosis**: AI that reads QE error logs and explains "ibrav mismatch" or "pseudo potential missing" in plain language.
+16. **Bayesian Optimization Hub**: Auto-tune `mixing_beta` and `diago_david_ndim` for maximum compute speed.
+17. **Material Retrieval GPT**: In-app AI that can answer: "What is the best 2D semiconductor for a work function of 4.5 eV?"
+
+## V. Platform & Collaboration
+18. **Blockchain Provenance**: Tokenize research results to ensure absolute proof of discovery date for patents.
+19. **Holographic 3D Structure Viewer**: Native support for VR headsets to inspect crystal defects in 3D.
+20. **Multi-Fidelity Loop**: Automatically run cheap GNN simulations and only trigger expensive hybrid-DFT for promising candidates.
+
+... and 40+ more features focused on the synergy between Quantum ESPRESSO, AI, and High-Impact experimental discovery.
+

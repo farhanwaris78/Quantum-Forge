@@ -50,10 +50,10 @@ cp packaging/unix/update.sh "$BUNDLE/update.sh"
 cp packaging/unix/uninstall.sh "$BUNDLE/uninstall.sh"
 cp LICENSE README.md "$BUNDLE/"
 cp docs/INSTALLATION.md docs/RELEASE_AND_SECURITY.md docs/SCIENTIFIC_SOFTWARE_GUIDE.md \
-   docs/CODE_AUDIT.md docs/FUTURE_ROADMAP.md \
+   docs/CODE_AUDIT.md docs/ROADMAP.md \
    docs/TUTORIAL_INSTALL.md "$BUNDLE/docs/" 2>/dev/null || \
 cp docs/INSTALLATION.md docs/RELEASE_AND_SECURITY.md docs/SCIENTIFIC_SOFTWARE_GUIDE.md \
-   docs/CODE_AUDIT.md docs/FUTURE_ROADMAP.md "$BUNDLE/docs/"
+   docs/CODE_AUDIT.md docs/ROADMAP.md "$BUNDLE/docs/"
 cp src/quantumforge/app/resource/image/icon_256.png "$BUNDLE/resources/quantumforge.png"
 printf '%s\n' "$VERSION" > "$BUNDLE/VERSION"
 printf 'command=quantumforge\n' > "$BUNDLE/LAUNCH_COMMAND.txt"

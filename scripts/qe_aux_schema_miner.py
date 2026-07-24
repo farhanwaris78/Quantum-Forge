@@ -26,7 +26,7 @@ of a tag does not declare stay ABSENT for that tag (never invented).
 
 Inputs: a directory prepared as
   git show qe-<tag>:<relpath> > <dir>/<relpath with '/'->'_'>._<tag>
-(see the batch-159 extraction command in docs/FUTURE_ROADMAP.md).
+(see the batch-159 extraction command in docs/ROADMAP.md).
 
 Usage: python3 scripts/qe_aux_schema_miner.py /dir/with/aux/files
 """

@@ -95,7 +95,7 @@ for path in [ROOT / "README.md", *list((ROOT / "docs").glob("*.md"))]:
             error(f"broken local link in {path.relative_to(ROOT)}: {target}")
 required_docs = [
     "INSTALLATION.md", "RELEASE_AND_SECURITY.md", "SCIENTIFIC_SOFTWARE_GUIDE.md",
-    "CODE_AUDIT.md", "FUTURE_ROADMAP.md",
+    "CODE_AUDIT.md", "ROADMAP.md",
 ]
 for builder in [ROOT / "packaging" / "build-portable.sh", ROOT / "packaging" / "build-portable.ps1"]:
     content = text(builder)
