@@ -5219,6 +5219,17 @@ public final class ResultAnalysisService {
             return failure(label, "No reference input file was selected. Choose a pw.x-family "
                     + "input file to diff against the current input.");
         }
+        String referenceText;
+        try {
+            referenceText = Files.readString(file.toPath(), StandardCharsets.UTF_8);
+        } catch (IOException ex) {
+            return failure(label, "Reading the reference input failed: " + ex.getMessage());
+        }
+        if (!Pattern.compile("(?im)^\s*&(?:CONTROL|SYSTEM|ELECTRONS|IONS|CELL|FCP|RISM|WANNIER|WANNIER_AC|PRESS_AI)\b")
+                .matcher(referenceText).find()) {
+            return failure(label, "The reference file parsed to an empty input: no pw.x-family "
+                    + "namelist values were recognized in " + file.getName() + ".");
+        }
         QEInput modified;
         try {
             modified = new QESCFInput(file);
