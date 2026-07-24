@@ -33,7 +33,8 @@ class QEIonicConstraintManagerTest {
         // 1. In static "scf" calculation: flags are omitted to preserve standard inputs
         String lineScf = manager.formatAtomPositionLine(atom1, 1, "scf");
         assertNotNull(lineScf);
-        assertFalse(lineScf.contains("1")); // should not append constraint flags
+        assertEquals(4, lineScf.trim().split("\s+").length,
+                "static scf line contains species + 3 coordinates only, no if_pos flags");
 
         // 2. In "relax" calculation: flags must be appended correctly!
         String lineRelax0 = manager.formatAtomPositionLine(atom1, 0, "relax");

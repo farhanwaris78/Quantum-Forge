@@ -33,11 +33,11 @@ class SlabModelBuilderTest {
         assertNotNull(atoms);
         assertTrue(atoms.length > 0, "Slab must be populated with cloned and translated bulk atoms");
 
-        // Verify that atoms are centered and reside within the slab boundary along z:
-        // Left vacuum region is roughly 6.0 Angstroms, Right is 6.0, slab sits from 6.0 to 13.5
+        // Verify that atoms reside inside the generated periodic slab cell. For a general
+        // Miller cut such as (110), the surface normal is not necessarily the Cartesian z axis.
         for (Atom atom : atoms) {
-            assertTrue(atom.getZ() >= 4.0 && atom.getZ() <= 15.5, 
-                "All atoms must lie in the centered slab region, leaving vacuum on the cell edges");
+            assertTrue(slab.isInCell(atom.getX(), atom.getY(), atom.getZ()),
+                "All atoms must lie inside the generated slab cell");
         }
     }
 }
