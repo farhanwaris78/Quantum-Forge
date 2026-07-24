@@ -25,7 +25,7 @@ public final class ExtXyzCellExporter {
 
     /** Codes: XXYZ_EMPTY, XXYZ_LATTICE, XXYZ_VALUE. */
     public static OperationResult<String> export(Cell cell) {
-        if (cell == null || cell.numAtoms() <= 0) {
+        if (cell == null || cell.numAtoms(true) <= 0) {
             return OperationResult.failed("XXYZ_EMPTY",
                     "The project has no atoms to export.", null);
         }
@@ -59,7 +59,7 @@ public final class ExtXyzCellExporter {
                             + " Angstrom^3); a degenerate cell must not be exported "
                             + "as periodic data.", null);
         }
-        Atom[] atoms = cell.listAtoms();
+        Atom[] atoms = cell.listAtoms(true);
         StringBuilder document = new StringBuilder();
         document.append(atoms.length).append('\n');
         StringBuilder comment = new StringBuilder("Lattice=\"");

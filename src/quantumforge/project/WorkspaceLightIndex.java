@@ -169,9 +169,26 @@ public final class WorkspaceLightIndex {
                 calculation = stripQuotes(value.getCharacterValue().trim());
             }
         }
+        String parsedCalculation = parseCalculation(text);
+        if (parsedCalculation != null) {
+            calculation = parsedCalculation;
+        }
         scan.entries.add(new WorkspaceEntry(file.getName(), "INPUT",
                 labels.isEmpty() ? "-" : String.join(",", labels), atoms, calculation,
                 "input (not a run status)"));
+    }
+
+    private static String parseCalculation(String text) {
+        if (text == null) {
+            return null;
+        }
+        java.util.regex.Matcher matcher = java.util.regex.Pattern
+                .compile("(?im)^\s*calculation\s*=\s*([^,\s!]+)")
+                .matcher(text);
+        if (matcher.find()) {
+            return stripQuotes(matcher.group(1).trim());
+        }
+        return null;
     }
 
     private static void scanLog(java.io.File file, WorkspaceScan scan)

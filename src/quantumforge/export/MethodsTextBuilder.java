@@ -210,7 +210,7 @@ public final class MethodsTextBuilder {
             missing.add("cell composition (no structure in the project)");
             return;
         }
-        Atom[] atoms = cell.listAtoms(false);
+        Atom[] atoms = cell.listAtoms(true);
         if (atoms == null || atoms.length == 0) {
             missing.add("cell composition (empty cell)");
             return;
