@@ -14,6 +14,7 @@ import java.util.Set;
 import quantumforge.input.QEInput;
 import quantumforge.input.QESCFInput;
 import quantumforge.input.card.QEAtomicSpecies;
+import quantumforge.input.card.QEAtomicPositions;
 import quantumforge.input.namelist.QENamelist;
 import quantumforge.input.namelist.QEValue;
 import quantumforge.operation.OperationResult;
@@ -154,6 +155,12 @@ public final class WorkspaceLightIndex {
             }
         }
         int atoms = input.getAtoms() == null ? 0 : input.getAtoms().size();
+        if (atoms == 0) {
+            QEAtomicPositions positions = (QEAtomicPositions) input.getCard(QEAtomicPositions.CARD_NAME);
+            if (positions != null) {
+                atoms = positions.numPositions();
+            }
+        }
         String calculation = "-";
         QENamelist control = input.getNamelist(QEInput.NAMELIST_CONTROL);
         if (control != null) {
@@ -162,9 +169,30 @@ public final class WorkspaceLightIndex {
                 calculation = stripQuotes(value.getCharacterValue().trim());
             }
         }
+        String parsedCalculation = parseCalculation(text);
+        if (parsedCalculation != null) {
+            calculation = parsedCalculation;
+        }
         scan.entries.add(new WorkspaceEntry(file.getName(), "INPUT",
                 labels.isEmpty() ? "-" : String.join(",", labels), atoms, calculation,
                 "input (not a run status)"));
+    }
+
+    private static String parseCalculation(String text) {
+        if (text == null) {
+            return null;
+        }
+        java.util.regex.Matcher matcher = java.util.regex.Pattern
+                .compile("(?im)^\s*calculation\s*=\s*(?:\'([^\']*)\'|\"([^\"]*)\"|([^,\s!]+))")
+                .matcher(text);
+        if (matcher.find()) {
+            for (int i = 1; i <= 3; i++) {
+                if (matcher.group(i) != null) {
+                    return stripQuotes(matcher.group(i).trim());
+                }
+            }
+        }
+        return null;
     }
 
     private static void scanLog(java.io.File file, WorkspaceScan scan)

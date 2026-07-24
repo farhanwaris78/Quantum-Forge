@@ -76,7 +76,7 @@ class QEVersionRuleCatalogTest {
                 QEValueBase.getInstance("calculation", "'cp'"));
         assertEquals(AuditVerdict.VALUE_WARNING, cp.getVerdict(),
                 "cp is not a valid pw.x calculation - flagged, ties to CP_INPUT_DRAFT");
-        assertTrue(cp.getNote().contains("cp.x"), cp.getNote());
+        assertTrue(cp.getNote().contains("outside the curated CONTROL.calculation set"), cp.getNote());
 
         AuditEntry badSmear = QEVersionRuleCatalog.audit("SYSTEM",
                 QEValueBase.getInstance("smearing", "'not-a-smearing'"));

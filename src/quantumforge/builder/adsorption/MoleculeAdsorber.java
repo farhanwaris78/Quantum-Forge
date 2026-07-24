@@ -58,7 +58,7 @@ public class MoleculeAdsorber {
      * Build pre-defined molecules for adsorption
      */
     public static Cell createMolecule(String type) {
-        Cell mol = Cell.getEmptyCell();
+        Cell mol = createMolecularCell();
         if (mol == null) return null;
 
         switch (type.toUpperCase()) {
@@ -93,6 +93,14 @@ public class MoleculeAdsorber {
         return mol;
     }
 
+    private static Cell createMolecularCell() {
+        try {
+            return new Cell(Matrix3D.unit(20.0));
+        } catch (Exception ex) {
+            return Cell.getEmptyCell();
+        }
+    }
+
     /**
      * Adsorb the molecule on the slab surface non-destructively
      */
@@ -114,7 +122,7 @@ public class MoleculeAdsorber {
         Cell outputCell = copyCell(this.slabCell);
 
         // Place molecule atoms on surface
-        Atom[] molAtoms = this.molecule.listAtoms(false);
+        Atom[] molAtoms = this.molecule.listAtoms(true);
         Atom[] slabAtoms = this.slabCell.listAtoms(true);
 
         // Calculate molecular center offset

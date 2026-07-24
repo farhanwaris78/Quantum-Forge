@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.junit.jupiter.api.Test;
+import quantumforge.atoms.model.Atom;
 import quantumforge.atoms.model.Cell;
 import quantumforge.com.math.Matrix3D;
 
@@ -20,11 +21,11 @@ class MoirePatternBuilderTest {
         };
         Cell layer1 = new Cell(lattice);
         layer1.addAtom("C", 0.0, 0.0, 0.0);
-        layer1.addAtom("C", 0.0, 1.42, 0.0); // 2-atom primitive graphene basis
+        layer1.addAtom(new Atom("C", 0.0, 1.42, 0.0)); // 2-atom primitive graphene basis
 
         Cell layer2 = new Cell(lattice);
         layer2.addAtom("C", 0.0, 0.0, 0.0);
-        layer2.addAtom("C", 0.0, 1.42, 0.0);
+        layer2.addAtom(new Atom("C", 0.0, 1.42, 0.0));
 
         MoirePatternBuilder builder = new MoirePatternBuilder(layer1, layer2);
 

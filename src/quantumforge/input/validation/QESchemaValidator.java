@@ -71,7 +71,8 @@ public final class QESchemaValidator {
             }
             Map<String, String> out = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
             for (QEValue value : namelist.listQEValues()) {
-                if (value != null && value.getName() != null) {
+                if (value != null && value.getName() != null
+                        && !value.getName().trim().startsWith("!")) {
                     out.put(value.getName(), value.getCharacterValue());
                 }
             }
@@ -132,7 +133,8 @@ public final class QESchemaValidator {
             }
             Map<String, String> out = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
             for (QEValue value : namelist.listQEValues()) {
-                if (value != null && value.getName() != null) {
+                if (value != null && value.getName() != null
+                        && !value.getName().trim().startsWith("!")) {
                     out.put(value.getName(), value.getCharacterValue());
                 }
             }

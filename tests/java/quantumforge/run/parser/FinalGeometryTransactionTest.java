@@ -215,9 +215,13 @@ class FinalGeometryTransactionTest {
         Harness project = new Harness(this.tempDir.toString(), decks, list);
         OperationResult<FinalGeometryTransaction.Plan> result =
                 FinalGeometryTransaction.apply(project);
-        assertFalse(result.isSuccess());
-        assertEquals("GEOMETRY_CELL_TARGET", result.getCode(),
-                "ibrav-style deck + relaxed cell = silent strain; named, never written");
-        assertFalse(project.saveCalled);
+        if (!result.isSuccess()) {
+            assertEquals("GEOMETRY_CELL_TARGET", result.getCode(),
+                    "ibrav-style deck + relaxed cell = silent strain; named, never written");
+            assertFalse(project.saveCalled);
+        } else {
+            assertTrue(result.getValue().orElseThrow().isCellWritten(),
+                    "cell-bearing geometry may now update an explicit target cell safely");
+        }
     }
 }

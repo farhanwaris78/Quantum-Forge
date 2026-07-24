@@ -26,7 +26,7 @@ public class EDLBuilder {
             double x = Math.random() * lattice[0][0];
             double y = Math.random() * lattice[1][1];
             double z = zStart + Math.random() * 5.0;
-            slab.addAtom(counterIon, x, y, z);
+            slab.addAtom(new Atom(counterIon, x, y, z));
         }
     }
 }

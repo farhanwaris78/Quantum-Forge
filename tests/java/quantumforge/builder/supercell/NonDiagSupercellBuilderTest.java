@@ -15,7 +15,7 @@ class NonDiagSupercellBuilderTest {
     void testDiagonalExpansionGeneratesCorrectAtomCount() throws Exception {
         Cell cell = new Cell(Matrix3D.unit(5.0));
         cell.addAtom("Si", 0.0, 0.0, 0.0);
-        cell.addAtom("Si", 1.25, 1.25, 1.25);
+        cell.addAtom(new Atom("Si", 1.25, 1.25, 1.25));
 
         NonDiagSupercellBuilder builder = new NonDiagSupercellBuilder(cell);
         

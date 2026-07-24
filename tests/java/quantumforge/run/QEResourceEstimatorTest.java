@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.io.IOException;
 
 import org.junit.jupiter.api.Test;
+import quantumforge.atoms.model.Atom;
 import quantumforge.atoms.model.Cell;
 import quantumforge.com.math.Matrix3D;
 import quantumforge.input.QEInput;
@@ -58,19 +59,19 @@ class QEResourceEstimatorTest {
     }
 
     @Test
-    void testResourceEstimatorScalesCubicly() {
+    void testResourceEstimatorScalesCubicly() throws Exception {
         Cell cell1 = new Cell(Matrix3D.unit(5.0));
         cell1.addAtom("Si", 0.0, 0.0, 0.0); // 1 atom
 
         Cell cell2 = new Cell(Matrix3D.unit(10.0));
         cell2.addAtom("Si", 0.0, 0.0, 0.0);
-        cell2.addAtom("Si", 1.0, 0.0, 0.0);
-        cell2.addAtom("Si", 2.0, 0.0, 0.0);
-        cell2.addAtom("Si", 3.0, 0.0, 0.0); // 4 atoms (4x scaling!)
+        cell2.addAtom(new Atom("Si", 1.0, 0.0, 0.0));
+        cell2.addAtom(new Atom("Si", 2.0, 0.0, 0.0));
+        cell2.addAtom(new Atom("Si", 3.0, 0.0, 0.0)); // 4 atoms (4x scaling!)
 
         MockQEInput input = new MockQEInput();
         QENamelist system = input.getNamelist(QEInput.NAMELIST_SYSTEM);
-        system.setValue(QEValueBase.getInstance("ecutwfc", "40.0"));
+        system.setValue(QEValueBase.getInstance("ecutwfc", "10000.0"));
 
         Estimation est1 = QEResourceEstimator.estimate(cell1, input);
         Estimation est2 = QEResourceEstimator.estimate(cell2, input);
@@ -78,6 +79,7 @@ class QEResourceEstimatorTest {
         assertNotNull(est1);
         assertNotNull(est2);
 
+        // Use a deliberately large cutoff to keep both estimates above the reporting floor;
         // cubic scaling: (4^3) = 64x core-hours difference expected!
         double ratio = est2.getEstimatedCoreHours() / est1.getEstimatedCoreHours();
         assertEquals(64.0, ratio, 1.0);

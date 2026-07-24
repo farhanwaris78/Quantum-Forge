@@ -39,15 +39,24 @@ public class FXQEInputFactory {
 
         this.hasQEInput = false;
 
-        Platform.runLater(() -> {
+        try {
+            Platform.runLater(() -> {
+                project.resolveQEInputs();
+                this.qeInput = this.type.getQEInput(project);
+
+                synchronized (this) {
+                    this.hasQEInput = true;
+                    this.notifyAll();
+                }
+            });
+        } catch (IllegalStateException ex) {
+            // Headless tests and non-JavaFX CLI paths may use this factory before the
+            // JavaFX toolkit is started. Resolve synchronously rather than failing the
+            // dry-run/preflight read-only path.
             project.resolveQEInputs();
             this.qeInput = this.type.getQEInput(project);
-
-            synchronized (this) {
-                this.hasQEInput = true;
-                this.notifyAll();
-            }
-        });
+            this.hasQEInput = true;
+        }
 
         synchronized (this) {
             while (!this.hasQEInput) {

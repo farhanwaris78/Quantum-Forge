@@ -38,7 +38,7 @@ public class NanowireWrapper {
             double y = r * Math.sin(phi);
             double z = atom.getY(); // Sheet Y becomes Wire Z
             
-            wireCell.addAtom(atom.getName(), x, y, z);
+            wireCell.addAtom(new Atom(atom.getName(), x, y, z));
         }
 
         return wireCell;

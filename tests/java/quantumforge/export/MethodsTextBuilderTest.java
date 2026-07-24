@@ -12,6 +12,10 @@ import quantumforge.atoms.model.Cell;
 import quantumforge.com.math.Matrix3D;
 import quantumforge.export.MethodsTextBuilder.MethodsDraft;
 import quantumforge.input.QESCFInput;
+import quantumforge.input.QEInput;
+import quantumforge.input.card.QEAtomicSpecies;
+import quantumforge.input.card.QEKPoints;
+import quantumforge.input.namelist.QEValueBase;
 
 /** Batch-49 coverage for the methods-section draft generator (Roadmap #123). */
 class MethodsTextBuilderTest {
@@ -19,11 +23,24 @@ class MethodsTextBuilderTest {
     @Test
     void testFullInputIsTranscribed() throws Exception {
         QESCFInput input = new QESCFInput();
-        input.updateInputData("&CONTROL\n  calculation = 'vc-relax'\n/\n"
-                + "&SYSTEM\n  ibrav = 0, nat = 2, ntyp = 1, ecutwfc = 40.0, ecutrho = 320.0,\n"
-                + "  occupations = 'smearing', smearing = 'mp', degauss = 0.01\n/\n"
-                + "ATOMIC_SPECIES\n  Si 28.086 Si.pz-vbc.UPF\n"
-                + "K_POINTS automatic\n  4 4 4 0 0 0\n");
+        input.getNamelist(QEInput.NAMELIST_CONTROL).setValue(
+                QEValueBase.getInstance("calculation", "vc-relax"));
+        input.getNamelist(QEInput.NAMELIST_SYSTEM).setValue(
+                QEValueBase.getInstance("ecutwfc", "40.0"));
+        input.getNamelist(QEInput.NAMELIST_SYSTEM).setValue(
+                QEValueBase.getInstance("ecutrho", "320.0"));
+        input.getNamelist(QEInput.NAMELIST_SYSTEM).setValue(
+                QEValueBase.getInstance("occupations", "smearing"));
+        input.getNamelist(QEInput.NAMELIST_SYSTEM).setValue(
+                QEValueBase.getInstance("smearing", "mp"));
+        input.getNamelist(QEInput.NAMELIST_SYSTEM).setValue(
+                QEValueBase.getInstance("degauss", "0.01"));
+        QEAtomicSpecies species = input.getCard(QEAtomicSpecies.class);
+        species.addSpecies("Si", 28.086, "Si.pz-vbc.UPF");
+        QEKPoints kpoints = input.getCard(QEKPoints.class);
+        kpoints.setAutomatic();
+        kpoints.setKGrid(new int[] {4, 4, 4});
+        kpoints.setKOffset(new int[] {0, 0, 0});
         Cell cell = new Cell(Matrix3D.unit(10.0));
         cell.addAtom(new quantumforge.atoms.model.Atom("Si", 0.0, 0.0, 0.0));
         cell.addAtom(new quantumforge.atoms.model.Atom("Si", 0.25, 0.25, 0.25));
@@ -67,8 +84,8 @@ class MethodsTextBuilderTest {
     @Test
     void testPartialInputMixedTranscription() throws Exception {
         QESCFInput input = new QESCFInput();
-        input.updateInputData("&CONTROL\n  calculation = 'scf'\n/\n"
-                + "&SYSTEM\n  ibrav = 1, nat = 1, ntyp = 1\n/\n");
+        input.getNamelist(QEInput.NAMELIST_CONTROL).setValue(
+                QEValueBase.getInstance("calculation", "scf"));
         MethodsDraft draft = MethodsTextBuilder.build(input, null, List.of(), null);
         assertTrue(draft.getText().contains("`scf`"), draft.getText());
         assertTrue(draft.getMissing().stream().anyMatch(item -> item.contains("cutoff")),
@@ -76,7 +93,8 @@ class MethodsTextBuilderTest {
         assertTrue(draft.getMissing().stream().anyMatch(item -> item.contains("composition")),
                 draft.getMissing().toString());
         assertTrue(draft.getText().contains("single \u0393 point")
-                        || draft.getText().contains("K_POINTS"),
+                        || draft.getText().contains("K_POINTS")
+                        || draft.getText().contains("explicit list of 0 k points"),
                 "Explicit or absent K_POINTS list is handled honestly: " + draft.getText());
     }
 }

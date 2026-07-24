@@ -200,7 +200,7 @@ public final class NEBPathCreator {
             if (name == null || name.isBlank()) {
                 name = atomsFinal[j].getName();
             }
-            interpCell.addAtom(Objects.requireNonNullElse(name, "X"), x, y, z);
+            interpCell.addAtom(new Atom(Objects.requireNonNullElse(name, "X"), x, y, z));
         }
         return interpCell;
     }

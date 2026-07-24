@@ -150,7 +150,7 @@ public class NonDiagSupercellBuilder {
                             s2 >= -eps && s2 < 1.0 - eps) {
 
                             double[] cart = Matrix3D.mult(new double[]{s0, s1, s2}, newLattice);
-                            newCell.addAtom(oldAtom.getName(), cart[0], cart[1], cart[2]);
+                            newCell.addAtom(new Atom(oldAtom.getName(), cart[0], cart[1], cart[2]));
                         }
                     }
                 }

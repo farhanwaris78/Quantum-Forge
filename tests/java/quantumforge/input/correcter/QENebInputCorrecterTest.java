@@ -51,8 +51,8 @@ class QENebInputCorrecterTest {
 
         QENamelist path = input.getNamelist("PATH");
         assertNotNull(path);
-        assertEquals("'neb'", path.getValue("string_method").getCharacterValue());
-        assertEquals("'Auto'", path.getValue("CI_scheme").getCharacterValue());
+        assertEquals("neb", path.getValue("string_method").getCharacterValue());
+        assertEquals("Auto", path.getValue("CI_scheme").getCharacterValue());
         assertTrue(path.getValue("climbing_image") == null, "Auto scheme should not declare custom index");
 
         // 2. Test Manual climbing image index 3
@@ -60,7 +60,7 @@ class QENebInputCorrecterTest {
         correcter.setManualClimbingImageIndex(3);
         correcter.correctInput();
 
-        assertEquals("'Manual'", path.getValue("CI_scheme").getCharacterValue());
+        assertEquals("Manual", path.getValue("CI_scheme").getCharacterValue());
         assertEquals(3, path.getValue("climbing_image").getIntegerValue());
     }
 }

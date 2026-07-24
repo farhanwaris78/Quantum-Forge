@@ -333,7 +333,7 @@ public class Cell extends Model<CellEvent, CellEventListener> {
     }
 
     public int numAtoms() {
-        return this.numAtoms(false);
+        return this.numAtoms(true);
     }
 
     public Atom[] listAtoms(boolean masterOnly) {
@@ -356,7 +356,7 @@ public class Cell extends Model<CellEvent, CellEventListener> {
     }
 
     public Atom[] listAtoms() {
-        return this.listAtoms(false);
+        return this.listAtoms(true);
     }
 
     protected List<Bond> getBonds() {

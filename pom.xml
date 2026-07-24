@@ -56,6 +56,15 @@
                 <configuration>
                     <useModulePath>false</useModulePath>
                     <argLine>-Djava.awt.headless=true</argLine>
+                    <!-- Some JavaFX/AWT-facing tests can leave toolkit helper threads behind;
+                         keep verify fail-closed instead of letting CI/release jobs hang. -->
+                    <forkCount>1</forkCount>
+                    <reuseForks>true</reuseForks>
+                    <forkedProcessTimeoutInSeconds>300</forkedProcessTimeoutInSeconds>
+                    <forkedProcessExitTimeoutInSeconds>30</forkedProcessExitTimeoutInSeconds>
+                    <systemPropertyVariables>
+                        <junit.jupiter.execution.timeout.test.method.default>30 s</junit.jupiter.execution.timeout.test.method.default>
+                    </systemPropertyVariables>
                 </configuration>
             </plugin>
 
@@ -105,7 +114,7 @@
                         <id>make-sbom</id>
                         <phase>verify</phase>
                         <goals>
-                            <goal>makeAggregateBom</goal>
+                            <goal>makeBom</goal>
                         </goals>
                         <configuration>
                             <outputFormat>json</outputFormat>

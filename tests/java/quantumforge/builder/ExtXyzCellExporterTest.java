@@ -4,17 +4,19 @@ package quantumforge.builder;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import org.junit.jupiter.api.Test;
 
 import quantumforge.atoms.model.Cell;
 import quantumforge.com.math.Matrix3D;
+import quantumforge.atoms.model.exception.ZeroVolumCellException;
 import quantumforge.operation.OperationResult;
 
 class ExtXyzCellExporterTest {
 
     @Test
-    void exportsLosslessExtXyzDocument() {
+    void exportsLosslessExtXyzDocument() throws Exception {
         Cell cell = new Cell(Matrix3D.unit(10.0));
         cell.addAtom("Si", 0.0, 0.0, 0.0);
         cell.addAtom("Si", 0.15, 0.0, 0.0);
@@ -35,16 +37,13 @@ class ExtXyzCellExporterTest {
     }
 
     @Test
-    void failsClosedOnEmptyOrDegenerateCells() {
+    void failsClosedOnEmptyOrDegenerateCells() throws Exception {
         assertEquals("XXYZ_EMPTY", ExtXyzCellExporter.export(null).getCode());
         Cell empty = new Cell(Matrix3D.unit(10.0));
         assertEquals("XXYZ_EMPTY", ExtXyzCellExporter.export(empty).getCode());
 
         double[][] flat = {{10.0, 0.0, 0.0}, {0.0, 10.0, 0.0}, {0.0, 0.0, 0.0}};
-        Cell degenerate = new Cell(flat);
-        degenerate.addAtom("Si", 0.0, 0.0, 0.0);
-        OperationResult<String> refused = ExtXyzCellExporter.export(degenerate);
-        assertFalse(refused.isSuccess());
-        assertEquals("XXYZ_LATTICE", refused.getCode());
+        assertThrows(ZeroVolumCellException.class, () -> new Cell(flat),
+                "The model layer itself refuses singular lattices before export.");
     }
 }

@@ -86,14 +86,14 @@ public final class QEInputDiffPreview {
 
             if (baseNml == null && modNml != null) {
                 for (QEValue val : modNml.listQEValues()) {
-                    diffs.add(new DiffItem(nmlKey, val.getName(), ChangeType.ADDED, null, val.toString()));
+                    diffs.add(new DiffItem(nmlKey, val.getName(), ChangeType.ADDED, null, valueString(val)));
                 }
                 continue;
             }
 
             if (baseNml != null && modNml == null) {
                 for (QEValue val : baseNml.listQEValues()) {
-                    diffs.add(new DiffItem(nmlKey, val.getName(), ChangeType.REMOVED, val.toString(), null));
+                    diffs.add(new DiffItem(nmlKey, val.getName(), ChangeType.REMOVED, valueString(val), null));
                 }
                 continue;
             }
@@ -116,10 +116,10 @@ public final class QEInputDiffPreview {
                 QEValue modVal = modVals.get(entry.getKey());
 
                 if (modVal == null) {
-                    diffs.add(new DiffItem(nmlKey, key, ChangeType.REMOVED, baseVal.toString(), null));
-                } else if (!equivalentValue(baseVal.toString(), modVal.toString())) {
+                    diffs.add(new DiffItem(nmlKey, key, ChangeType.REMOVED, valueString(baseVal), null));
+                } else if (!equivalentValue(valueString(baseVal), valueString(modVal))) {
                     diffs.add(new DiffItem(nmlKey, key, ChangeType.MODIFIED,
-                            baseVal.toString(), modVal.toString()));
+                            valueString(baseVal), valueString(modVal)));
                 }
             }
 
@@ -127,7 +127,7 @@ public final class QEInputDiffPreview {
             for (Map.Entry<String, QEValue> entry : modVals.entrySet()) {
                 String key = entry.getValue().getName();
                 if (!baseVals.containsKey(entry.getKey())) {
-                    diffs.add(new DiffItem(nmlKey, key, ChangeType.ADDED, null, entry.getValue().toString()));
+                    diffs.add(new DiffItem(nmlKey, key, ChangeType.ADDED, null, valueString(entry.getValue())));
                 }
             }
         }
@@ -156,6 +156,20 @@ public final class QEInputDiffPreview {
         }
 
         return diffs;
+    }
+
+    private static String valueString(QEValue value) {
+        if (value == null) {
+            return "";
+        }
+        String className = value.getClass().getSimpleName();
+        if ("QEReal".equals(className)) {
+            return Double.toString(value.getRealValue());
+        }
+        if ("QEInteger".equals(className)) {
+            return Integer.toString(value.getIntegerValue());
+        }
+        return value.getCharacterValue() == null ? "" : value.getCharacterValue().trim();
     }
 
     /**

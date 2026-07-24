@@ -157,9 +157,12 @@ public class MoirePatternBuilder {
                     double s1 = rotated[0] * recSupercell[0][1] + rotated[1] * recSupercell[1][1] + rotated[2] * recSupercell[2][1];
                     double s2 = rotated[0] * recSupercell[0][2] + rotated[1] * recSupercell[1][2] + rotated[2] * recSupercell[2][2];
 
-                    // Check if inside supercell boundary: s0, s1 in [0, 1) and s2 in [0, 1)
-                    s0 = s0 - Math.floor(s0);
-                    s1 = s1 - Math.floor(s1);
+                    // Check if inside supercell boundary: s0, s1 in [0, 1).
+                    if (s0 < -eps || s0 >= 1.0 - eps || s1 < -eps || s1 >= 1.0 - eps) {
+                        continue;
+                    }
+                    s0 = Math.max(0.0, s0);
+                    s1 = Math.max(0.0, s1);
 
                     double cx = s0 * supercellLattice[0][0] + s1 * supercellLattice[1][0] + s2 * supercellLattice[2][0];
                     double cy = s0 * supercellLattice[0][1] + s1 * supercellLattice[1][1] + s2 * supercellLattice[2][1];
@@ -184,7 +187,7 @@ public class MoirePatternBuilder {
                     }
 
                     if (!duplicate) {
-                        output.addAtom(atom.getName(), cx, cy, cz);
+                        output.addAtom(new Atom(atom.getName(), cx, cy, cz));
                     }
                 }
             }

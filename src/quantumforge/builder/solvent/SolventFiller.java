@@ -51,7 +51,7 @@ public class SolventFiller {
     }
 
     public void setSolventType(int type) { this.solventType = type; }
-    public void setDensity(double density) { this.density = Math.max(0.1, density); }
+    public void setDensity(double density) { this.density = Math.max(0.0, density); }
     public void setMargin(double margin) { this.margin = Math.max(1.0, margin); }
 
     public int getMoleculesPlacedCount() { return this.moleculesPlacedCount; }
@@ -89,7 +89,7 @@ public class SolventFiller {
         Cell outputCell = copyCell(this.soluteCell);
 
         Atom[] soluteAtoms = this.soluteCell.listAtoms(true);
-        Atom[] solventAtoms = solventMol.listAtoms(false);
+        Atom[] solventAtoms = solventMol.listAtoms(true);
         if (solventAtoms == null || solventAtoms.length == 0) {
             return outputCell;
         }
