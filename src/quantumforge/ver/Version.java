@@ -12,7 +12,7 @@ package quantumforge.ver;
 
 public interface Version {
 
-    public static final String VERSION = "2.0.0";
+    public static final String VERSION = "2.0.1";
 
     /**
      * Legacy major/minor value retained for binary compatibility only.
