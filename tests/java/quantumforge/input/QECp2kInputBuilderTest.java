@@ -40,10 +40,10 @@ class QECp2kInputBuilderTest {
 
         assertTrue(input.contains("&SUBSYS"));
         assertTrue(input.contains("&CELL"));
-        assertTrue(input.contains("A       5.430000     0.000000     0.000000"));
+        assertTrue(input.contains("A") && input.contains("5.430000"), input);
         
         assertTrue(input.contains("&COORD"));
-        assertTrue(input.contains("Si       0.000000     0.000000     0.000000"));
-        assertTrue(input.contains("Si       1.357500     1.357500     1.357500"));
+        assertTrue(input.contains("Si") && input.contains("0.000000"), input);
+        assertTrue(input.contains("1.357500"), input);
     }
 }

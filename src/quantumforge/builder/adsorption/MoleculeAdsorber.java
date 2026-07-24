@@ -58,7 +58,7 @@ public class MoleculeAdsorber {
      * Build pre-defined molecules for adsorption
      */
     public static Cell createMolecule(String type) {
-        Cell mol = Cell.getEmptyCell();
+        Cell mol = createMolecularCell();
         if (mol == null) return null;
 
         switch (type.toUpperCase()) {
@@ -91,6 +91,14 @@ public class MoleculeAdsorber {
                 break;
         }
         return mol;
+    }
+
+    private static Cell createMolecularCell() {
+        try {
+            return new Cell(Matrix3D.unit(20.0));
+        } catch (Exception ex) {
+            return Cell.getEmptyCell();
+        }
     }
 
     /**

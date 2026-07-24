@@ -15,6 +15,7 @@ import java.util.List;
 
 import quantumforge.atoms.model.Atom;
 import quantumforge.atoms.model.Cell;
+import quantumforge.com.math.Matrix3D;
 
 /**
  * Organic molecule builder for QuantumForge.
@@ -48,7 +49,7 @@ public class MoleculeBuilder {
     private double bondLength;
 
     public MoleculeBuilder() {
-        this.cell = Cell.getEmptyCell();
+        this.cell = createMolecularCell();
         this.atoms = new ArrayList<Atom>();
         this.bondLength = 1.54; // Default C-C bond in Angstrom
     }
@@ -83,7 +84,7 @@ public class MoleculeBuilder {
      * Create a simple alkane chain
      */
     public Cell createAlkaneChain(int nCarbons) {
-        Cell cell = Cell.getEmptyCell();
+        Cell cell = createMolecularCell();
         if (cell == null || nCarbons < 1) {
             return null;
         }
@@ -113,7 +114,7 @@ public class MoleculeBuilder {
      * Create a benzene ring
      */
     public Cell createBenzeneRing() {
-        Cell cell = Cell.getEmptyCell();
+        Cell cell = createMolecularCell();
         if (cell == null) {
             return null;
         }
@@ -139,7 +140,7 @@ public class MoleculeBuilder {
      * Create water molecule
      */
     public Cell createWater() {
-        Cell cell = Cell.getEmptyCell();
+        Cell cell = createMolecularCell();
         if (cell == null) {
             return null;
         }
@@ -152,6 +153,14 @@ public class MoleculeBuilder {
         cell.addAtom(new Atom("H", ohBond * Math.cos(angle), ohBond * Math.sin(angle), 0.0));
 
         return cell;
+    }
+
+    private static Cell createMolecularCell() {
+        try {
+            return new Cell(Matrix3D.unit(20.0));
+        } catch (Exception ex) {
+            return Cell.getEmptyCell();
+        }
     }
 
     public Cell getCell() {

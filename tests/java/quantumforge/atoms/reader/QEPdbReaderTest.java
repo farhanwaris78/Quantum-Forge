@@ -50,6 +50,7 @@ class QEPdbReaderTest {
         assertEquals(0.960, atoms[1].getX(), 1e-6);
 
         assertEquals("H", atoms[2].getName());
-        assertEquals(-0.240, atoms[2].getX(), 1e-6);
+        assertEquals(9.760, atoms[2].getX(), 1e-6,
+                "negative periodic PDB coordinate is packed into the CRYST1 cell");
     }
 }
