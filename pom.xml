@@ -60,7 +60,11 @@
                          keep verify fail-closed instead of letting CI/release jobs hang. -->
                     <forkCount>1</forkCount>
                     <reuseForks>true</reuseForks>
+                    <forkedProcessTimeoutInSeconds>300</forkedProcessTimeoutInSeconds>
                     <forkedProcessExitTimeoutInSeconds>30</forkedProcessExitTimeoutInSeconds>
+                    <systemPropertyVariables>
+                        <junit.jupiter.execution.timeout.test.method.default>30 s</junit.jupiter.execution.timeout.test.method.default>
+                    </systemPropertyVariables>
                 </configuration>
             </plugin>
 
