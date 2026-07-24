@@ -1,4 +1,4 @@
-version             = 2.0.3
+version             = 2.0.4
 maximum_recents     = 64
 default_website     = https://www.google.com
 documents_website   = https://github.com/farhanwaris78/Quantum-Forge/tree/master/docs
